@@ -11,13 +11,13 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 2 of 8 (Inbound Management)
-Plan: 3/5 complete
-Current Plan: 3
+Plan: 4/5 complete
+Current Plan: 4
 Total Plans in Phase: 5
-Status: Ready to execute 02-04
-Last activity: 2026-02-11 — Completed 02-03 (Inbound REST API)
+Status: Ready to execute 02-05
+Last activity: 2026-02-11 — Completed 02-04 (Inbound list page)
 
-Progress: [█████░░░░░] 60% (Phase 2)
+Progress: [██████░░░░] 80% (Phase 2)
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Recent decisions affecting current work:
 - 02-01: ConfigJSON uses gorm.io/datatypes.JSON; Inbound CRUD follows Admin pattern
 - 02-02: ConfigGenerator reads from DB via ListInbounds; produces full sing-box JSON; VLESS/Hysteria2 inbound mapping
 - 02-03: Inbound REST API with rollback on ApplyConfig failure; check error returned to frontend Modal
+- 02-04: Edit inline, Delete in dropdown per CONTEXT; onEdit/onDelete no-op for Plan 05 to wire
 - [Phase 02]: ConfigGenerator reads from DB via ListInbounds; produces full sing-box JSON; VLESS/Hysteria2 inbound mapping
 
 ### Pending Todos
@@ -68,5 +69,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-11
-Stopped at: Completed 02-inbound-management/02-03-PLAN.md
+Stopped at: Completed 02-inbound-management/02-04-PLAN.md
 Resume file: None
