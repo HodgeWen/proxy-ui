@@ -10,12 +10,12 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 ## Current Position
 
-Phase: 1 of 8 (Foundation) — VERIFIED ✓
-Plan: 3/3 complete
-Status: Phase 1 verified and complete
-Last activity: 2026-02-11 — Phase 1 verified (5/5 must-haves passed)
+Phase: 2 of 8 (Inbound Management)
+Plan: 1/5 complete
+Status: Ready to execute 02-02
+Last activity: 2026-02-11 — Completed 02-01 (Inbound model + CRUD)
 
-Progress: [██████████] 100% (Phase 1)
+Progress: [██░░░░░░░░] 20% (Phase 2)
 
 ## Performance Metrics
 
@@ -36,6 +36,7 @@ Progress: [██████████] 100% (Phase 1)
 | Phase 01-foundation P01 | 70 | 3 tasks | 22 files |
 | Phase 01-foundation P02 | 15 | 3 tasks | 5 files |
 | Phase 01-foundation P03 | 5 | 3 tasks | 20+ files |
+| Phase 02-inbound-management P01 | 5 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -48,6 +49,7 @@ Recent decisions affecting current work:
 - 01-01: SCS sqlite3store as separate module; sessions table in session.Init; SPA fallback via ServeContent to avoid FileServer 301
 - 01-02: Config path from SINGBOX_CONFIG_PATH env; pgrep/pkill for process lifecycle; check output returned on ApplyConfig failure for frontend Modal
 - 01-03: Custom ThemeProvider (defaultTheme=dark); Vite proxy /api for dev; shadcn sidebar + Dashboard status/restart
+- 02-01: ConfigJSON uses gorm.io/datatypes.JSON; Inbound CRUD follows Admin pattern
 
 ### Pending Todos
 
@@ -60,5 +62,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-11
-Stopped at: Completed 01-foundation/01-03-PLAN.md
+Stopped at: Completed 02-inbound-management/02-01-PLAN.md
 Resume file: None
