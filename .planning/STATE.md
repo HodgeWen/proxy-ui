@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 1 of 8 (Foundation)
-Plan: 0 of —
-Status: Ready to plan
-Last activity: 2026-02-11 — Roadmap created
+Plan: 1 of 3 (01-foundation)
+Status: In progress
+Last activity: 2026-02-11 — 01-01 complete
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███░░░░░░░] 33%
 
 ## Performance Metrics
 
@@ -33,6 +33,7 @@ Progress: [░░░░░░░░░░] 0%
 **Recent Trend:**
 - Last 5 plans: —
 - Trend: —
+| Phase 01-foundation P01 | 70 | 3 tasks | 22 files |
 
 ## Accumulated Context
 
@@ -42,6 +43,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
 - Roadmap: 8 phases derived from 42 requirements; Foundation → Inbound → Cert → User → Subscription → Traffic → Core → Deployment
+- 01-01: SCS sqlite3store as separate module; sessions table in session.Init; SPA fallback via ServeContent to avoid FileServer 301
 
 ### Pending Todos
 
@@ -54,5 +56,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-11
-Stopped at: Roadmap created; ready for Phase 1 planning
+Stopped at: Completed 01-foundation/01-01-PLAN.md
 Resume file: None
