@@ -26,7 +26,7 @@ const navItems: Array<{
   disabled?: boolean
 }> = [
   { to: "/", label: "仪表盘", icon: LayoutDashboard },
-  { to: "/inbounds", label: "入站", icon: Radio, disabled: true },
+  { to: "/inbounds", label: "入站", icon: Radio },
   { to: "/users", label: "用户", icon: Users, disabled: true },
   { to: "/subscriptions", label: "订阅", icon: Link2, disabled: true },
   { to: "/certificates", label: "证书", icon: Shield, disabled: true },

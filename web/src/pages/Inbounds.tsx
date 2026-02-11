@@ -42,7 +42,15 @@ export function Inbounds() {
         <h1 className="text-2xl font-bold">入站管理</h1>
         <Button onClick={handleAddInbound}>添加入站</Button>
       </div>
-      <InboundTable inbounds={data?.data ?? []} />
+      <InboundTable
+        inbounds={data?.data ?? []}
+        onEdit={(id) => {
+          /* Plan 05: wire to form modal */
+        }}
+        onDelete={(id) => {
+          /* Plan 05: wire to delete flow */
+        }}
+      />
     </div>
   )
 }

@@ -1,3 +1,11 @@
+import { Pencil, MoreHorizontal, Trash2 } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Table,
   TableBody,
@@ -21,9 +29,15 @@ export type Inbound = {
 
 type InboundTableProps = {
   inbounds: Inbound[]
+  onEdit?: (id: number) => void
+  onDelete?: (id: number) => void
 }
 
-export function InboundTable({ inbounds }: InboundTableProps) {
+export function InboundTable({
+  inbounds,
+  onEdit,
+  onDelete,
+}: InboundTableProps) {
   return (
     <Table>
       <TableHeader>
@@ -50,7 +64,40 @@ export function InboundTable({ inbounds }: InboundTableProps) {
             <TableCell>{ib.listen}</TableCell>
             <TableCell>{ib.user_count}</TableCell>
             <TableCell>{ib.created_at}</TableCell>
-            <TableCell />
+            <TableCell>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8"
+                  onClick={() => onEdit?.(ib.id)}
+                  aria-label="编辑"
+                >
+                  <Pencil className="size-4" />
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      aria-label="更多操作"
+                    >
+                      <MoreHorizontal className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={() => onDelete?.(ib.id)}
+                    >
+                      <Trash2 className="size-4" />
+                      删除
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>
