@@ -10,7 +10,7 @@
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Foundation** - 项目脚手架、认证、sing-box 集成、UI 框架
+- [x] **Phase 1: Foundation** - 项目脚手架、认证、sing-box 集成、UI 框架 ✓ (2026-02-11)
 - [ ] **Phase 2: Inbound Management** - VLESS/Hysteria2 入站 CRUD、TLS、传输选项
 - [ ] **Phase 3: Certificate Management** - 手动证书路径、关联入站 TLS
 - [ ] **Phase 4: User Management** - 用户 CRUD、分配节点、流量/到期、批量操作
@@ -39,9 +39,9 @@
 **Plans:** 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — 项目脚手架 + 认证（Setup/Login、Session、Admin）
-- [ ] 01-02-PLAN.md — sing-box 集成（版本检测、配置应用、重启）
-- [ ] 01-03-PLAN.md — UI 框架 + 仪表盘（暗色主题、Sidebar、sing-box 状态）
+- [x] 01-01-PLAN.md — 项目脚手架 + 认证（Setup/Login、Session、Admin）
+- [x] 01-02-PLAN.md — sing-box 集成（版本检测、配置应用、重启）
+- [x] 01-03-PLAN.md — UI 框架 + 仪表盘（暗色主题、Sidebar、sing-box 状态）
 
 ---
 
@@ -209,7 +209,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/3 | Not started | - |
+| 1. Foundation | 3/3 | ✓ Complete | 2026-02-11 |
 | 2. Inbound Management | 0/— | Not started | - |
 | 3. Certificate Management | 0/— | Not started | - |
 | 4. User Management | 0/— | Not started | - |
