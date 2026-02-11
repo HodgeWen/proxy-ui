@@ -11,7 +11,7 @@
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Foundation** - 项目脚手架、认证、sing-box 集成、UI 框架 ✓ (2026-02-11)
-- [ ] **Phase 2: Inbound Management** - VLESS/Hysteria2 入站 CRUD、TLS、传输选项
+- [x] **Phase 2: Inbound Management** - VLESS/Hysteria2 入站 CRUD、TLS、传输选项 ✓ (2026-02-11)
 - [ ] **Phase 3: Certificate Management** - 手动证书路径、关联入站 TLS
 - [ ] **Phase 4: User Management** - 用户 CRUD、分配节点、流量/到期、批量操作
 - [ ] **Phase 5: Subscription System** - 订阅链接、Base64/Clash 格式、QR 码、信息页
@@ -64,12 +64,12 @@ Plans:
 **Plans:** 6 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Inbound model + DB layer (GORM, CRUD)
-- [ ] 02-02-PLAN.md — ConfigGenerator (DB → sing-box JSON)
-- [ ] 02-03-PLAN.md — Inbound API (CRUD, apply config, restart)
-- [ ] 02-04-PLAN.md — Inbound list UI (table, Edit, Delete)
-- [ ] 02-05-PLAN.md — Inbound form modal (VLESS/Hysteria2, TLS, transport)
-- [ ] 02-06-PLAN.md — Gap closure: protocol sync, FieldLabel tooltips
+- [x] 02-01-PLAN.md — Inbound model + DB layer (GORM, CRUD)
+- [x] 02-02-PLAN.md — ConfigGenerator (DB → sing-box JSON)
+- [x] 02-03-PLAN.md — Inbound API (CRUD, apply config, restart)
+- [x] 02-04-PLAN.md — Inbound list UI (table, Edit, Delete)
+- [x] 02-05-PLAN.md — Inbound form modal (VLESS/Hysteria2, TLS, transport)
+- [x] 02-06-PLAN.md — Gap closure: protocol sync, FieldLabel tooltips
 
 ---
 
@@ -213,7 +213,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | ✓ Complete | 2026-02-11 |
-| 2. Inbound Management | 0/— | Not started | - |
+| 2. Inbound Management | 6/6 | ✓ Complete | 2026-02-11 |
 | 3. Certificate Management | 0/— | Not started | - |
 | 4. User Management | 0/— | Not started | - |
 | 5. Subscription System | 0/— | Not started | - |
