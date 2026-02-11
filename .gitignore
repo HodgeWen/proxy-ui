@@ -1,0 +1,5 @@
+# Build output
+/server
+/data/
+
+# Embed requires web/dist - build frontend first
