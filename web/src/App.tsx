@@ -1,13 +1,6 @@
-import { BrowserRouter } from 'react-router-dom'
+import { RouterProvider } from 'react-router-dom'
+import { router } from './routes'
 
-function App() {
-  return (
-    <BrowserRouter>
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <h1>s-ui</h1>
-      </div>
-    </BrowserRouter>
-  )
+export default function App() {
+  return <RouterProvider router={router} />
 }
-
-export default App

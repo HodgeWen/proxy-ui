@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bytes"
+	"io"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -17,6 +19,7 @@ func Routes(staticFS fs.FS, sm *scs.SessionManager) chi.Router {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("ok"))
 		})
+		r.Get("/me", MeHandler(sm))
 		r.Post("/setup", SetupHandler(sm))
 		r.Post("/login", LoginHandler(sm))
 		r.Post("/logout", LogoutHandler(sm))
@@ -38,13 +41,31 @@ func spaHandler(staticFS fs.FS) http.HandlerFunc {
 		f, err := staticFS.Open(path)
 		if err == nil {
 			defer f.Close()
-			if stat, err := f.Stat(); err == nil && !stat.IsDir() {
+			stat, err := f.Stat()
+			if err == nil && !stat.IsDir() && path != "index.html" {
 				r.URL.Path = "/" + path
 				fileServer.ServeHTTP(w, r)
 				return
 			}
 		}
-		r.URL.Path = "/index.html"
-		fileServer.ServeHTTP(w, r)
+		// Serve index.html directly to avoid FileServer's redirect of /index.html -> ./
+		index, err := staticFS.Open("index.html")
+		if err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		defer index.Close()
+		stat, err := index.Stat()
+		if err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		data, err := io.ReadAll(index)
+		if err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		http.ServeContent(w, r, "index.html", stat.ModTime(), bytes.NewReader(data))
 	}
 }
