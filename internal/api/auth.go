@@ -142,6 +142,17 @@ func RequireSetupMiddleware(sm *scs.SessionManager) func(http.Handler) http.Hand
 				return
 			}
 			if !has {
+				// Allow API routes through (handlers have their own auth)
+				if strings.HasPrefix(path, "/api/") {
+					next.ServeHTTP(w, r)
+					return
+				}
+				// Allow static assets (paths with file extension like .js, .css)
+				if dot := strings.LastIndex(path, "."); dot > strings.LastIndex(path, "/") {
+					next.ServeHTTP(w, r)
+					return
+				}
+				// Redirect page routes to /setup
 				if path != "/setup" && !strings.HasPrefix(path, "/setup/") {
 					http.Redirect(w, r, "/setup", http.StatusFound)
 					return
