@@ -1,9 +1,9 @@
 ---
-status: complete
+status: diagnosed
 phase: 01-foundation
 source: [01-01-SUMMARY.md, 01-02-SUMMARY.md, 01-03-SUMMARY.md]
 started: 2026-02-11T12:00:00Z
-updated: 2026-02-11T12:15:00Z
+updated: 2026-02-11T12:20:00Z
 ---
 
 ## Current Test
@@ -53,5 +53,16 @@ skipped: 0
   reason: "User reported: 是暗色，但是按钮样式有大问题，在暗色背景下颜色显示为灰白的，按钮中的字体也看不清，包括左侧菜单的文字颜色也是，默认情况下对比度太低，看不太清"
   severity: minor
   test: 5
-  artifacts: []
-  missing: []
+  root_cause: |
+    1. Outline 按钮 dark 模式使用 dark:bg-input/30 (白色 8% 透明度的 30%)，导致灰白背景 + 浅色文字 → 对比度极低
+    2. --muted-foreground: oklch(0.65) 在深色背景上对比度约 3:1，低于 WCAG AA 标准 4.5:1
+    3. Sidebar 标签使用 text-sidebar-foreground/70 降低了不透明度
+  artifacts:
+    - path: "web/src/index.css"
+      issue: "--muted-foreground 亮度值 0.65 太低"
+    - path: "web/src/components/ui/button.tsx"
+      issue: "outline variant dark:bg-input/30 导致灰白背景"
+  missing:
+    - "提升 --muted-foreground 亮度至 0.72-0.78"
+    - "修改 outline 按钮暗色模式背景为 dark:bg-secondary 或 dark:bg-muted"
+    - "提升 sidebar 标签不透明度 text-sidebar-foreground/85"
