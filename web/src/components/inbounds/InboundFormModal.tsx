@@ -287,6 +287,7 @@ export function InboundFormModal({
 
   useEffect(() => {
     if (inbound) {
+      setProtocol(inbound.protocol === "hysteria2" ? "hysteria2" : "vless")
       const base = {
         tag: inbound.tag,
         listen: inbound.listen,
@@ -323,6 +324,7 @@ export function InboundFormModal({
         })
       }
     } else {
+      setProtocol("vless")
       vlessForm.reset({
         tag: "vless-in-1",
         listen: "::",
