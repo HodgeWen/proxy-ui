@@ -59,7 +59,7 @@ Each task was committed atomically:
 1. **Task 1: Sync protocol state when inbound loads** - `77af10c` (feat)
 2. **Task 2: Add FieldLabel for protocol and TLS type fields** - `66c9514` (feat)
 
-**Plan metadata:** `615691c` (docs: complete plan)
+**Plan metadata:** `9f0422c` (docs: complete plan)
 
 ## Files Created/Modified
 
