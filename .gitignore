@@ -2,4 +2,5 @@
 /server
 /data/
 
+.account
 # Embed requires web/dist - build frontend first
