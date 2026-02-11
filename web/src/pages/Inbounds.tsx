@@ -1,6 +1,8 @@
+import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { InboundTable, type Inbound } from "@/components/inbounds/InboundTable"
+import { InboundFormModal } from "@/components/inbounds/InboundFormModal"
 
 async function fetchInbounds(): Promise<{ data: Inbound[] }> {
   const res = await fetch("/api/inbounds", { credentials: "include" })
@@ -9,13 +11,14 @@ async function fetchInbounds(): Promise<{ data: Inbound[] }> {
 }
 
 export function Inbounds() {
+  const [formOpen, setFormOpen] = useState(false)
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["inbounds"],
     queryFn: fetchInbounds,
   })
 
   const handleAddInbound = () => {
-    // Placeholder for Plan 05
+    setFormOpen(true)
   }
 
   if (isLoading) {
@@ -50,6 +53,11 @@ export function Inbounds() {
         onDelete={(id) => {
           /* Plan 05: wire to delete flow */
         }}
+      />
+      <InboundFormModal
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        onSuccess={() => {}}
       />
     </div>
   )
