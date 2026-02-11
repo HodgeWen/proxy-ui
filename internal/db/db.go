@@ -10,5 +10,8 @@ var DB *gorm.DB
 func Init(path string) error {
 	var err error
 	DB, err = gorm.Open(sqlite.Open(path), &gorm.Config{})
-	return err
+	if err != nil {
+		return err
+	}
+	return DB.AutoMigrate(&Admin{})
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/s-ui/s-ui/internal/api"
 	"github.com/s-ui/s-ui/internal/db"
+	"github.com/s-ui/s-ui/internal/session"
 	"github.com/s-ui/s-ui/web"
 )
 
@@ -25,13 +26,19 @@ func main() {
 		log.Fatalf("db init: %v", err)
 	}
 
+	sm, err := session.NewManager(db.DB)
+	if err != nil {
+		log.Fatalf("session: %v", err)
+	}
+
 	distFS, err := fs.Sub(web.FS, "dist")
 	if err != nil {
 		log.Fatalf("static fs: %v", err)
 	}
 
-	r := api.Routes(distFS)
-	chi.Walk(r, func(method, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
+	r := api.Routes(distFS, sm)
+	handler := sm.LoadAndSave(api.RequireSetupMiddleware(sm)(r))
+	chi.Walk(r, func(method, route string, h http.Handler, middlewares ...func(http.Handler) http.Handler) error {
 		log.Printf("%s %s", method, route)
 		return nil
 	})
@@ -41,5 +48,5 @@ func main() {
 		addr = a
 	}
 	log.Printf("listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, r))
+	log.Fatal(http.ListenAndServe(addr, handler))
 }

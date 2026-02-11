@@ -5,10 +5,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
 )
 
-func Routes(staticFS fs.FS) chi.Router {
+func Routes(staticFS fs.FS, sm *scs.SessionManager) chi.Router {
 	r := chi.NewRouter()
 
 	r.Route("/api", func(r chi.Router) {
@@ -16,6 +17,9 @@ func Routes(staticFS fs.FS) chi.Router {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("ok"))
 		})
+		r.Post("/setup", SetupHandler(sm))
+		r.Post("/login", LoginHandler(sm))
+		r.Post("/logout", LogoutHandler(sm))
 	})
 
 	r.NotFound(spaHandler(staticFS))
