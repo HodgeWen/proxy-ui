@@ -69,6 +69,12 @@ func inboundFromDB(ib *db.Inbound) inboundItem {
 	}
 }
 
+// inboundDetail adds config_json for edit form.
+type inboundDetail struct {
+	inboundItem
+	ConfigJSON datatypes.JSON `json:"config_json,omitempty"`
+}
+
 // ListInboundsHandler returns GET /api/inbounds handler.
 func ListInboundsHandler(sm *scs.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -101,8 +107,12 @@ func GetInboundHandler(sm *scs.SessionManager) http.HandlerFunc {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		detail := inboundDetail{
+			inboundItem: inboundFromDB(ib),
+			ConfigJSON:  ib.ConfigJSON,
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(inboundFromDB(ib))
+		json.NewEncoder(w).Encode(detail)
 	}
 }
 
