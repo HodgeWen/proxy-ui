@@ -1,0 +1,138 @@
+package core
+
+import (
+	"encoding/json"
+
+	"github.com/s-ui/s-ui/internal/db"
+)
+
+// ConfigGenerator produces full sing-box JSON config from DB inbounds.
+type ConfigGenerator struct{}
+
+// Generate reads all inbounds from DB and builds full sing-box config JSON.
+func (g *ConfigGenerator) Generate() ([]byte, error) {
+	inbounds, err := db.ListInbounds()
+	if err != nil {
+		return nil, err
+	}
+
+	raw := make([]map[string]any, 0, len(inbounds))
+	for i := range inbounds {
+		raw = append(raw, g.inboundToSingBox(&inbounds[i]))
+	}
+
+	cfg := map[string]any{
+		"log": map[string]any{"level": "info"},
+		"inbounds": raw,
+		"outbounds": []map[string]any{
+			{"type": "direct", "tag": "direct"},
+			{"type": "block", "tag": "block"},
+		},
+		"route": map[string]any{"rules": []any{}},
+	}
+
+	return json.MarshalIndent(cfg, "", "  ")
+}
+
+// inboundToSingBox converts db.Inbound to sing-box inbound JSON object.
+func (g *ConfigGenerator) inboundToSingBox(ib *db.Inbound) map[string]any {
+	switch ib.Protocol {
+	case "hysteria2":
+		return g.hysteria2ToSingBox(ib)
+	default:
+		return g.vlessToSingBox(ib)
+	}
+}
+
+// vlessToSingBox produces VLESS inbound map for sing-box.
+func (g *ConfigGenerator) vlessToSingBox(ib *db.Inbound) map[string]any {
+	out := map[string]any{
+		"type":         "vless",
+		"tag":          ib.Tag,
+		"listen":       ib.Listen,
+		"listen_port":  ib.ListenPort,
+		"users":        []any{},
+	}
+
+	if len(ib.ConfigJSON) > 0 {
+		var cfg map[string]any
+		if err := json.Unmarshal(ib.ConfigJSON, &cfg); err == nil {
+			if users, ok := cfg["users"]; ok && users != nil {
+				if u, ok := users.([]any); ok {
+					out["users"] = u
+				}
+			}
+			if tls, ok := cfg["tls"]; ok && tls != nil {
+				if t, ok := tls.(map[string]any); ok && len(t) > 0 {
+					out["tls"] = t
+				}
+			}
+			if transport, ok := cfg["transport"]; ok && transport != nil {
+				if tr, ok := transport.(map[string]any); ok && len(tr) > 0 {
+					out["transport"] = tr
+				}
+			}
+		}
+	}
+
+	return out
+}
+
+// hysteria2ToSingBox produces Hysteria2 inbound map for sing-box.
+// Phase 2: users empty; tls required per RESEARCH.
+func (g *ConfigGenerator) hysteria2ToSingBox(ib *db.Inbound) map[string]any {
+	out := map[string]any{
+		"type":         "hysteria2",
+		"tag":          ib.Tag,
+		"listen":       ib.Listen,
+		"listen_port":  ib.ListenPort,
+		"users":        []any{},
+		"tls": map[string]any{
+			"enabled":          true,
+			"server_name":      "",
+			"certificate_path": "",
+			"key_path":         "",
+		},
+	}
+
+	if len(ib.ConfigJSON) > 0 {
+		var cfg map[string]any
+		if err := json.Unmarshal(ib.ConfigJSON, &cfg); err == nil {
+			if up, ok := cfg["up_mbps"]; ok {
+				if f, ok := toFloat(up); ok && f > 0 {
+					out["up_mbps"] = int(f)
+				}
+			}
+			if down, ok := cfg["down_mbps"]; ok {
+				if f, ok := toFloat(down); ok && f > 0 {
+					out["down_mbps"] = int(f)
+				}
+			}
+			if obfs, ok := cfg["obfs"]; ok && obfs != nil {
+				if o, ok := obfs.(map[string]any); ok && len(o) > 0 {
+					out["obfs"] = o
+				}
+			}
+			if tls, ok := cfg["tls"]; ok && tls != nil {
+				if t, ok := tls.(map[string]any); ok && len(t) > 0 {
+					out["tls"] = t
+				}
+			}
+		}
+	}
+
+	return out
+}
+
+func toFloat(v any) (float64, bool) {
+	switch x := v.(type) {
+	case float64:
+		return x, true
+	case int:
+		return float64(x), true
+	case int64:
+		return float64(x), true
+	default:
+		return 0, false
+	}
+}
