@@ -63,7 +63,7 @@ Each task was committed atomically:
 1. **Task 1: ConfigGenerator skeleton and VLESS mapping** - `cbbebc1` (feat)
 2. **Task 2: Hysteria2 inbound mapping** - `cbbebc1` (same commit; combined implementation)
 
-**Plan metadata:** `d9ab10f` (docs: complete plan)
+**Plan metadata:** `075232b` (docs: complete plan)
 
 _Note: Both tasks implemented in single commit as Hysteria2 was required for build to succeed_
 

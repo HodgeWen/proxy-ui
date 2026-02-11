@@ -29,6 +29,11 @@ func Routes(staticFS fs.FS, sm *scs.SessionManager) chi.Router {
 			r.Post("/restart", RestartHandler(sm))
 			r.Post("/config", ConfigHandler(sm))
 		})
+		r.Route("/inbounds", func(r chi.Router) {
+			r.Use(RequireAuth(sm))
+			r.Get("/", ListInboundsHandler(sm))
+			r.Get("/{id}", GetInboundHandler(sm))
+		})
 	})
 
 	r.NotFound(spaHandler(staticFS))
