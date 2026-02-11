@@ -20,3 +20,30 @@ type Inbound struct {
 func (Inbound) TableName() string {
 	return "inbounds"
 }
+
+func ListInbounds() ([]Inbound, error) {
+	var inbounds []Inbound
+	err := DB.Order("created_at DESC").Find(&inbounds).Error
+	return inbounds, err
+}
+
+func GetInboundByID(id uint) (*Inbound, error) {
+	var in Inbound
+	err := DB.First(&in, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &in, nil
+}
+
+func CreateInbound(in *Inbound) error {
+	return DB.Create(in).Error
+}
+
+func UpdateInbound(in *Inbound) error {
+	return DB.Save(in).Error
+}
+
+func DeleteInbound(id uint) error {
+	return DB.Delete(&Inbound{}, id).Error
+}

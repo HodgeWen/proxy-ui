@@ -13,5 +13,5 @@ func Init(path string) error {
 	if err != nil {
 		return err
 	}
-	return DB.AutoMigrate(&Admin{})
+	return DB.AutoMigrate(&Admin{}, &Inbound{})
 }
