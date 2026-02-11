@@ -61,7 +61,7 @@ Plans:
   5. 表单字段有智能默认值，且每个字段旁有 info 图标悬浮说明
   6. 配置变更后自动触发 `sing-box check` 验证，通过后应用并重启
 
-**Plans:** 5 plans
+**Plans:** 6 plans
 
 Plans:
 - [ ] 02-01-PLAN.md — Inbound model + DB layer (GORM, CRUD)
@@ -69,6 +69,7 @@ Plans:
 - [ ] 02-03-PLAN.md — Inbound API (CRUD, apply config, restart)
 - [ ] 02-04-PLAN.md — Inbound list UI (table, Edit, Delete)
 - [ ] 02-05-PLAN.md — Inbound form modal (VLESS/Hysteria2, TLS, transport)
+- [ ] 02-06-PLAN.md — Gap closure: protocol sync, FieldLabel tooltips
 
 ---
 
