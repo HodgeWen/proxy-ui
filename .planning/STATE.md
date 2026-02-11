@@ -11,11 +11,11 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 2 of 8 (Inbound Management)
-Plan: 5/5 complete
-Current Plan: 5
-Total Plans in Phase: 5
+Plan: 6/6 complete
+Current Plan: 6
+Total Plans in Phase: 6
 Status: Phase complete — ready for verification
-Last activity: 2026-02-11 — Completed 02-05 (Inbound form modal)
+Last activity: 2026-02-11 — Completed 02-06 (InboundFormModal gap closure)
 
 Progress: [██████████] 100% (Phase 2)
 
@@ -57,6 +57,7 @@ Recent decisions affecting current work:
 - 02-03: Inbound REST API with rollback on ApplyConfig failure; check error returned to frontend Modal
 - 02-04: Edit inline, Delete in dropdown per CONTEXT; onEdit/onDelete no-op for Plan 05 to wire
 - 02-05: GET /api/inbounds/:id returns config_json for edit form; InboundFormModal with react-hook-form, zod, info tooltips
+- 02-06: Protocol sync when editing Hysteria2 inbound; FieldLabel for protocol and TLS type
 - [Phase 02]: ConfigGenerator reads from DB via ListInbounds; produces full sing-box JSON; VLESS/Hysteria2 inbound mapping
 
 ### Pending Todos
@@ -70,5 +71,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-11
-Stopped at: Completed 02-inbound-management/02-05-PLAN.md
+Stopped at: Completed 02-inbound-management/02-06-PLAN.md
 Resume file: None
