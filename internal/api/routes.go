@@ -33,6 +33,9 @@ func Routes(staticFS fs.FS, sm *scs.SessionManager) chi.Router {
 			r.Use(RequireAuth(sm))
 			r.Get("/", ListInboundsHandler(sm))
 			r.Get("/{id}", GetInboundHandler(sm))
+			r.Post("/", CreateInboundHandler(sm))
+			r.Put("/{id}", UpdateInboundHandler(sm))
+			r.Delete("/{id}", DeleteInboundHandler(sm))
 		})
 	})
 

@@ -47,3 +47,20 @@ func UpdateInbound(in *Inbound) error {
 func DeleteInbound(id uint) error {
 	return DB.Delete(&Inbound{}, id).Error
 }
+
+// GetInboundByTag returns an inbound by tag, or nil if not found.
+func GetInboundByTag(tag string) (*Inbound, error) {
+	var in Inbound
+	err := DB.Where("tag = ?", tag).First(&in).Error
+	if err != nil {
+		return nil, err
+	}
+	return &in, nil
+}
+
+// InboundExistsByTag returns true if an inbound with the given tag exists.
+func InboundExistsByTag(tag string) (bool, error) {
+	var count int64
+	err := DB.Model(&Inbound{}).Where("tag = ?", tag).Count(&count).Error
+	return count > 0, err
+}
