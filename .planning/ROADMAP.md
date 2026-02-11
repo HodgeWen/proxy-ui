@@ -36,12 +36,12 @@
   4. 界面使用暗色主题、shadcn/ui、中文语言
   5. 配置操作通过弹框（Modal）表单完成，不跳转页面
 
-**Plans**: TBD (预计 5–6 plans)
+**Plans:** 3 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
-- [ ] 01-03: TBD
+- [ ] 01-01-PLAN.md — 项目脚手架 + 认证（Setup/Login、Session、Admin）
+- [ ] 01-02-PLAN.md — sing-box 集成（版本检测、配置应用、重启）
+- [ ] 01-03-PLAN.md — UI 框架 + 仪表盘（暗色主题、Sidebar、sing-box 状态）
 
 ---
 
@@ -209,7 +209,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/— | Not started | - |
+| 1. Foundation | 0/3 | Not started | - |
 | 2. Inbound Management | 0/— | Not started | - |
 | 3. Certificate Management | 0/— | Not started | - |
 | 4. User Management | 0/— | Not started | - |
