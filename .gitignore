@@ -1,5 +1,7 @@
 # Build output
 /server
+
+./s-ui
 /data/
 
 .account
