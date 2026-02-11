@@ -406,7 +406,11 @@ export function InboundFormModal({
             <h3 className="text-sm font-semibold">基本设置</h3>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="protocol">协议</Label>
+                <FieldLabel
+                  label="协议"
+                  tooltip="入站协议类型。VLESS 基于 XTLS，Hysteria2 基于 QUIC。选择后表单字段会切换。典型值：VLESS 或 Hysteria2。"
+                  htmlFor="protocol"
+                />
                 <Select
                   value={protocol}
                   onValueChange={(v) => setProtocol(v as "vless" | "hysteria2")}
@@ -515,7 +519,10 @@ export function InboundFormModal({
             {protocol === "vless" ? (
               <>
                 <div className="space-y-2">
-                  <Label>TLS 类型</Label>
+                  <FieldLabel
+                    label="TLS 类型"
+                    tooltip="TLS 模式。无 TLS 表示明文；TLS 使用证书；Reality 使用 Reality 协议伪装。选择后下方显示对应配置字段。"
+                  />
                   <Select
                     value={form.watch("tls_type")}
                     onValueChange={(v) =>
