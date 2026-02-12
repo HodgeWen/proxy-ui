@@ -1,0 +1,13 @@
+services:
+  s-ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      CONFIG_PATH: /data/config.json
+      DATA_DIR: /data
+    restart: unless-stopped
