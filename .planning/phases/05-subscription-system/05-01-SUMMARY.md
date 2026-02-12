@@ -63,7 +63,7 @@ Each task was committed atomically:
 2. **Task 2: SubscriptionGenerator (Base64 + Clash)** - `19a72dc` (feat)
 3. **Task 3: GET /sub/{token} handler and route** - `e03a746` (feat)
 
-**Plan metadata:** `1290896` (docs: complete 05-01 plan)
+**Plan metadata:** `8107c24` (docs: complete 05-01 plan)
 
 ## Files Created/Modified
 
