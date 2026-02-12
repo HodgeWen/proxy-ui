@@ -6,18 +6,18 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 **Core value:** 提供一个界面美观、体验流畅、部署简单的 sing-box 管理面板
 
-**Current focus:** Phase 6 — Traffic Statistics (Plan 2 complete)
+**Current focus:** Phase 6 — Traffic Statistics (Plan 3 complete)
 
 ## Current Position
 
 Phase: 6 of 8 (Traffic Statistics)
-Plan: 2/3 complete
-Current Plan: 2
+Plan: 3/3 complete
+Current Plan: 3
 Total Plans in Phase: 3
-Status: Plan 2 complete — ready for Plan 3
-Last activity: 2026-02-12 — Phase 6 Plan 2 executed
+Status: Plan 3 complete — Phase 6 done
+Last activity: 2026-02-12 — Phase 6 Plan 3 executed
 
-Progress: [██████░░░░] 67% (Phase 6)
+Progress: [██████████] 100% (Phase 6)
 
 ## Performance Metrics
 
@@ -49,6 +49,7 @@ Progress: [██████░░░░] 67% (Phase 6)
 | Phase 05-subscription-system P02 | 5 | 2 tasks | 3 files |
 | Phase 05-subscription-system P03 | 20 | 3 tasks | 10 files |
 | Phase 06-traffic-statistics P02 | 102 | 2 tasks | 6 files |
+| Phase 06-traffic-statistics P03 | 2 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,7 @@ Recent decisions affecting current work:
 - 06-01: Minimal stats proto in internal/statsproto; V2RAY_API_ENABLED gates ConfigGenerator v2ray_api and cron; delta aggregation for traffic
 - [Phase 06]: ListInbounds(sort string): traffic_asc/traffic_desc order by (traffic_uplink+traffic_downlink); default created_at DESC
 - [Phase 06]: reset_traffic clears TrafficUplink, TrafficDownlink, TrafficUsed
+- 06-03: formatBytes shared in lib; InboundTable/UserTable 上行/下行 columns; sort dropdown; 超限 in status badge
 
 ### Pending Todos
 
@@ -94,5 +96,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 06-02-PLAN.md (API Traffic Exposure)
+Stopped at: Completed 06-03-PLAN.md (Traffic Columns UI)
 Resume file: None
