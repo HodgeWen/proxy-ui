@@ -1,5 +1,7 @@
 # Build output
 /server
+s-ui-linux-amd64
+s-ui-linux-arm64
 
 /data/
 
