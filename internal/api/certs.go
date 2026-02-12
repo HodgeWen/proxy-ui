@@ -8,6 +8,8 @@ import (
 
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/s-ui/s-ui/internal/config"
+	"github.com/s-ui/s-ui/internal/core"
 	"github.com/s-ui/s-ui/internal/db"
 )
 
@@ -109,7 +111,7 @@ func CreateCertificateHandler(sm *scs.SessionManager) http.HandlerFunc {
 }
 
 // UpdateCertificateHandler handles PUT /api/certs/:id.
-func UpdateCertificateHandler(sm *scs.SessionManager) http.HandlerFunc {
+func UpdateCertificateHandler(sm *scs.SessionManager, panelCfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
 		id64, err := strconv.ParseUint(idStr, 10, 32)
@@ -118,7 +120,7 @@ func UpdateCertificateHandler(sm *scs.SessionManager) http.HandlerFunc {
 			return
 		}
 		id := uint(id64)
-		_, err = db.GetCertificateByID(id)
+		old, err := db.GetCertificateByID(id)
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
@@ -141,6 +143,25 @@ func UpdateCertificateHandler(sm *scs.SessionManager) http.HandlerFunc {
 		if err := db.UpdateCertificate(c); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
+		}
+		path := configPath(panelCfg)
+		gen := &core.ConfigGenerator{}
+		cfg, err := gen.Generate()
+		if err != nil {
+			db.UpdateCertificate(old)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := core.ApplyConfig(path, cfg); err != nil {
+			db.UpdateCertificate(old)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		pm := core.NewProcessManagerFromConfig(panelCfg)
+		if err := pm.Restart(path); err != nil {
+			// Config applied; restart failure is best-effort
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(certFromDB(c))
