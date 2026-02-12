@@ -28,8 +28,11 @@ func Routes(staticFS fs.FS, sm *scs.SessionManager) chi.Router {
 		r.Route("/core", func(r chi.Router) {
 			r.Use(RequireAuth(sm))
 			r.Get("/status", StatusHandler(sm))
+			r.Get("/versions", VersionsHandler(sm))
 			r.Post("/restart", RestartHandler(sm))
 			r.Post("/config", ConfigHandler(sm))
+			r.Post("/update", UpdateHandler(sm))
+			r.Post("/rollback", RollbackHandler(sm))
 		})
 		r.Route("/inbounds", func(r chi.Router) {
 			r.Use(RequireAuth(sm))

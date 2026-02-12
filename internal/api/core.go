@@ -30,6 +30,17 @@ func configPath() string {
 	return "./config.json"
 }
 
+func binaryPath() string {
+	if p := os.Getenv("SINGBOX_BINARY_PATH"); p != "" {
+		return p
+	}
+	dataDir := os.Getenv("DATA_DIR")
+	if dataDir == "" {
+		dataDir = "./data"
+	}
+	return filepath.Join(dataDir, "bin", "sing-box")
+}
+
 // StatusHandler returns sing-box running state and version.
 func StatusHandler(sm *scs.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -91,5 +102,69 @@ func ConfigHandler(sm *scs.SessionManager) http.HandlerFunc {
 		}
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
+	}
+}
+
+// VersionsHandler returns GitHub releases for sing-box.
+func VersionsHandler(sm *scs.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		u := core.NewCoreUpdater(binaryPath())
+		releases, err := u.ListReleases()
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"releases": releases,
+		})
+	}
+}
+
+// UpdateHandler updates sing-box to latest version.
+func UpdateHandler(sm *scs.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		u := core.NewCoreUpdater(binaryPath())
+		if err := u.Update(); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			if err.Error() == "请设置 SINGBOX_BINARY_PATH 以启用核心更新" {
+				w.WriteHeader(http.StatusBadRequest)
+			} else {
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	}
+}
+
+// RollbackHandler restores sing-box from backup.
+func RollbackHandler(sm *scs.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		u := core.NewCoreUpdater(binaryPath())
+		if err := u.Rollback(); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			status := http.StatusInternalServerError
+			if err.Error() == "暂无备份可回滚" || err.Error() == "请设置 SINGBOX_BINARY_PATH 以启用核心更新" {
+				status = http.StatusBadRequest
+			}
+			w.WriteHeader(status)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	}
 }
