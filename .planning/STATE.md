@@ -11,13 +11,13 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 8 of 8 (Deployment & Production)
-Plan: 2/4 complete
-Current Plan: 08-01 complete
+Plan: 4/4 complete
+Current Plan: 4
 Total Plans in Phase: 4
-Status: Plan 08-01 execution complete
-Last activity: 2026-02-12 — Phase 8 Plan 01 complete
+Status: Plan 08-04 execution complete
+Last activity: 2026-02-12 — Phase 8 Plan 04 complete
 
-Progress: [█████░░░░░] 50% (Phase 8)
+Progress: [██████████] 100% (Phase 8)
 
 ## Performance Metrics
 
@@ -54,6 +54,8 @@ Progress: [█████░░░░░] 50% (Phase 8)
 | Phase 07-core-management P02 | 5 | 2 tasks | 1 files |
 | Phase 08-deployment-production P03 | 12 | 2 tasks | 1 file |
 | Phase 08 P01 | 6 | 4 tasks | 11 files |
+| Phase 08 P04 | 4 | 2 tasks | 3 files |
+| Phase 08 P02 | 8 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -92,7 +94,9 @@ Recent decisions affecting current work:
 - 07-02: Dashboard CoreVersionCard: current+latest, update/rollback with confirm, version list modal, new-version badge
 - [Phase 07-core-management]: Dashboard card badge only for new version; latestStable=first prerelease=false
 - 08-01: glebarez/sqlite CGO-free; internal sqlStore; LoadConfig with CONFIG_PATH; FORCE_HTTPS for Cookie.Secure
+- 08-02: Dockerfile multi-stage with s-ui + sing-box; docker-compose bind mount ./data:/data; sing-box 1.12.21 from GitHub releases
 - 08-03: install.sh with install/update/uninstall; GITHUB_REPO=HodgeWen/proxy-ui; INSTALL_DIR=/usr/local/s-ui
+- 08-04: GitHub Actions release on tag push v*; build-release for linux/amd64 and arm64; action-gh-release
 
 ### Pending Todos
 
@@ -105,5 +109,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 08-01-PLAN.md (CGO-free SQLite, config file, HTTPS proxy)
+Stopped at: Completed 08-02-PLAN.md (Docker Compose deployment)
 Resume file: None
