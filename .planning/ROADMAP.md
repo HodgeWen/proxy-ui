@@ -16,7 +16,7 @@
 - [x] **Phase 4: User Management** - 用户 CRUD、分配节点、流量/到期、批量操作 ✓ (2026-02-12)
 - [x] **Phase 5: Subscription System** - 订阅链接、Base64/Clash 格式、QR 码、信息页 ✓ (2026-02-12)
 - [x] **Phase 6: Traffic Statistics** - 按用户/按入站流量统计 ✓ (2026-02-12)
-- [ ] **Phase 7: sing-box Core Management** - 核心更新/回滚
+- [x] **Phase 7: sing-box Core Management** - 核心更新/回滚 ✓ (2026-02-12)
 - [ ] **Phase 8: Deployment & Production** - HTTPS、Docker、bash、单二进制
 
 ## Phase Details
@@ -180,8 +180,8 @@ Plans:
 **Plans:** 2 plans
 
 Plans:
-- [ ] 07-01-PLAN.md — Backend: CoreUpdater + API (versions, update, rollback)
-- [ ] 07-02-PLAN.md — Frontend: Dashboard version card + update/rollback + badge
+- [x] 07-01-PLAN.md — Backend: CoreUpdater + API (versions, update, rollback)
+- [x] 07-02-PLAN.md — Frontend: Dashboard version card + update/rollback + badge
 
 ---
 
@@ -221,5 +221,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 4. User Management | 4/4 | ✓ Complete | 2026-02-12 |
 | 5. Subscription System | 3/3 | ✓ Complete | 2026-02-12 |
 | 6. Traffic Statistics | 3/3 | ✓ Complete | 2026-02-12 |
-| 7. sing-box Core Management | 0/— | Not started | - |
+| 7. sing-box Core Management | 2/2 | ✓ Complete | 2026-02-12 |
 | 8. Deployment & Production | 0/— | Not started | - |
