@@ -10,14 +10,14 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 ## Current Position
 
-Phase: 3 of 8 (Certificate Management)
-Plan: 3/3 complete
-Current Plan: 03
-Total Plans in Phase: 3
-Status: Phase verified (2/2 must-haves passed) — ready for Phase 4
-Last activity: 2026-02-12 — Phase 3 verification passed
+Phase: 4 of 8 (User Management)
+Plan: 1/4 complete
+Current Plan: 01
+Total Plans in Phase: 4
+Status: Phase 4 Plan 1 complete — User model + ConfigGenerator user derivation
+Last activity: 2026-02-12 — 04-01 summary created
 
-Progress: [██████████] 100% (Phase 3)
+Progress: [███░░░░░░░] 25% (Phase 4)
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Recent decisions affecting current work:
 - 03-01: Certificate model with CRUD; ConfigGenerator resolves certificate_id to paths; backward compat with inline paths
 - 03-02: Cert CRUD API; Certificates page with table and form; delete blocked when cert in use
 - 03-03: InboundFormModal cert selector; 选择证书 vs 手动输入; certificate_id in config_json
+- 04-01: User model with UserInbound many-to-many; ConfigGenerator derives users from DB, not config_json
 
 ### Pending Todos
 
@@ -77,5 +78,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Phase 3 verified and complete
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None
