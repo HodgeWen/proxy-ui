@@ -67,6 +67,19 @@ func GetUserByID(id uint) (*User, error) {
 	return &u, nil
 }
 
+// GetUserByName returns a user by name, or nil if not found.
+func GetUserByName(name string) (*User, error) {
+	if name == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var u User
+	err := DB.Preload("Inbounds").Where("name = ?", name).First(&u).Error
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
 // GetUserBySubscriptionToken returns a user by subscription token, or nil if not found.
 func GetUserBySubscriptionToken(token string) (*User, error) {
 	if token == "" {
