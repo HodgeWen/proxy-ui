@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/alexedwards/scs/v2"
-	"github.com/alexedwards/scs/sqlite3store"
 	"gorm.io/gorm"
 )
 
@@ -24,7 +23,7 @@ func NewManager(db *gorm.DB) (*scs.SessionManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	store := sqlite3store.New(sqlDB)
+	store := NewSQLStore(sqlDB)
 
 	sm := scs.New()
 	sm.Store = store

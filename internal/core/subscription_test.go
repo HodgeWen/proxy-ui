@@ -103,9 +103,10 @@ func TestGenerateClash(t *testing.T) {
 
 func TestBuildUserinfoHeader(t *testing.T) {
 	u := &db.User{
-		TrafficUsed:  1000,
-		TrafficLimit: 5000,
-		ExpireAt:     ptrTime(time.Unix(2218532293, 0)),
+		TrafficUplink:   500,
+		TrafficDownlink: 500,
+		TrafficLimit:    5000,
+		ExpireAt:        ptrTime(time.Unix(2218532293, 0)),
 	}
 	h := BuildUserinfoHeader(u)
 	if !contains(h, "upload=500") {
