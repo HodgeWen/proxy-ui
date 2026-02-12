@@ -14,7 +14,7 @@
 - [x] **Phase 2: Inbound Management** - VLESS/Hysteria2 入站 CRUD、TLS、传输选项 ✓ (2026-02-11)
 - [x] **Phase 3: Certificate Management** - 手动证书路径、关联入站 TLS ✓ (2026-02-12)
 - [x] **Phase 4: User Management** - 用户 CRUD、分配节点、流量/到期、批量操作 ✓ (2026-02-12)
-- [ ] **Phase 5: Subscription System** - 订阅链接、Base64/Clash 格式、QR 码、信息页
+- [x] **Phase 5: Subscription System** - 订阅链接、Base64/Clash 格式、QR 码、信息页 ✓ (2026-02-12)
 - [ ] **Phase 6: Traffic Statistics** - 按用户/按入站流量统计
 - [ ] **Phase 7: sing-box Core Management** - 核心更新/回滚
 - [ ] **Phase 8: Deployment & Production** - HTTPS、Docker、bash、单二进制
@@ -138,9 +138,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Subscription token + generator + GET /sub/{token}
-- [ ] 05-02-PLAN.md — Admin API: reset token, subscription_url/nodes in GetUser
-- [ ] 05-03-PLAN.md — UserSubscriptionCard (QR, copy, reset) in UserFormModal
+- [x] 05-01-PLAN.md — Subscription token + generator + GET /sub/{token}
+- [x] 05-02-PLAN.md — Admin API: reset token, subscription_url/nodes in GetUser
+- [x] 05-03-PLAN.md — UserSubscriptionCard (QR, copy, reset) in UserSubscriptionModal
 
 ---
 
@@ -218,7 +218,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 2. Inbound Management | 6/6 | ✓ Complete | 2026-02-11 |
 | 3. Certificate Management | 3/3 | ✓ Complete | 2026-02-12 |
 | 4. User Management | 4/4 | ✓ Complete | 2026-02-12 |
-| 5. Subscription System | 0/— | Not started | - |
+| 5. Subscription System | 3/3 | ✓ Complete | 2026-02-12 |
 | 6. Traffic Statistics | 0/— | Not started | - |
 | 7. sing-box Core Management | 0/— | Not started | - |
 | 8. Deployment & Production | 0/— | Not started | - |
