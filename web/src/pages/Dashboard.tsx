@@ -17,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Badge } from "@/components/ui/badge"
 import { useState } from "react"
 
 type CoreStatus = {
@@ -91,6 +92,7 @@ export function Dashboard() {
   const [errorDetail, setErrorDetail] = useState("")
   const [updateConfirmOpen, setUpdateConfirmOpen] = useState(false)
   const [rollbackConfirmOpen, setRollbackConfirmOpen] = useState(false)
+  const [versionsListOpen, setVersionsListOpen] = useState(false)
 
   const { data: status, isLoading } = useQuery({
     queryKey: ["core", "status"],
@@ -106,6 +108,10 @@ export function Dashboard() {
   const latestStable = versionsData?.releases?.find((r) => !r.prerelease)
   const latestOverall = versionsData?.releases?.[0]
   const latestVersion = latestStable?.version ?? latestOverall?.version
+  const updateAvailable =
+    !!status?.version &&
+    !!latestStable &&
+    status.version !== latestStable.version
 
   const restartMutation = useMutation({
     mutationFn: restartCore,
@@ -172,9 +178,16 @@ export function Dashboard() {
         {/* sing-box 状态与版本 */}
         <Card className="transition-shadow hover:shadow-md">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
-              sing-box 状态与版本
-            </CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-sm font-medium">
+                sing-box 状态与版本
+              </CardTitle>
+              {updateAvailable && (
+                <Badge variant="secondary" className="text-xs">
+                  有新版本
+                </Badge>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -205,6 +218,14 @@ export function Dashboard() {
                     </p>
                   )}
                 </div>
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-muted-foreground"
+                  onClick={() => setVersionsListOpen(true)}
+                >
+                  查看所有版本
+                </Button>
                 <div className="flex flex-wrap gap-2 mt-2">
                   <Button
                     size="sm"
@@ -349,6 +370,40 @@ export function Dashboard() {
                 "确定"
               )}
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 版本列表 */}
+      <Dialog open={versionsListOpen} onOpenChange={setVersionsListOpen}>
+        <DialogContent className="max-w-md max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>所有版本</DialogTitle>
+            <DialogDescription>
+              来自 GitHub Releases，stable 为正式版，pre-release 为预发布版
+            </DialogDescription>
+          </DialogHeader>
+          <div className="overflow-y-auto max-h-[60vh] -mx-6 px-6">
+            <ul className="space-y-2">
+              {versionsData?.releases?.map((r) => (
+                <li
+                  key={r.tag}
+                  className="flex items-center justify-between gap-2 py-1.5 border-b border-border last:border-0"
+                >
+                  <span className="font-mono text-sm">{r.tag}</span>
+                  <Badge
+                    variant={r.prerelease ? "outline" : "default"}
+                    className={
+                      r.prerelease
+                        ? "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/50"
+                        : "bg-emerald-600 text-white border-transparent"
+                    }
+                  >
+                    {r.prerelease ? "pre-release" : "stable"}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
           </div>
         </DialogContent>
       </Dialog>
