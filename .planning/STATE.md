@@ -6,18 +6,18 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 **Core value:** 提供一个界面美观、体验流畅、部署简单的 sing-box 管理面板
 
-**Current focus:** All 8 phases complete — Milestone v1.0 done
+**Current focus:** Phase 9 — Certificate Config Sync
 
 ## Current Position
 
-Phase: 8 of 8 (Deployment & Production)
-Plan: 4/4 complete
-Current Plan: 4
-Total Plans in Phase: 4
-Status: Phase execution complete and verification passed
-Last activity: 2026-02-12 — Phase 8 verification passed, all 8 phases complete
+Phase: 9 of 9 (Certificate Config Sync)
+Plan: 1/3 complete
+Current Plan: 1
+Total Plans in Phase: 3
+Status: Plan 09-01 complete; 09-02, 09-03 pending
+Last activity: 2026-02-12 — Phase 9 Plan 01 complete
 
-Progress: [██████████] 100% (Phase 8)
+Progress: [███░░░░░░░] 33% (Phase 9)
 
 ## Performance Metrics
 
@@ -97,6 +97,7 @@ Recent decisions affecting current work:
 - 08-02: Dockerfile multi-stage with s-ui + sing-box; docker-compose bind mount ./data:/data; sing-box 1.12.21 from GitHub releases
 - 08-03: install.sh with install/update/uninstall; GITHUB_REPO=HodgeWen/proxy-ui; INSTALL_DIR=/usr/local/s-ui
 - 08-04: GitHub Actions release on tag push v*; build-release for linux/amd64 and arm64; action-gh-release
+- 09-01: UpdateCertificateHandler with Generate/Apply/Restart chain; rollback on ApplyConfig failure; routes pass panelCfg
 
 ### Pending Todos
 
@@ -109,5 +110,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: All 8 phases complete, milestone v1.0 achieved
+Stopped at: Completed 09-01-PLAN.md
 Resume file: None
