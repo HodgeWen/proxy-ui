@@ -45,23 +45,29 @@ func (g *ConfigGenerator) inboundToSingBox(ib *db.Inbound) map[string]any {
 }
 
 // vlessToSingBox produces VLESS inbound map for sing-box.
+// Users are derived from User+UserInbound (valid only); config_json users ignored.
 func (g *ConfigGenerator) vlessToSingBox(ib *db.Inbound) map[string]any {
+	users, _ := db.GetUsersForInbound(ib.ID)
+	userArr := make([]any, 0, len(users))
+	for _, u := range users {
+		userArr = append(userArr, map[string]any{
+			"name": u.Name,
+			"uuid": u.UUID,
+			"flow": "xtls-rprx-vision",
+		})
+	}
+
 	out := map[string]any{
 		"type":         "vless",
 		"tag":          ib.Tag,
 		"listen":       ib.Listen,
 		"listen_port":  ib.ListenPort,
-		"users":        []any{},
+		"users":        userArr,
 	}
 
 	if len(ib.ConfigJSON) > 0 {
 		var cfg map[string]any
 		if err := json.Unmarshal(ib.ConfigJSON, &cfg); err == nil {
-			if users, ok := cfg["users"]; ok && users != nil {
-				if u, ok := users.([]any); ok {
-					out["users"] = u
-				}
-			}
 			if tls, ok := cfg["tls"]; ok && tls != nil {
 				if t, ok := tls.(map[string]any); ok && len(t) > 0 {
 					resolveCertInTLS(t)
@@ -80,14 +86,23 @@ func (g *ConfigGenerator) vlessToSingBox(ib *db.Inbound) map[string]any {
 }
 
 // hysteria2ToSingBox produces Hysteria2 inbound map for sing-box.
-// Phase 2: users empty; tls required per RESEARCH.
+// Users are derived from User+UserInbound (valid only); config_json users ignored.
 func (g *ConfigGenerator) hysteria2ToSingBox(ib *db.Inbound) map[string]any {
+	users, _ := db.GetUsersForInbound(ib.ID)
+	userArr := make([]any, 0, len(users))
+	for _, u := range users {
+		userArr = append(userArr, map[string]any{
+			"name":     u.Name,
+			"password": u.Password,
+		})
+	}
+
 	out := map[string]any{
 		"type":         "hysteria2",
 		"tag":          ib.Tag,
 		"listen":       ib.Listen,
 		"listen_port":  ib.ListenPort,
-		"users":        []any{},
+		"users":        userArr,
 		"tls": map[string]any{
 			"enabled":          true,
 			"server_name":      "",
