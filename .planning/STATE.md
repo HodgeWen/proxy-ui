@@ -10,14 +10,14 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 ## Current Position
 
-Phase: 4 of 8 (User Management)
-Plan: 4/4 complete
-Current Plan: Complete
-Total Plans in Phase: 4
-Status: Phase verified (6/6 must-haves passed) — ready for Phase 5
-Last activity: 2026-02-12 — Phase 4 verified and complete
+Phase: 5 of 8 (Subscription System)
+Plan: 1/3 complete
+Current Plan: 2
+Total Plans in Phase: 3
+Status: Ready to execute
+Last activity: 2026-02-12 — 05-01 complete
 
-Progress: [██████████] 100% (Phase 4)
+Progress: [███░░░░░░░] 33% (Phase 5)
 
 ## Performance Metrics
 
@@ -72,6 +72,7 @@ Recent decisions affecting current work:
 - [Phase 04-user-management]: Traffic limit: user enters GB in form; convert to bytes for API (0 = unlimited)
 - [Phase 04-user-management]: Expire_at: date input YYYY-MM-DD; send ISO midnight for API
 - 04-04: Search query in TanStack Query key ["users", searchQ] to preserve filter after batch actions (RESEARCH Pitfall 5)
+- 05-01: Short token 16 chars a-z0-9 via crypto/rand; subscription-userinfo lowercase; host from tls.server_name
 
 ### Pending Todos
 
@@ -84,5 +85,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Phase 4 complete
+Stopped at: Completed 05-01-PLAN.md
 Resume file: None
