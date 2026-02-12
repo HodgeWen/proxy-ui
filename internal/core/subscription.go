@@ -12,10 +12,10 @@ import (
 )
 
 // BuildUserinfoHeader returns subscription-userinfo header (lowercase).
-// upload/download: TrafficUsed/2 each (placeholder until Phase 6); total: TrafficLimit (omit if 0); expire: Unix sec (omit if nil).
+// upload/download: TrafficUplink, TrafficDownlink; total: TrafficLimit (omit if 0); expire: Unix sec (omit if nil).
 func BuildUserinfoHeader(u *db.User) string {
-	upload := u.TrafficUsed / 2
-	download := u.TrafficUsed / 2
+	upload := u.TrafficUplink
+	download := u.TrafficDownlink
 	parts := []string{
 		fmt.Sprintf("upload=%d", upload),
 		fmt.Sprintf("download=%d", download),

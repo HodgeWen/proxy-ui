@@ -23,20 +23,22 @@ type subscriptionNodeItem struct {
 
 // userItem is the API response shape for list/get.
 type userItem struct {
-	ID                 uint                  `json:"id"`
-	Name               string               `json:"name"`
-	Remark             string               `json:"remark"`
-	UUID               string               `json:"uuid"`
-	Password           string               `json:"password"`
-	TrafficLimit       int64                `json:"traffic_limit"`
-	TrafficUsed        int64                `json:"traffic_used"`
-	ExpireAt           *string              `json:"expire_at"` // ISO date or null
-	Enabled            bool                 `json:"enabled"`
-	CreatedAt          string               `json:"created_at"`
-	InboundIDs         []uint               `json:"inbound_ids"`
-	InboundTags        []string             `json:"inbound_tags"`
-	SubscriptionURL    string               `json:"subscription_url"`
-	SubscriptionNodes  []subscriptionNodeItem `json:"subscription_nodes,omitempty"` // only in GetUser detail
+	ID                 uint                   `json:"id"`
+	Name               string                 `json:"name"`
+	Remark             string                 `json:"remark"`
+	UUID               string                 `json:"uuid"`
+	Password           string                 `json:"password"`
+	TrafficLimit       int64                  `json:"traffic_limit"`
+	TrafficUsed        int64                  `json:"traffic_used"`
+	TrafficUplink      int64                  `json:"traffic_uplink"`
+	TrafficDownlink    int64                  `json:"traffic_downlink"`
+	ExpireAt           *string                `json:"expire_at"` // ISO date or null
+	Enabled            bool                   `json:"enabled"`
+	CreatedAt          string                 `json:"created_at"`
+	InboundIDs         []uint                 `json:"inbound_ids"`
+	InboundTags        []string               `json:"inbound_tags"`
+	SubscriptionURL    string                 `json:"subscription_url"`
+	SubscriptionNodes  []subscriptionNodeItem  `json:"subscription_nodes,omitempty"` // only in GetUser detail
 }
 
 // extractRequestHost extracts the hostname (without port) from the request Host header.
@@ -50,15 +52,17 @@ func extractRequestHost(r *http.Request) string {
 
 func userFromDB(u *db.User, includeNodes bool, fallbackHost string) userItem {
 	item := userItem{
-		ID:            u.ID,
-		Name:          u.Name,
-		Remark:        u.Remark,
-		UUID:          u.UUID,
-		Password:      u.Password,
-		TrafficLimit:  u.TrafficLimit,
-		TrafficUsed:   u.TrafficUsed,
-		Enabled:       u.Enabled,
-		CreatedAt:     u.CreatedAt.Format(time.RFC3339),
+		ID:              u.ID,
+		Name:            u.Name,
+		Remark:          u.Remark,
+		UUID:            u.UUID,
+		Password:        u.Password,
+		TrafficLimit:    u.TrafficLimit,
+		TrafficUsed:     u.TrafficUsed,
+		TrafficUplink:   u.TrafficUplink,
+		TrafficDownlink: u.TrafficDownlink,
+		Enabled:         u.Enabled,
+		CreatedAt:       u.CreatedAt.Format(time.RFC3339),
 		InboundIDs:    make([]uint, 0, len(u.Inbounds)),
 		InboundTags:   make([]string, 0, len(u.Inbounds)),
 		SubscriptionURL: buildSubscriptionURL(u.SubscriptionToken),
@@ -467,6 +471,8 @@ func BatchUsersHandler(sm *scs.SessionManager) http.HandlerFunc {
 				case "disable":
 					updated.Enabled = false
 				case "reset_traffic":
+					updated.TrafficUplink = 0
+					updated.TrafficDownlink = 0
 					updated.TrafficUsed = 0
 				}
 				if err := db.UpdateUser(&updated); err != nil {
