@@ -29,7 +29,7 @@ const navItems: Array<{
   { to: "/inbounds", label: "入站", icon: Radio },
   { to: "/users", label: "用户", icon: Users, disabled: true },
   { to: "/subscriptions", label: "订阅", icon: Link2, disabled: true },
-  { to: "/certificates", label: "证书", icon: Shield, disabled: true },
+  { to: "/certificates", label: "证书", icon: Shield },
   { to: "/traffic", label: "流量", icon: Gauge, disabled: true },
   { to: "/core", label: "核心", icon: Box, disabled: true },
 ]
