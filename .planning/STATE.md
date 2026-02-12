@@ -10,14 +10,14 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 ## Current Position
 
-Phase: 7 of 8 (sing-box Core Management) — complete
-Plan: 2/2 complete
-Current Plan: Complete
-Total Plans in Phase: 2
-Status: Phase execution complete and verification passed
-Last activity: 2026-02-12 — Phase 7 verification passed
+Phase: 8 of 8 (Deployment & Production)
+Plan: 3/4 complete
+Current Plan: 08-03 complete
+Total Plans in Phase: 4
+Status: Plan 08-03 execution complete
+Last activity: 2026-02-12 — Phase 8 Plan 03 complete
 
-Progress: [██████████] 100% (Phase 7)
+Progress: [███████░░░] 75% (Phase 8)
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [██████████] 100% (Phase 7)
 | Phase 06-traffic-statistics P03 | 2 | 2 tasks | 6 files |
 | Phase 07 P01 | 5 | 2 tasks | 4 files |
 | Phase 07-core-management P02 | 5 | 2 tasks | 1 files |
+| Phase 08-deployment-production P03 | 12 | 2 tasks | 1 file |
 
 ## Accumulated Context
 
@@ -89,6 +90,7 @@ Recent decisions affecting current work:
 - 07-01: binaryPath: SINGBOX_BINARY_PATH or dataDir/bin/sing-box; CoreUpdater ListReleases, Update, Rollback; single .backup; GET /versions, POST /update, POST /rollback
 - 07-02: Dashboard CoreVersionCard: current+latest, update/rollback with confirm, version list modal, new-version badge
 - [Phase 07-core-management]: Dashboard card badge only for new version; latestStable=first prerelease=false
+- 08-03: install.sh with install/update/uninstall; GITHUB_REPO=HodgeWen/proxy-ui; INSTALL_DIR=/usr/local/s-ui
 
 ### Pending Todos
 
@@ -101,5 +103,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Phase 7 complete, ready for Phase 8 planning
+Stopped at: Completed 08-03-PLAN.md (bash install script)
 Resume file: None
