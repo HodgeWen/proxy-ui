@@ -18,6 +18,7 @@
 - [x] **Phase 6: Traffic Statistics** - 按用户/按入站流量统计 ✓ (2026-02-12)
 - [x] **Phase 7: sing-box Core Management** - 核心更新/回滚 ✓ (2026-02-12)
 - [x] **Phase 8: Deployment & Production** - HTTPS、Docker、bash、单二进制 ✓ (2026-02-12)
+- [ ] **Phase 9: Certificate Config Sync (Gap Closure)** - 证书更新配置联动修复（v1.0 审计补缺）
 
 ## Phase Details
 
@@ -209,10 +210,34 @@ Plans:
 
 ---
 
+### Phase 9: Certificate Config Sync (Gap Closure)
+
+**Goal**: 修复证书更新后配置未联动问题，确保更新证书路径后立即重生成配置并应用到 sing-box
+
+**Depends on**: Phase 3, Phase 1
+
+**Requirements**: CRT-02, COR-01
+
+**Gap Closure**: Closes gaps from audit (`v1.0-MILESTONE-AUDIT.md` integration gap: Cert update -> Generate -> Apply)
+
+**Success Criteria** (what must be TRUE):
+  1. `UpdateCertificateHandler` 在更新证书后自动执行 `Generate -> ApplyConfig -> Restart`
+  2. 若配置应用失败，证书更新会回滚，API 返回明确错误信息
+  3. 关联该证书的入站在证书更新后立即生效，无需额外入站/用户变更触发
+
+**Plans:** 3 plans
+
+Plans:
+- [ ] 09-01-PLAN.md — Backend wiring: UpdateCertificateHandler 触发 Generate/Apply/Restart
+- [ ] 09-02-PLAN.md — 回滚策略与错误处理一致化
+- [ ] 09-03-PLAN.md — 补充验证覆盖（证书路径更新后立即生效）
+
+---
+
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -224,3 +249,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 6. Traffic Statistics | 3/3 | ✓ Complete | 2026-02-12 |
 | 7. sing-box Core Management | 2/2 | ✓ Complete | 2026-02-12 |
 | 8. Deployment & Production | 4/4 | ✓ Complete | 2026-02-12 |
+| 9. Certificate Config Sync (Gap Closure) | 0/3 | ○ Planned | — |
