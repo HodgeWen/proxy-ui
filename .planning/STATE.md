@@ -10,14 +10,14 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 ## Current Position
 
-Phase: 2 of 8 (Inbound Management) ✓ COMPLETE
-Plan: 6/6 complete
-Current Plan: —
-Total Plans in Phase: 6
-Status: Phase verified (6/6 must-haves passed) — ready for Phase 3
-Last activity: 2026-02-11 — Phase 2 verification passed
+Phase: 3 of 8 (Certificate Management)
+Plan: 1/3 complete
+Current Plan: 02
+Total Plans in Phase: 3
+Status: Ready to execute
+Last activity: 2026-02-12 — Plan 03-01 complete
 
-Progress: [██████████] 100% (Phase 2)
+Progress: [███░░░░░░░] 33% (Phase 3)
 
 ## Performance Metrics
 
@@ -40,6 +40,7 @@ Progress: [██████████] 100% (Phase 2)
 | Phase 01-foundation P03 | 5 | 3 tasks | 20+ files |
 | Phase 02-inbound-management P01 | 5 | 2 tasks | 4 files |
 | Phase 02 P02 | 1 | 2 tasks | 1 files |
+| Phase 03-certificate-management P01 | 2 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -59,6 +60,7 @@ Recent decisions affecting current work:
 - 02-05: GET /api/inbounds/:id returns config_json for edit form; InboundFormModal with react-hook-form, zod, info tooltips
 - 02-06: Protocol sync when editing Hysteria2 inbound; FieldLabel for protocol and TLS type
 - [Phase 02]: ConfigGenerator reads from DB via ListInbounds; produces full sing-box JSON; VLESS/Hysteria2 inbound mapping
+- 03-01: Certificate model with CRUD; ConfigGenerator resolves certificate_id to paths; backward compat with inline paths
 
 ### Pending Todos
 
@@ -70,6 +72,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-11
-Stopped at: Phase 2 verified and complete
+Last session: 2026-02-12
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None
