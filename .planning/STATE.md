@@ -6,18 +6,18 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 **Core value:** 提供一个界面美观、体验流畅、部署简单的 sing-box 管理面板
 
-**Current focus:** Phase 4 Complete — Ready for Phase 5
+**Current focus:** Phase 5 Complete — Ready for verification
 
 ## Current Position
 
 Phase: 5 of 8 (Subscription System)
-Plan: 2/3 complete (Task 3 checkpoint)
-Current Plan: 3
+Plan: 3/3 complete
+Current Plan: Complete
 Total Plans in Phase: 3
-Status: At checkpoint — awaiting human verification
-Last activity: 2026-02-12 — 05-03 Tasks 1–2 complete
+Status: All plans complete — awaiting verification
+Last activity: 2026-02-12 — Phase 5 all plans executed
 
-Progress: [██████░░░] 66% (Phase 5)
+Progress: [██████████] 100% (Phase 5)
 
 ## Performance Metrics
 
@@ -45,6 +45,9 @@ Progress: [██████░░░] 66% (Phase 5)
 | Phase 03-certificate-management P03 | 3 | 1 task | 1 file |
 | Phase 04-user-management P02 | 3 | 2 tasks | 4 files |
 | Phase 04-user-management P03 | 8 | 2 tasks | 8 files |
+| Phase 05-subscription-system P01 | 15 | 3 tasks | 9 files |
+| Phase 05-subscription-system P02 | 5 | 2 tasks | 3 files |
+| Phase 05-subscription-system P03 | 20 | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -74,6 +77,7 @@ Recent decisions affecting current work:
 - 04-04: Search query in TanStack Query key ["users", searchQ] to preserve filter after batch actions (RESEARCH Pitfall 5)
 - 05-01: Short token 16 chars a-z0-9 via crypto/rand; subscription-userinfo lowercase; host from tls.server_name
 - 05-02: SUB_URL_PREFIX env for full subscription URL; ListUsers subscription_url only; GetUser includes subscription_nodes
+- 05-03: Subscription info in separate modal (not edit form); fallbackHost from request Host header; VLESS non-TLS security=none
 
 ### Pending Todos
 
@@ -86,5 +90,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Checkpoint 05-03 Task 3 (human-verify)
+Stopped at: Phase 5 complete, awaiting verification
 Resume file: None
