@@ -6,18 +6,18 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 **Core value:** 提供一个界面美观、体验流畅、部署简单的 sing-box 管理面板
 
-**Current focus:** Phase 6 complete — Ready for Phase 7 planning
+**Current focus:** Phase 7 Plan 01 complete — CoreUpdater + API
 
 ## Current Position
 
-Phase: 6 of 8 (Traffic Statistics) — complete
-Plan: 3/3 complete
-Current Plan: Complete
-Total Plans in Phase: 3
-Status: Phase execution complete and verification passed
-Last activity: 2026-02-12 — Phase 6 verification passed
+Phase: 7 of 8 (Core Management)
+Plan: 1/2 complete
+Current Plan: 01-02
+Total Plans in Phase: 2
+Status: Ready to execute
+Last activity: 2026-02-12 — Phase 07 Plan 01 complete
 
-Progress: [██████████] 100% (Phase 6)
+Progress: [█████-----] 50% (Phase 7)
 
 ## Performance Metrics
 
@@ -50,6 +50,7 @@ Progress: [██████████] 100% (Phase 6)
 | Phase 05-subscription-system P03 | 20 | 3 tasks | 10 files |
 | Phase 06-traffic-statistics P02 | 102 | 2 tasks | 6 files |
 | Phase 06-traffic-statistics P03 | 2 | 2 tasks | 6 files |
+| Phase 07 P01 | 5 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,7 @@ Recent decisions affecting current work:
 - [Phase 06]: ListInbounds(sort string): traffic_asc/traffic_desc order by (traffic_uplink+traffic_downlink); default created_at DESC
 - [Phase 06]: reset_traffic clears TrafficUplink, TrafficDownlink, TrafficUsed
 - 06-03: formatBytes shared in lib; InboundTable/UserTable 上行/下行 columns; sort dropdown; 超限 in status badge
+- 07-01: binaryPath: SINGBOX_BINARY_PATH or dataDir/bin/sing-box; CoreUpdater ListReleases, Update, Rollback; single .backup; GET /versions, POST /update, POST /rollback
 
 ### Pending Todos
 
@@ -96,5 +98,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Phase 6 complete, ready for Phase 7 planning
+Stopped at: Completed 07-01-PLAN.md
 Resume file: None
