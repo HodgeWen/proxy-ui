@@ -25,8 +25,9 @@ type User struct {
 	Inbounds           []Inbound `gorm:"many2many:user_inbounds;"`
 }
 
-// generateSubscriptionToken returns a 16-char URL-safe token (a-z0-9).
-func generateSubscriptionToken() string {
+// GenerateSubscriptionToken returns a 16-char URL-safe token (a-z0-9).
+// Exported for API reset-subscription endpoint.
+func GenerateSubscriptionToken() string {
 	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
@@ -86,7 +87,7 @@ func CreateUser(u *User) error {
 		u.Password = uuid.NewString()
 	}
 	if u.SubscriptionToken == "" {
-		u.SubscriptionToken = generateSubscriptionToken()
+		u.SubscriptionToken = GenerateSubscriptionToken()
 	}
 	return DB.Create(u).Error
 }

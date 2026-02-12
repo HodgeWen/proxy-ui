@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/scs/v2"
@@ -322,6 +323,45 @@ func DeleteUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 			// Config applied; restart failure is best-effort
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// buildSubscriptionURL returns subscription URL path or full URL when SUB_URL_PREFIX is set.
+func buildSubscriptionURL(token string) string {
+	if token == "" {
+		return ""
+	}
+	path := "/sub/" + token
+	if prefix := os.Getenv("SUB_URL_PREFIX"); prefix != "" {
+		return strings.TrimSuffix(prefix, "/") + path
+	}
+	return path
+}
+
+// ResetSubscriptionHandler handles POST /api/users/:id/reset-subscription.
+func ResetSubscriptionHandler(sm *scs.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		idStr := chi.URLParam(r, "id")
+		id64, err := strconv.ParseUint(idStr, 10, 32)
+		if err != nil {
+			http.Error(w, "invalid id", http.StatusBadRequest)
+			return
+		}
+		id := uint(id64)
+		u, err := db.GetUserByID(id)
+		if err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		token := db.GenerateSubscriptionToken()
+		u.SubscriptionToken = token
+		if err := db.UpdateUser(u); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"subscription_url": buildSubscriptionURL(token)})
 	}
 }
 

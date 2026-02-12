@@ -26,7 +26,7 @@ func backfillSubscriptionTokens() error {
 		return err
 	}
 	for i := range users {
-		users[i].SubscriptionToken = generateSubscriptionToken()
+		users[i].SubscriptionToken = GenerateSubscriptionToken()
 		if err := DB.Model(&users[i]).Update("subscription_token", users[i].SubscriptionToken).Error; err != nil {
 			return err
 		}
