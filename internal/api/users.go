@@ -39,7 +39,16 @@ type userItem struct {
 	SubscriptionNodes  []subscriptionNodeItem `json:"subscription_nodes,omitempty"` // only in GetUser detail
 }
 
-func userFromDB(u *db.User, includeNodes bool) userItem {
+// extractRequestHost extracts the hostname (without port) from the request Host header.
+func extractRequestHost(r *http.Request) string {
+	host := r.Host
+	if idx := strings.LastIndex(host, ":"); idx > 0 {
+		host = host[:idx]
+	}
+	return host
+}
+
+func userFromDB(u *db.User, includeNodes bool, fallbackHost string) userItem {
 	item := userItem{
 		ID:            u.ID,
 		Name:          u.Name,
@@ -63,7 +72,7 @@ func userFromDB(u *db.User, includeNodes bool) userItem {
 		item.InboundTags = append(item.InboundTags, ib.Tag)
 	}
 	if includeNodes {
-		nodeLinks := core.GetNodeLinks(u)
+		nodeLinks := core.GetNodeLinks(u, fallbackHost)
 		item.SubscriptionNodes = make([]subscriptionNodeItem, len(nodeLinks))
 		for i, nl := range nodeLinks {
 			item.SubscriptionNodes[i] = subscriptionNodeItem{Name: nl.Name, Link: nl.Link}
@@ -83,7 +92,7 @@ func ListUsersHandler(sm *scs.SessionManager) http.HandlerFunc {
 		}
 		items := make([]userItem, len(users))
 		for i := range users {
-			items[i] = userFromDB(&users[i], false)
+			items[i] = userFromDB(&users[i], false, "")
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"data": items})
@@ -106,7 +115,7 @@ func GetUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(userFromDB(u, true))
+		json.NewEncoder(w).Encode(userFromDB(u, true, extractRequestHost(r)))
 	}
 }
 
@@ -205,7 +214,7 @@ func CreateUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(userFromDB(u, false))
+		json.NewEncoder(w).Encode(userFromDB(u, false, ""))
 	}
 }
 
@@ -239,15 +248,16 @@ func UpdateUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 			return
 		}
 		u := &db.User{
-			ID:           id,
-			Name:         req.Name,
-			Remark:       req.Remark,
-			UUID:         old.UUID,
-			Password:     old.Password,
-			TrafficLimit: old.TrafficLimit,
-			TrafficUsed:  old.TrafficUsed,
-			ExpireAt:     expireAt,
-			Enabled:      old.Enabled,
+			ID:                id,
+			Name:              req.Name,
+			Remark:            req.Remark,
+			UUID:              old.UUID,
+			Password:          old.Password,
+			SubscriptionToken: old.SubscriptionToken,
+			TrafficLimit:      old.TrafficLimit,
+			TrafficUsed:       old.TrafficUsed,
+			ExpireAt:          expireAt,
+			Enabled:           old.Enabled,
 		}
 		if req.TrafficLimit != nil {
 			u.TrafficLimit = *req.TrafficLimit
@@ -283,7 +293,7 @@ func UpdateUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 		}
 		u, _ = db.GetUserByID(id)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(userFromDB(u, false))
+		json.NewEncoder(w).Encode(userFromDB(u, false, ""))
 	}
 }
 

@@ -40,7 +40,7 @@ func TestGenerateBase64(t *testing.T) {
 		t.Fatalf("GetUserByID: %v", err)
 	}
 
-	body, err := GenerateBase64(got)
+	body, err := GenerateBase64(got, "")
 	if err != nil {
 		t.Fatalf("GenerateBase64: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestGenerateClash(t *testing.T) {
 		t.Fatalf("GetUserByID: %v", err)
 	}
 
-	body, err := GenerateClash(got)
+	body, err := GenerateClash(got, "")
 	if err != nil {
 		t.Fatalf("GenerateClash: %v", err)
 	}

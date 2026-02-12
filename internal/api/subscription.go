@@ -32,14 +32,20 @@ func SubscriptionHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Extract hostname from request Host header as fallback for inbounds without tls.server_name
+	fallbackHost := r.Host
+	if idx := strings.LastIndex(fallbackHost, ":"); idx > 0 {
+		fallbackHost = fallbackHost[:idx]
+	}
+
 	wantClash := r.URL.Query().Get("format") == "clash" ||
 		strings.Contains(strings.ToLower(r.Header.Get("User-Agent")), "clash")
 
 	var body []byte
 	if wantClash {
-		body, err = core.GenerateClash(user)
+		body, err = core.GenerateClash(user, fallbackHost)
 	} else {
-		body, err = core.GenerateBase64(user)
+		body, err = core.GenerateBase64(user, fallbackHost)
 	}
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
