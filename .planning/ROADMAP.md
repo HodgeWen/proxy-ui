@@ -85,11 +85,12 @@ Plans:
   1. 管理员可手动指定 TLS 证书路径（fullchain + privkey）
   2. 管理员可将证书关联到入站配置的 TLS 选项
 
-**Plans**: TBD (预计 2–3 plans)
+**Plans:** 3 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md — Certificate model + DB + ConfigGenerator resolve cert_id
+- [ ] 03-02-PLAN.md — Cert CRUD API + certificates list/form UI
+- [ ] 03-03-PLAN.md — InboundFormModal TLS cert selector
 
 ---
 
