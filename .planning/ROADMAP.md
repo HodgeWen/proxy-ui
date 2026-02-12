@@ -110,12 +110,13 @@ Plans:
   5. 管理员可通过关键字搜索和筛选用户列表
   6. 管理员可批量选择用户执行删除、启用/禁用、流量重置操作
 
-**Plans**: TBD (预计 5–6 plans)
+**Plans:** 4 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
-- [ ] 04-03: TBD
+- [ ] 04-01-PLAN.md — User model + ConfigGenerator (derive users from DB)
+- [ ] 04-02-PLAN.md — User CRUD API + batch endpoint
+- [ ] 04-03-PLAN.md — Users page + table + UserFormModal
+- [ ] 04-04-PLAN.md — Search + batch UI + verify
 
 ---
 
