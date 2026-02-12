@@ -11,13 +11,13 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 3 of 8 (Certificate Management)
-Plan: 1/3 complete
-Current Plan: 02
+Plan: 2/3 complete
+Current Plan: 03
 Total Plans in Phase: 3
 Status: Ready to execute
-Last activity: 2026-02-12 — Plan 03-01 complete
+Last activity: 2026-02-12 — Plan 03-02 complete
 
-Progress: [███░░░░░░░] 33% (Phase 3)
+Progress: [██████░░░░] 67% (Phase 3)
 
 ## Performance Metrics
 
@@ -41,6 +41,7 @@ Progress: [███░░░░░░░] 33% (Phase 3)
 | Phase 02-inbound-management P01 | 5 | 2 tasks | 4 files |
 | Phase 02 P02 | 1 | 2 tasks | 1 files |
 | Phase 03-certificate-management P01 | 2 | 2 tasks | 3 files |
+| Phase 03-certificate-management P02 | 5 | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -61,6 +62,7 @@ Recent decisions affecting current work:
 - 02-06: Protocol sync when editing Hysteria2 inbound; FieldLabel for protocol and TLS type
 - [Phase 02]: ConfigGenerator reads from DB via ListInbounds; produces full sing-box JSON; VLESS/Hysteria2 inbound mapping
 - 03-01: Certificate model with CRUD; ConfigGenerator resolves certificate_id to paths; backward compat with inline paths
+- 03-02: Cert CRUD API; Certificates page with table and form; delete blocked when cert in use
 
 ### Pending Todos
 
@@ -73,5 +75,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 03-01-PLAN.md
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None
