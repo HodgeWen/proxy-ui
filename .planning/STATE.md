@@ -11,13 +11,13 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 4 of 8 (User Management)
-Plan: 3/4 complete
-**Current Plan:** 03
+Plan: 4/4 in progress
+**Current Plan:** 04
 **Total Plans in Phase:** 4
-**Status:** Phase 4 Plan 3 complete — User UI
+**Status:** Phase 4 Plan 4 Task 1 complete — awaiting human verification (Task 2)
 **Last activity:** 2026-02-12
 
-Progress: [██████░░░░] 50% (Phase 4)
+Progress: [███████░░░] 60% (Phase 4)
 
 ## Performance Metrics
 
@@ -71,6 +71,7 @@ Recent decisions affecting current work:
 - [Phase 04-user-management]: Batch rollback uses snapshot-and-revert (Generate reads committed state)
 - [Phase 04-user-management]: Traffic limit: user enters GB in form; convert to bytes for API (0 = unlimited)
 - [Phase 04-user-management]: Expire_at: date input YYYY-MM-DD; send ISO midnight for API
+- 04-04: Search query in TanStack Query key ["users", searchQ] to preserve filter after batch actions (RESEARCH Pitfall 5)
 
 ### Pending Todos
 
@@ -83,5 +84,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 04-03-PLAN.md
+Stopped at: Checkpoint 04-04 Task 2 — awaiting human verification
 Resume file: None
