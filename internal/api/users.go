@@ -15,35 +15,44 @@ import (
 	"github.com/s-ui/s-ui/internal/db"
 )
 
-// userItem is the API response shape for list/get.
-type userItem struct {
-	ID           uint     `json:"id"`
-	Name         string   `json:"name"`
-	Remark       string   `json:"remark"`
-	UUID         string   `json:"uuid"`
-	Password     string   `json:"password"`
-	TrafficLimit int64    `json:"traffic_limit"`
-	TrafficUsed  int64    `json:"traffic_used"`
-	ExpireAt     *string  `json:"expire_at"` // ISO date or null
-	Enabled      bool     `json:"enabled"`
-	CreatedAt    string   `json:"created_at"`
-	InboundIDs   []uint   `json:"inbound_ids"`
-	InboundTags  []string `json:"inbound_tags"`
+// subscriptionNodeItem is a single node link for admin display.
+type subscriptionNodeItem struct {
+	Name string `json:"name"`
+	Link string `json:"link"`
 }
 
-func userFromDB(u *db.User) userItem {
+// userItem is the API response shape for list/get.
+type userItem struct {
+	ID                 uint                  `json:"id"`
+	Name               string               `json:"name"`
+	Remark             string               `json:"remark"`
+	UUID               string               `json:"uuid"`
+	Password           string               `json:"password"`
+	TrafficLimit       int64                `json:"traffic_limit"`
+	TrafficUsed        int64                `json:"traffic_used"`
+	ExpireAt           *string              `json:"expire_at"` // ISO date or null
+	Enabled            bool                 `json:"enabled"`
+	CreatedAt          string               `json:"created_at"`
+	InboundIDs         []uint               `json:"inbound_ids"`
+	InboundTags        []string             `json:"inbound_tags"`
+	SubscriptionURL    string               `json:"subscription_url"`
+	SubscriptionNodes  []subscriptionNodeItem `json:"subscription_nodes,omitempty"` // only in GetUser detail
+}
+
+func userFromDB(u *db.User, includeNodes bool) userItem {
 	item := userItem{
-		ID:           u.ID,
-		Name:         u.Name,
-		Remark:       u.Remark,
-		UUID:         u.UUID,
-		Password:     u.Password,
-		TrafficLimit: u.TrafficLimit,
-		TrafficUsed:  u.TrafficUsed,
-		Enabled:      u.Enabled,
-		CreatedAt:    u.CreatedAt.Format(time.RFC3339),
-		InboundIDs:   make([]uint, 0, len(u.Inbounds)),
-		InboundTags:  make([]string, 0, len(u.Inbounds)),
+		ID:            u.ID,
+		Name:          u.Name,
+		Remark:        u.Remark,
+		UUID:          u.UUID,
+		Password:      u.Password,
+		TrafficLimit:  u.TrafficLimit,
+		TrafficUsed:   u.TrafficUsed,
+		Enabled:       u.Enabled,
+		CreatedAt:     u.CreatedAt.Format(time.RFC3339),
+		InboundIDs:    make([]uint, 0, len(u.Inbounds)),
+		InboundTags:   make([]string, 0, len(u.Inbounds)),
+		SubscriptionURL: buildSubscriptionURL(u.SubscriptionToken),
 	}
 	if u.ExpireAt != nil {
 		s := u.ExpireAt.Format(time.RFC3339)
@@ -52,6 +61,13 @@ func userFromDB(u *db.User) userItem {
 	for _, ib := range u.Inbounds {
 		item.InboundIDs = append(item.InboundIDs, ib.ID)
 		item.InboundTags = append(item.InboundTags, ib.Tag)
+	}
+	if includeNodes {
+		nodeLinks := core.GetNodeLinks(u)
+		item.SubscriptionNodes = make([]subscriptionNodeItem, len(nodeLinks))
+		for i, nl := range nodeLinks {
+			item.SubscriptionNodes[i] = subscriptionNodeItem{Name: nl.Name, Link: nl.Link}
+		}
 	}
 	return item
 }
@@ -67,7 +83,7 @@ func ListUsersHandler(sm *scs.SessionManager) http.HandlerFunc {
 		}
 		items := make([]userItem, len(users))
 		for i := range users {
-			items[i] = userFromDB(&users[i])
+			items[i] = userFromDB(&users[i], false)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"data": items})
@@ -90,7 +106,7 @@ func GetUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(userFromDB(u))
+		json.NewEncoder(w).Encode(userFromDB(u, true))
 	}
 }
 
@@ -189,7 +205,7 @@ func CreateUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(userFromDB(u))
+		json.NewEncoder(w).Encode(userFromDB(u, false))
 	}
 }
 
@@ -267,7 +283,7 @@ func UpdateUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 		}
 		u, _ = db.GetUserByID(id)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(userFromDB(u))
+		json.NewEncoder(w).Encode(userFromDB(u, false))
 	}
 }
 
