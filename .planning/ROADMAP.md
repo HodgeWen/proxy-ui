@@ -202,7 +202,7 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
-- [ ] 08-01-PLAN.md — Panel config + HTTPS proxy (auto-generate, FORCE_HTTPS, reverse proxy docs)
+- [ ] 08-01-PLAN.md — Pure-Go SQLite migration + Panel config + HTTPS proxy
 - [ ] 08-02-PLAN.md — Docker (Dockerfile + compose, single container s-ui+sing-box)
 - [ ] 08-03-PLAN.md — Install script (curl|bash, systemd, install/update/uninstall)
 - [ ] 08-04-PLAN.md — GitHub Actions release (tag v* → build amd64/arm64, publish)
