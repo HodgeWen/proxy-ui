@@ -109,5 +109,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 08-02-PLAN.md (Docker Compose deployment)
+Stopped at: Completed 08-04-PLAN.md (GitHub Actions release workflow, Makefile build-release)
 Resume file: None
