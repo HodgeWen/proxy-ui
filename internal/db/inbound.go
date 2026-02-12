@@ -23,9 +23,19 @@ func (Inbound) TableName() string {
 	return "inbounds"
 }
 
-func ListInbounds() ([]Inbound, error) {
+// ListInbounds returns inbounds. sort: "traffic_asc", "traffic_desc", or empty (default created_at desc).
+func ListInbounds(sort string) ([]Inbound, error) {
 	var inbounds []Inbound
-	err := DB.Order("created_at DESC").Find(&inbounds).Error
+	q := DB
+	switch sort {
+	case "traffic_asc":
+		q = q.Order("(traffic_uplink + traffic_downlink) ASC")
+	case "traffic_desc":
+		q = q.Order("(traffic_uplink + traffic_downlink) DESC")
+	default:
+		q = q.Order("created_at DESC")
+	}
+	err := q.Find(&inbounds).Error
 	return inbounds, err
 }
 

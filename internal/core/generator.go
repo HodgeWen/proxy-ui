@@ -12,7 +12,7 @@ type ConfigGenerator struct{}
 
 // Generate reads all inbounds from DB and builds full sing-box config JSON.
 func (g *ConfigGenerator) Generate() ([]byte, error) {
-	inbounds, err := db.ListInbounds()
+	inbounds, err := db.ListInbounds("")
 	if err != nil {
 		return nil, err
 	}

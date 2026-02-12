@@ -47,7 +47,7 @@ func DeleteCertificate(id uint) error {
 
 // InboundsReferencingCert returns tags of inbounds whose config_json references this cert via tls.certificate_id.
 func InboundsReferencingCert(certID uint) ([]string, error) {
-	inbounds, err := ListInbounds()
+	inbounds, err := ListInbounds("")
 	if err != nil {
 		return nil, err
 	}

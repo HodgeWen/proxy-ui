@@ -16,15 +16,17 @@ import (
 
 // inboundItem is the API response shape for list/get.
 type inboundItem struct {
-	ID            uint   `json:"id"`
-	Tag           string `json:"tag"`
-	Protocol      string `json:"protocol"`
-	Listen        string `json:"listen"`
-	ListenPort    uint   `json:"listen_port"`
-	TLSType       string `json:"tls_type"`
-	TransportType string `json:"transport_type"`
-	UserCount     int    `json:"user_count"`
-	CreatedAt     string `json:"created_at"`
+	ID              uint   `json:"id"`
+	Tag             string `json:"tag"`
+	Protocol        string `json:"protocol"`
+	Listen          string `json:"listen"`
+	ListenPort      uint   `json:"listen_port"`
+	TLSType         string `json:"tls_type"`
+	TransportType   string `json:"transport_type"`
+	UserCount       int    `json:"user_count"`
+	TrafficUplink   int64  `json:"traffic_uplink"`
+	TrafficDownlink int64  `json:"traffic_downlink"`
+	CreatedAt       string `json:"created_at"`
 }
 
 // deriveTLSAndTransport extracts tls_type and transport_type from config_json.
@@ -57,15 +59,17 @@ func deriveTLSAndTransport(configJSON []byte) (tlsType, transportType string) {
 func inboundFromDB(ib *db.Inbound) inboundItem {
 	tlsType, transportType := deriveTLSAndTransport(ib.ConfigJSON)
 	return inboundItem{
-		ID:            ib.ID,
-		Tag:           ib.Tag,
-		Protocol:      ib.Protocol,
-		Listen:        ib.Listen,
-		ListenPort:    ib.ListenPort,
-		TLSType:       tlsType,
-		TransportType: transportType,
-		UserCount:     0,
-		CreatedAt:     ib.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		ID:              ib.ID,
+		Tag:             ib.Tag,
+		Protocol:        ib.Protocol,
+		Listen:          ib.Listen,
+		ListenPort:      ib.ListenPort,
+		TLSType:         tlsType,
+		TransportType:   transportType,
+		UserCount:       0,
+		TrafficUplink:   ib.TrafficUplink,
+		TrafficDownlink: ib.TrafficDownlink,
+		CreatedAt:       ib.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
 
@@ -78,7 +82,8 @@ type inboundDetail struct {
 // ListInboundsHandler returns GET /api/inbounds handler.
 func ListInboundsHandler(sm *scs.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		inbounds, err := db.ListInbounds()
+		sort := r.URL.Query().Get("sort")
+		inbounds, err := db.ListInbounds(sort)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
