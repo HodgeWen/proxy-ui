@@ -13,5 +13,23 @@ func Init(path string) error {
 	if err != nil {
 		return err
 	}
-	return DB.AutoMigrate(&Admin{}, &Inbound{}, &Certificate{}, &User{})
+	if err := DB.AutoMigrate(&Admin{}, &Inbound{}, &Certificate{}, &User{}); err != nil {
+		return err
+	}
+	return backfillSubscriptionTokens()
+}
+
+// backfillSubscriptionTokens sets SubscriptionToken for existing users with empty token.
+func backfillSubscriptionTokens() error {
+	var users []User
+	if err := DB.Where("COALESCE(subscription_token, '') = ?", "").Find(&users).Error; err != nil {
+		return err
+	}
+	for i := range users {
+		users[i].SubscriptionToken = generateSubscriptionToken()
+		if err := DB.Model(&users[i]).Update("subscription_token", users[i].SubscriptionToken).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }

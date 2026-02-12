@@ -1,6 +1,7 @@
 package db
 
 import (
+	"crypto/rand"
 	"time"
 
 	"github.com/google/uuid"
@@ -9,18 +10,32 @@ import (
 
 // User represents a proxy user (VLESS/Hysteria2 client).
 type User struct {
-	ID           uint      `gorm:"primaryKey"`
-	Name         string    `gorm:"size:100;not null"`
-	Remark       string    `gorm:"size:255"`
-	UUID         string    `gorm:"size:36;uniqueIndex"` // VLESS; auto-generated
-	Password     string    `gorm:"size:255"`            // Hysteria2; auto-generated
-	TrafficLimit int64     `gorm:"default:0"`          // bytes; 0 = unlimited
-	TrafficUsed  int64     `gorm:"default:0"`          // bytes
-	ExpireAt     *time.Time                            // nil = no expiry
-	Enabled      bool      `gorm:"default:true"`
-	CreatedAt    time.Time `gorm:"autoCreateTime"`
-	UpdatedAt    time.Time `gorm:"autoUpdateTime"`
-	Inbounds     []Inbound `gorm:"many2many:user_inbounds;"`
+	ID                 uint      `gorm:"primaryKey"`
+	Name               string    `gorm:"size:100;not null"`
+	Remark             string    `gorm:"size:255"`
+	UUID               string    `gorm:"size:36;uniqueIndex"` // VLESS; auto-generated
+	Password           string    `gorm:"size:255"`            // Hysteria2; auto-generated
+	SubscriptionToken  string    `gorm:"size:32;uniqueIndex"`  // short token for /sub/{token}
+	TrafficLimit       int64     `gorm:"default:0"`            // bytes; 0 = unlimited
+	TrafficUsed        int64     `gorm:"default:0"`            // bytes
+	ExpireAt           *time.Time                            // nil = no expiry
+	Enabled            bool      `gorm:"default:true"`
+	CreatedAt          time.Time `gorm:"autoCreateTime"`
+	UpdatedAt          time.Time `gorm:"autoUpdateTime"`
+	Inbounds           []Inbound `gorm:"many2many:user_inbounds;"`
+}
+
+// generateSubscriptionToken returns a 16-char URL-safe token (a-z0-9).
+func generateSubscriptionToken() string {
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	for i := range b {
+		b[i] = charset[int(b[i])%len(charset)]
+	}
+	return string(b)
 }
 
 func (User) TableName() string {
@@ -49,13 +64,29 @@ func GetUserByID(id uint) (*User, error) {
 	return &u, nil
 }
 
-// CreateUser creates a user. Auto-generates UUID and Password if empty.
+// GetUserBySubscriptionToken returns a user by subscription token, or nil if not found.
+func GetUserBySubscriptionToken(token string) (*User, error) {
+	if token == "" {
+		return nil, gorm.ErrRecordNotFound
+	}
+	var u User
+	err := DB.Preload("Inbounds").Where("subscription_token = ?", token).First(&u).Error
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// CreateUser creates a user. Auto-generates UUID, Password, and SubscriptionToken if empty.
 func CreateUser(u *User) error {
 	if u.UUID == "" {
 		u.UUID = uuid.NewString()
 	}
 	if u.Password == "" {
 		u.Password = uuid.NewString()
+	}
+	if u.SubscriptionToken == "" {
+		u.SubscriptionToken = generateSubscriptionToken()
 	}
 	return DB.Create(u).Error
 }
