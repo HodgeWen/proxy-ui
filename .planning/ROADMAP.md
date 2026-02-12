@@ -135,12 +135,12 @@ Plans:
   4. 用户可为每个节点生成 QR 码（支持扫码导入客户端）
   5. 订阅链接附带信息页，显示用户用量、到期时间、节点列表
 
-**Plans**: TBD (预计 4–5 plans)
+**Plans:** 3 plans
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
-- [ ] 05-03: TBD
+- [ ] 05-01-PLAN.md — Subscription token + generator + GET /sub/{token}
+- [ ] 05-02-PLAN.md — Admin API: reset token, subscription_url/nodes in GetUser
+- [ ] 05-03-PLAN.md — UserSubscriptionCard (QR, copy, reset) in UserFormModal
 
 ---
 
