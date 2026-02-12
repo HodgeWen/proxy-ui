@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/alexedwards/scs/v2"
+	"github.com/s-ui/s-ui/internal/config"
 	"github.com/s-ui/s-ui/internal/core"
 )
 
@@ -23,28 +24,21 @@ func RequireAuth(sm *scs.SessionManager) func(http.Handler) http.Handler {
 	}
 }
 
-func configPath() string {
-	if p := os.Getenv("SINGBOX_CONFIG_PATH"); p != "" {
-		return p
-	}
-	return "./config.json"
+func configPath(cfg *config.Config) string {
+	return cfg.SingboxConfigPath
 }
 
-func binaryPath() string {
-	if p := os.Getenv("SINGBOX_BINARY_PATH"); p != "" {
-		return p
+func binaryPath(cfg *config.Config) string {
+	if cfg.SingboxBinaryPath != "" {
+		return cfg.SingboxBinaryPath
 	}
-	dataDir := os.Getenv("DATA_DIR")
-	if dataDir == "" {
-		dataDir = "./data"
-	}
-	return filepath.Join(dataDir, "bin", "sing-box")
+	return filepath.Join(cfg.DataDir, "bin", "sing-box")
 }
 
 // StatusHandler returns sing-box running state and version.
-func StatusHandler(sm *scs.SessionManager) http.HandlerFunc {
+func StatusHandler(sm *scs.SessionManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		pm := core.NewProcessManager()
+		pm := core.NewProcessManagerFromConfig(cfg)
 		version, err := pm.Version()
 		if err != nil {
 			version = ""
@@ -59,14 +53,14 @@ func StatusHandler(sm *scs.SessionManager) http.HandlerFunc {
 }
 
 // RestartHandler restarts sing-box if config file exists.
-func RestartHandler(sm *scs.SessionManager) http.HandlerFunc {
+func RestartHandler(sm *scs.SessionManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		path := configPath()
+		path := configPath(cfg)
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			http.Error(w, "config file not found", http.StatusNotFound)
 			return
 		}
-		pm := core.NewProcessManager()
+		pm := core.NewProcessManagerFromConfig(cfg)
 		if err := pm.Restart(path); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -77,7 +71,7 @@ func RestartHandler(sm *scs.SessionManager) http.HandlerFunc {
 }
 
 // ConfigHandler applies JSON config body via ApplyConfig.
-func ConfigHandler(sm *scs.SessionManager) http.HandlerFunc {
+func ConfigHandler(sm *scs.SessionManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -88,7 +82,7 @@ func ConfigHandler(sm *scs.SessionManager) http.HandlerFunc {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
-		path := configPath()
+		path := configPath(cfg)
 		dir := filepath.Dir(path)
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			http.Error(w, "failed to create config dir", http.StatusInternalServerError)
@@ -106,9 +100,9 @@ func ConfigHandler(sm *scs.SessionManager) http.HandlerFunc {
 }
 
 // VersionsHandler returns GitHub releases for sing-box.
-func VersionsHandler(sm *scs.SessionManager) http.HandlerFunc {
+func VersionsHandler(sm *scs.SessionManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		u := core.NewCoreUpdater(binaryPath())
+		u := core.NewCoreUpdater(configPath(cfg), binaryPath(cfg))
 		releases, err := u.ListReleases()
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
@@ -124,13 +118,13 @@ func VersionsHandler(sm *scs.SessionManager) http.HandlerFunc {
 }
 
 // UpdateHandler updates sing-box to latest version.
-func UpdateHandler(sm *scs.SessionManager) http.HandlerFunc {
+func UpdateHandler(sm *scs.SessionManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		u := core.NewCoreUpdater(binaryPath())
+		u := core.NewCoreUpdater(configPath(cfg), binaryPath(cfg))
 		if err := u.Update(); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			if err.Error() == "请设置 SINGBOX_BINARY_PATH 以启用核心更新" {
@@ -147,13 +141,13 @@ func UpdateHandler(sm *scs.SessionManager) http.HandlerFunc {
 }
 
 // RollbackHandler restores sing-box from backup.
-func RollbackHandler(sm *scs.SessionManager) http.HandlerFunc {
+func RollbackHandler(sm *scs.SessionManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		u := core.NewCoreUpdater(binaryPath())
+		u := core.NewCoreUpdater(configPath(cfg), binaryPath(cfg))
 		if err := u.Rollback(); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			status := http.StatusInternalServerError

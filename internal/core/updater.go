@@ -24,13 +24,14 @@ type Release struct {
 
 // CoreUpdater manages sing-box binary updates from GitHub releases.
 type CoreUpdater struct {
+	configPath string
 	binaryPath string
 }
 
-// NewCoreUpdater creates a CoreUpdater for the given binary path.
+// NewCoreUpdater creates a CoreUpdater for the given config and binary paths.
 // When binaryPath is empty, Update() and Rollback() return an error.
-func NewCoreUpdater(binaryPath string) *CoreUpdater {
-	return &CoreUpdater{binaryPath: binaryPath}
+func NewCoreUpdater(configPath, binaryPath string) *CoreUpdater {
+	return &CoreUpdater{configPath: configPath, binaryPath: binaryPath}
 }
 
 // githubRelease is the GitHub API response shape.
@@ -110,8 +111,7 @@ func (u *CoreUpdater) Update() error {
 		return fmt.Errorf("请设置 SINGBOX_BINARY_PATH 以启用核心更新")
 	}
 
-	pm := NewProcessManagerWithBinary(ConfigPathFromEnv(), u.binaryPath)
-	configPath := pm.ConfigPath()
+	pm := NewProcessManagerWithBinary(u.configPath, u.binaryPath)
 
 	// 1. Stop
 	_ = execPkill("sing-box")
@@ -189,13 +189,13 @@ func (u *CoreUpdater) Update() error {
 	}
 
 	// 7. Verify
-	if out, err := pm.Check(configPath); err != nil {
+	if out, err := pm.Check(u.configPath); err != nil {
 		restoreBackup(u.binaryPath, backupPath)
 		return fmt.Errorf("verify failed: %w\n%s", err, out)
 	}
 
 	// 8. Start
-	if err := pm.Restart(configPath); err != nil {
+	if err := pm.Restart(u.configPath); err != nil {
 		return fmt.Errorf("restart: %w", err)
 	}
 	return nil
@@ -212,8 +212,7 @@ func (u *CoreUpdater) Rollback() error {
 		return fmt.Errorf("暂无备份可回滚")
 	}
 
-	pm := NewProcessManagerWithBinary(ConfigPathFromEnv(), u.binaryPath)
-	configPath := pm.ConfigPath()
+	pm := NewProcessManagerWithBinary(u.configPath, u.binaryPath)
 
 	// Stop
 	_ = execPkill("sing-box")
@@ -232,7 +231,7 @@ func (u *CoreUpdater) Rollback() error {
 		return fmt.Errorf("chmod: %w", err)
 	}
 
-	if err := pm.Restart(configPath); err != nil {
+	if err := pm.Restart(u.configPath); err != nil {
 		return fmt.Errorf("restart: %w", err)
 	}
 	return nil

@@ -9,6 +9,7 @@ import (
 
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/s-ui/s-ui/internal/config"
 	"github.com/s-ui/s-ui/internal/core"
 	"github.com/s-ui/s-ui/internal/db"
 	"gorm.io/datatypes"
@@ -140,7 +141,7 @@ type inboundUpdateRequest struct {
 }
 
 // CreateInboundHandler handles POST /api/inbounds.
-func CreateInboundHandler(sm *scs.SessionManager) http.HandlerFunc {
+func CreateInboundHandler(sm *scs.SessionManager, panelCfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req inboundCreateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -174,7 +175,7 @@ func CreateInboundHandler(sm *scs.SessionManager) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		path := configPath()
+		path := configPath(panelCfg)
 		dir := filepath.Dir(path)
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			db.DeleteInbound(ib.ID)
@@ -195,7 +196,7 @@ func CreateInboundHandler(sm *scs.SessionManager) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		pm := core.NewProcessManager()
+		pm := core.NewProcessManagerFromConfig(panelCfg)
 		if err := pm.Restart(path); err != nil {
 			// Config applied; restart failure is logged but inbound is persisted
 			// Per plan: apply succeeded, return 201. Restart is best-effort.
@@ -207,7 +208,7 @@ func CreateInboundHandler(sm *scs.SessionManager) http.HandlerFunc {
 }
 
 // UpdateInboundHandler handles PUT /api/inbounds/:id.
-func UpdateInboundHandler(sm *scs.SessionManager) http.HandlerFunc {
+func UpdateInboundHandler(sm *scs.SessionManager, panelCfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
 		id64, err := strconv.ParseUint(idStr, 10, 32)
@@ -256,7 +257,7 @@ func UpdateInboundHandler(sm *scs.SessionManager) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		path := configPath()
+		path := configPath(panelCfg)
 		gen := &core.ConfigGenerator{}
 		cfg, err := gen.Generate()
 		if err != nil {
@@ -271,7 +272,7 @@ func UpdateInboundHandler(sm *scs.SessionManager) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		pm := core.NewProcessManager()
+		pm := core.NewProcessManagerFromConfig(panelCfg)
 		if err := pm.Restart(path); err != nil {
 			// Config applied; restart failure is best-effort
 		}
@@ -281,7 +282,7 @@ func UpdateInboundHandler(sm *scs.SessionManager) http.HandlerFunc {
 }
 
 // DeleteInboundHandler handles DELETE /api/inbounds/:id.
-func DeleteInboundHandler(sm *scs.SessionManager) http.HandlerFunc {
+func DeleteInboundHandler(sm *scs.SessionManager, panelCfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
 		id64, err := strconv.ParseUint(idStr, 10, 32)
@@ -299,7 +300,7 @@ func DeleteInboundHandler(sm *scs.SessionManager) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		path := configPath()
+		path := configPath(panelCfg)
 		dir := filepath.Dir(path)
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			http.Error(w, "failed to create config dir", http.StatusInternalServerError)
@@ -318,7 +319,7 @@ func DeleteInboundHandler(sm *scs.SessionManager) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		pm := core.NewProcessManager()
+		pm := core.NewProcessManagerFromConfig(panelCfg)
 		if err := pm.Restart(path); err != nil {
 			// Config applied; restart failure is best-effort
 		}

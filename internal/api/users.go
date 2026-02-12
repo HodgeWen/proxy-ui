@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/s-ui/s-ui/internal/config"
 	"github.com/s-ui/s-ui/internal/core"
 	"github.com/s-ui/s-ui/internal/db"
 )
@@ -153,7 +154,7 @@ func parseExpireAt(s *string) (*time.Time, error) {
 }
 
 // CreateUserHandler handles POST /api/users.
-func CreateUserHandler(sm *scs.SessionManager) http.HandlerFunc {
+func CreateUserHandler(sm *scs.SessionManager, panelCfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req userCreateRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -191,7 +192,7 @@ func CreateUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		path := configPath()
+		path := configPath(panelCfg)
 		dir := filepath.Dir(path)
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			db.DeleteUser(u.ID)
@@ -212,7 +213,7 @@ func CreateUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		pm := core.NewProcessManager()
+		pm := core.NewProcessManagerFromConfig(panelCfg)
 		if err := pm.Restart(path); err != nil {
 			// Config applied; restart failure is best-effort
 		}
@@ -223,7 +224,7 @@ func CreateUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 }
 
 // UpdateUserHandler handles PUT /api/users/:id.
-func UpdateUserHandler(sm *scs.SessionManager) http.HandlerFunc {
+func UpdateUserHandler(sm *scs.SessionManager, panelCfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
 		id64, err := strconv.ParseUint(idStr, 10, 32)
@@ -274,7 +275,7 @@ func UpdateUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		path := configPath()
+		path := configPath(panelCfg)
 		gen := &core.ConfigGenerator{}
 		cfg, err := gen.Generate()
 		if err != nil {
@@ -291,7 +292,7 @@ func UpdateUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		pm := core.NewProcessManager()
+		pm := core.NewProcessManagerFromConfig(panelCfg)
 		if err := pm.Restart(path); err != nil {
 			// Config applied; restart failure is best-effort
 		}
@@ -310,7 +311,7 @@ func inboundIDsFromUsers(inbounds []db.Inbound) []uint {
 }
 
 // DeleteUserHandler handles DELETE /api/users/:id.
-func DeleteUserHandler(sm *scs.SessionManager) http.HandlerFunc {
+func DeleteUserHandler(sm *scs.SessionManager, panelCfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
 		id64, err := strconv.ParseUint(idStr, 10, 32)
@@ -328,7 +329,7 @@ func DeleteUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		path := configPath()
+		path := configPath(panelCfg)
 		dir := filepath.Dir(path)
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			http.Error(w, "failed to create config dir", http.StatusInternalServerError)
@@ -348,7 +349,7 @@ func DeleteUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		pm := core.NewProcessManager()
+		pm := core.NewProcessManagerFromConfig(panelCfg)
 		if err := pm.Restart(path); err != nil {
 			// Config applied; restart failure is best-effort
 		}
@@ -402,7 +403,7 @@ type batchRequest struct {
 }
 
 // BatchUsersHandler handles POST /api/users/batch.
-func BatchUsersHandler(sm *scs.SessionManager) http.HandlerFunc {
+func BatchUsersHandler(sm *scs.SessionManager, panelCfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req batchRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -492,7 +493,7 @@ func BatchUsersHandler(sm *scs.SessionManager) http.HandlerFunc {
 			}}
 		}
 
-		path := configPath()
+		path := configPath(panelCfg)
 		gen := &core.ConfigGenerator{}
 		cfg, err := gen.Generate()
 		if err != nil {
@@ -511,7 +512,7 @@ func BatchUsersHandler(sm *scs.SessionManager) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		pm := core.NewProcessManager()
+		pm := core.NewProcessManagerFromConfig(panelCfg)
 		if err := pm.Restart(path); err != nil {
 			// Config applied; restart failure is best-effort
 		}

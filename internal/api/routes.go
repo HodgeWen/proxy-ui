@@ -9,9 +9,10 @@ import (
 
 	"github.com/alexedwards/scs/v2"
 	"github.com/go-chi/chi/v5"
+	"github.com/s-ui/s-ui/internal/config"
 )
 
-func Routes(staticFS fs.FS, sm *scs.SessionManager) chi.Router {
+func Routes(staticFS fs.FS, sm *scs.SessionManager, cfg *config.Config) chi.Router {
 	r := chi.NewRouter()
 
 	r.Get("/sub/{token}", SubscriptionHandler)
@@ -27,20 +28,20 @@ func Routes(staticFS fs.FS, sm *scs.SessionManager) chi.Router {
 		r.Post("/logout", LogoutHandler(sm))
 		r.Route("/core", func(r chi.Router) {
 			r.Use(RequireAuth(sm))
-			r.Get("/status", StatusHandler(sm))
-			r.Get("/versions", VersionsHandler(sm))
-			r.Post("/restart", RestartHandler(sm))
-			r.Post("/config", ConfigHandler(sm))
-			r.Post("/update", UpdateHandler(sm))
-			r.Post("/rollback", RollbackHandler(sm))
+			r.Get("/status", StatusHandler(sm, cfg))
+			r.Get("/versions", VersionsHandler(sm, cfg))
+			r.Post("/restart", RestartHandler(sm, cfg))
+			r.Post("/config", ConfigHandler(sm, cfg))
+			r.Post("/update", UpdateHandler(sm, cfg))
+			r.Post("/rollback", RollbackHandler(sm, cfg))
 		})
 		r.Route("/inbounds", func(r chi.Router) {
 			r.Use(RequireAuth(sm))
 			r.Get("/", ListInboundsHandler(sm))
 			r.Get("/{id}", GetInboundHandler(sm))
-			r.Post("/", CreateInboundHandler(sm))
-			r.Put("/{id}", UpdateInboundHandler(sm))
-			r.Delete("/{id}", DeleteInboundHandler(sm))
+			r.Post("/", CreateInboundHandler(sm, cfg))
+			r.Put("/{id}", UpdateInboundHandler(sm, cfg))
+			r.Delete("/{id}", DeleteInboundHandler(sm, cfg))
 		})
 		r.Route("/certs", func(r chi.Router) {
 			r.Use(RequireAuth(sm))
@@ -53,12 +54,12 @@ func Routes(staticFS fs.FS, sm *scs.SessionManager) chi.Router {
 		r.Route("/users", func(r chi.Router) {
 			r.Use(RequireAuth(sm))
 			r.Get("/", ListUsersHandler(sm))
-			r.Post("/", CreateUserHandler(sm))
-			r.Post("/batch", BatchUsersHandler(sm))
+			r.Post("/", CreateUserHandler(sm, cfg))
+			r.Post("/batch", BatchUsersHandler(sm, cfg))
 			r.Post("/{id}/reset-subscription", ResetSubscriptionHandler(sm))
 			r.Get("/{id}", GetUserHandler(sm))
-			r.Put("/{id}", UpdateUserHandler(sm))
-			r.Delete("/{id}", DeleteUserHandler(sm))
+			r.Put("/{id}", UpdateUserHandler(sm, cfg))
+			r.Delete("/{id}", DeleteUserHandler(sm, cfg))
 		})
 	})
 

@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/s-ui/s-ui/internal/config"
 )
 
 // ProcessManager manages the sing-box process lifecycle.
@@ -22,6 +24,20 @@ func NewProcessManager() *ProcessManager {
 		configPath = "./config.json"
 	}
 	binaryPath := os.Getenv("SINGBOX_BINARY_PATH")
+	if binaryPath != "" {
+		dir := filepath.Dir(binaryPath)
+		_ = os.MkdirAll(dir, 0755)
+	}
+	return &ProcessManager{configPath: configPath, binaryPath: binaryPath}
+}
+
+// NewProcessManagerFromConfig creates a ProcessManager from panel config.
+func NewProcessManagerFromConfig(cfg *config.Config) *ProcessManager {
+	configPath := cfg.SingboxConfigPath
+	binaryPath := cfg.SingboxBinaryPath
+	if binaryPath == "" {
+		binaryPath = filepath.Join(cfg.DataDir, "bin", "sing-box")
+	}
 	if binaryPath != "" {
 		dir := filepath.Dir(binaryPath)
 		_ = os.MkdirAll(dir, 0755)

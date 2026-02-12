@@ -6,12 +6,12 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/robfig/cron/v3"
 	"github.com/s-ui/s-ui/internal/api"
+	"github.com/s-ui/s-ui/internal/config"
 	"github.com/s-ui/s-ui/internal/core"
 	"github.com/s-ui/s-ui/internal/db"
 	"github.com/s-ui/s-ui/internal/session"
@@ -19,13 +19,13 @@ import (
 )
 
 func main() {
-	dataDir := os.Getenv("DATA_DIR")
-	if dataDir == "" {
-		dataDir = "./data"
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("config: %v", err)
 	}
-	os.MkdirAll(dataDir, 0755)
 
-	dbPath := filepath.Join(dataDir, "s-ui.db")
+	_ = config.EnsureDir(cfg.DataDir)
+	dbPath := config.DBPath(cfg.DataDir)
 	if err := db.Init(dbPath); err != nil {
 		log.Fatalf("db init: %v", err)
 	}
@@ -60,17 +60,13 @@ func main() {
 		log.Fatalf("static fs: %v", err)
 	}
 
-	r := api.Routes(distFS, sm)
+	r := api.Routes(distFS, sm, cfg)
 	handler := sm.LoadAndSave(api.RequireSetupMiddleware(sm)(r))
 	chi.Walk(r, func(method, route string, h http.Handler, middlewares ...func(http.Handler) http.Handler) error {
 		log.Printf("%s %s", method, route)
 		return nil
 	})
 
-	addr := ":8080"
-	if a := os.Getenv("ADDR"); a != "" {
-		addr = a
-	}
-	log.Printf("listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, handler))
+	log.Printf("listening on %s", cfg.Addr)
+	log.Fatal(http.ListenAndServe(cfg.Addr, handler))
 }
