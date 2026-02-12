@@ -48,7 +48,7 @@ func Routes(staticFS fs.FS, sm *scs.SessionManager, cfg *config.Config) chi.Rout
 			r.Get("/", ListCertificatesHandler(sm))
 			r.Get("/{id}", GetCertificateHandler(sm))
 			r.Post("/", CreateCertificateHandler(sm))
-			r.Put("/{id}", UpdateCertificateHandler(sm))
+			r.Put("/{id}", UpdateCertificateHandler(sm, cfg))
 			r.Delete("/{id}", DeleteCertificateHandler(sm))
 		})
 		r.Route("/users", func(r chi.Router) {
