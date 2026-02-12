@@ -56,6 +56,7 @@ Progress: [██████████] 100% (Phase 9)
 | Phase 08 P01 | 6 | 4 tasks | 11 files |
 | Phase 08 P04 | 4 | 2 tasks | 3 files |
 | Phase 08 P02 | 8 | 2 tasks | 4 files |
+| Phase 09-certificate-config-sync P02 | 5 | 1 task | 1 file |
 | Phase 09-certificate-config-sync P03 | 2 | 1 task | 1 file |
 
 ## Accumulated Context
@@ -99,6 +100,7 @@ Recent decisions affecting current work:
 - 08-03: install.sh with install/update/uninstall; GITHUB_REPO=HodgeWen/proxy-ui; INSTALL_DIR=/usr/local/s-ui
 - 08-04: GitHub Actions release on tag push v*; build-release for linux/amd64 and arm64; action-gh-release
 - 09-01: UpdateCertificateHandler with Generate/Apply/Restart chain; rollback on ApplyConfig failure; routes pass panelCfg
+- 09-02: CertificateFormModal checkError display for ApplyConfig 400 failure; match InboundFormModal pattern
 - 09-03: 09-VERIFICATION.md with executable steps for Cert update -> Generate -> Apply -> Restart; closes v1.0-MILESTONE-AUDIT audit gap
 
 ### Pending Todos
@@ -112,5 +114,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 09-03-PLAN.md
+Stopped at: Completed 09-02-PLAN.md
 Resume file: None
