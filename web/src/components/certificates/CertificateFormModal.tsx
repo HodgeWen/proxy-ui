@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -80,6 +80,7 @@ export function CertificateFormModal({
   onSuccess,
 }: CertificateFormModalProps) {
   const queryClient = useQueryClient()
+  const [checkError, setCheckError] = useState<string | null>(null)
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     mode: "onBlur",
@@ -91,6 +92,7 @@ export function CertificateFormModal({
   })
 
   useEffect(() => {
+    setCheckError(null)
     if (certificate) {
       form.reset({
         name: certificate.name,
@@ -123,7 +125,11 @@ export function CertificateFormModal({
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      toast.error(data.error || "请求失败")
+      if (res.status === 400 && data.error) {
+        setCheckError(data.error)
+      } else {
+        toast.error(data.error || "请求失败")
+      }
       return
     }
 
@@ -139,6 +145,12 @@ export function CertificateFormModal({
         <DialogHeader>
           <DialogTitle>{certificate ? "编辑证书" : "添加证书"}</DialogTitle>
         </DialogHeader>
+
+        {checkError && (
+          <div className="rounded-lg bg-destructive/10 text-destructive p-3 text-sm">
+            <pre className="whitespace-pre-wrap">{checkError}</pre>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-1">
