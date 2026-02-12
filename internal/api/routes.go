@@ -14,6 +14,8 @@ import (
 func Routes(staticFS fs.FS, sm *scs.SessionManager) chi.Router {
 	r := chi.NewRouter()
 
+	r.Get("/sub/{token}", SubscriptionHandler)
+
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
