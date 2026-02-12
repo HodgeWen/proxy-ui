@@ -2,11 +2,14 @@ import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { UserTable, type User } from "@/components/users/UserTable"
 import { UserFormModal, type UserForEdit } from "@/components/users/UserFormModal"
+import { BatchActionBar } from "@/components/users/BatchActionBar"
 
-async function fetchUsers(): Promise<{ data: User[] }> {
-  const res = await fetch("/api/users", { credentials: "include" })
+async function fetchUsers(q?: string): Promise<{ data: User[] }> {
+  const url = q ? `/api/users?q=${encodeURIComponent(q)}` : "/api/users"
+  const res = await fetch(url, { credentials: "include" })
   if (!res.ok) throw new Error("获取用户列表失败")
   return res.json()
 }
@@ -16,10 +19,11 @@ export function Users() {
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [searchQ, setSearchQ] = useState("")
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["users"],
-    queryFn: fetchUsers,
+    queryKey: ["users", searchQ],
+    queryFn: () => fetchUsers(searchQ || undefined),
   })
 
   const { data: editingUser } = useQuery({
@@ -58,9 +62,28 @@ export function Users() {
       return
     }
     toast.success("用户已删除")
-    queryClient.invalidateQueries({ queryKey: ["users"] })
+    queryClient.invalidateQueries({ queryKey: ["users", searchQ] })
     setSelectedIds((prev) => prev.filter((i) => i !== id))
   }
+
+  const runBatchAction = async (action: string) => {
+    const res = await fetch("/api/users/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action, ids: selectedIds }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      toast.error(err.error || "批量操作失败")
+      return
+    }
+    toast.success("操作成功")
+    queryClient.invalidateQueries({ queryKey: ["users", searchQ] })
+    setSelectedIds([])
+  }
+
+  const handleBatchDelete = () => runBatchAction("delete")
 
   if (isLoading) {
     return (
@@ -86,6 +109,24 @@ export function Users() {
         <h1 className="text-2xl font-bold">用户管理</h1>
         <Button onClick={handleAddUser}>添加用户</Button>
       </div>
+      <div className="flex items-center gap-4">
+        <Input
+          placeholder="搜索用户（名称/备注/UUID）"
+          value={searchQ}
+          onChange={(e) => setSearchQ(e.target.value)}
+          className="max-w-sm"
+        />
+      </div>
+      {selectedIds.length > 0 && (
+        <BatchActionBar
+          selectedCount={selectedIds.length}
+          onDelete={handleBatchDelete}
+          onEnable={() => runBatchAction("enable")}
+          onDisable={() => runBatchAction("disable")}
+          onResetTraffic={() => runBatchAction("reset_traffic")}
+          onClearSelection={() => setSelectedIds([])}
+        />
+      )}
       <UserTable
         users={data?.data ?? []}
         onEdit={handleEdit}
