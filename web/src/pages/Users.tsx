@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { UserTable, type User } from "@/components/users/UserTable"
 import { UserFormModal } from "@/components/users/UserFormModal"
+import { UserSubscriptionModal } from "@/components/users/UserSubscriptionModal"
 import { BatchActionBar } from "@/components/users/BatchActionBar"
 
 async function fetchUsers(q?: string): Promise<{ data: User[] }> {
@@ -18,6 +19,8 @@ export function Users() {
   const queryClient = useQueryClient()
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [subOpen, setSubOpen] = useState(false)
+  const [subUserId, setSubUserId] = useState<number | undefined>()
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [searchInput, setSearchInput] = useState("")
   const [searchQ, setSearchQ] = useState("")
@@ -52,6 +55,11 @@ export function Users() {
 
   const handleEditSuccess = () => {
     setEditingId(null)
+  }
+
+  const handleSubscription = (id: number) => {
+    setSubUserId(id)
+    setSubOpen(true)
   }
 
   const handleDelete = async (id: number) => {
@@ -121,6 +129,7 @@ export function Users() {
           users={data?.data ?? []}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          onSubscription={handleSubscription}
           selectedIds={selectedIds}
           onSelectionChange={setSelectedIds}
           isLoading={isLoading}
@@ -134,6 +143,14 @@ export function Users() {
         }}
         user={editingUser}
         onSuccess={handleEditSuccess}
+      />
+      <UserSubscriptionModal
+        open={subOpen}
+        onOpenChange={(open) => {
+          if (!open) setSubUserId(undefined)
+          setSubOpen(open)
+        }}
+        userId={subUserId}
       />
     </div>
   )

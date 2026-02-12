@@ -4,7 +4,6 @@ import { useState } from "react"
 import { QRCodeSVG } from "qrcode.react"
 import { Copy, ChevronDown, ChevronUp, RotateCcw } from "lucide-react"
 import { toast } from "sonner"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import type { SubscriptionNode } from "@/components/users/UserTable"
 
@@ -65,12 +64,8 @@ export function UserSubscriptionCard({ user, onReset }: UserSubscriptionCardProp
   }
 
   return (
-    <Card className="bg-muted/50 border-muted-foreground/20">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">订阅信息</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-2 text-sm sm:grid-cols-2">
+    <div className="space-y-4">
+      <div className="grid gap-2 text-sm sm:grid-cols-2">
           <div>
             <span className="text-muted-foreground">用户名：</span>
             <span>{user.name}</span>
@@ -173,7 +168,6 @@ export function UserSubscriptionCard({ user, onReset }: UserSubscriptionCardProp
             重置后旧订阅链接将立即失效
           </p>
         </div>
-      </CardContent>
-    </Card>
+    </div>
   )
 }

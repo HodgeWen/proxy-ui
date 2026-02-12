@@ -1,4 +1,4 @@
-import { Pencil, MoreHorizontal, Trash2 } from "lucide-react"
+import { Pencil, MoreHorizontal, Trash2, Link } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
@@ -43,6 +43,7 @@ type UserTableProps = {
   users: User[]
   onEdit?: (id: number) => void
   onDelete?: (id: number) => void
+  onSubscription?: (id: number) => void
   selectedIds: number[]
   onSelectionChange: (ids: number[]) => void
   isLoading?: boolean
@@ -84,6 +85,7 @@ export function UserTable({
   users,
   onEdit,
   onDelete,
+  onSubscription,
   selectedIds,
   onSelectionChange,
   isLoading = false,
@@ -161,7 +163,7 @@ export function UserTable({
                 <TableCell>{formatExpire(user.expire_at)}</TableCell>
                 <TableCell>{user.inbound_tags?.length ? user.inbound_tags.join(", ") : "—"}</TableCell>
                 <TableCell>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -170,6 +172,15 @@ export function UserTable({
                       aria-label="编辑"
                     >
                       <Pencil className="size-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8"
+                      onClick={() => onSubscription?.(user.id)}
+                      aria-label="订阅"
+                    >
+                      <Link className="size-4" />
                     </Button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
