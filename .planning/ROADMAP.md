@@ -15,7 +15,7 @@
 - [x] **Phase 3: Certificate Management** - 手动证书路径、关联入站 TLS ✓ (2026-02-12)
 - [x] **Phase 4: User Management** - 用户 CRUD、分配节点、流量/到期、批量操作 ✓ (2026-02-12)
 - [x] **Phase 5: Subscription System** - 订阅链接、Base64/Clash 格式、QR 码、信息页 ✓ (2026-02-12)
-- [ ] **Phase 6: Traffic Statistics** - 按用户/按入站流量统计
+- [x] **Phase 6: Traffic Statistics** - 按用户/按入站流量统计 ✓ (2026-02-12)
 - [ ] **Phase 7: sing-box Core Management** - 核心更新/回滚
 - [ ] **Phase 8: Deployment & Production** - HTTPS、Docker、bash、单二进制
 
@@ -159,9 +159,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — Stats backend (proto, StatsClient, DB columns, ConfigGenerator v2ray_api, cron)
-- [ ] 06-02-PLAN.md — API traffic responses + sort + reset_traffic
-- [ ] 06-03-PLAN.md — Frontend InboundTable + UserTable traffic columns
+- [x] 06-01-PLAN.md — Stats backend (proto, StatsClient, DB columns, ConfigGenerator v2ray_api, cron)
+- [x] 06-02-PLAN.md — API traffic responses + sort + reset_traffic
+- [x] 06-03-PLAN.md — Frontend InboundTable + UserTable traffic columns
 
 ---
 
@@ -220,6 +220,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 3. Certificate Management | 3/3 | ✓ Complete | 2026-02-12 |
 | 4. User Management | 4/4 | ✓ Complete | 2026-02-12 |
 | 5. Subscription System | 3/3 | ✓ Complete | 2026-02-12 |
-| 6. Traffic Statistics | 0/— | Not started | - |
+| 6. Traffic Statistics | 3/3 | ✓ Complete | 2026-02-12 |
 | 7. sing-box Core Management | 0/— | Not started | - |
 | 8. Deployment & Production | 0/— | Not started | - |
