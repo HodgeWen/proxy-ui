@@ -17,7 +17,7 @@
 - [x] **Phase 5: Subscription System** - 订阅链接、Base64/Clash 格式、QR 码、信息页 ✓ (2026-02-12)
 - [x] **Phase 6: Traffic Statistics** - 按用户/按入站流量统计 ✓ (2026-02-12)
 - [x] **Phase 7: sing-box Core Management** - 核心更新/回滚 ✓ (2026-02-12)
-- [ ] **Phase 8: Deployment & Production** - HTTPS、Docker、bash、单二进制
+- [x] **Phase 8: Deployment & Production** - HTTPS、Docker、bash、单二进制 ✓ (2026-02-12)
 
 ## Phase Details
 
@@ -202,10 +202,10 @@ Plans:
 **Plans:** 4 plans
 
 Plans:
-- [ ] 08-01-PLAN.md — Pure-Go SQLite migration + Panel config + HTTPS proxy
-- [ ] 08-02-PLAN.md — Docker (Dockerfile + compose, single container s-ui+sing-box)
-- [ ] 08-03-PLAN.md — Install script (curl|bash, systemd, install/update/uninstall)
-- [ ] 08-04-PLAN.md — GitHub Actions release (tag v* → build amd64/arm64, publish)
+- [x] 08-01-PLAN.md — Pure-Go SQLite migration + Panel config + HTTPS proxy
+- [x] 08-02-PLAN.md — Docker (Dockerfile + compose, single container s-ui+sing-box)
+- [x] 08-03-PLAN.md — Install script (curl|bash, systemd, install/update/uninstall)
+- [x] 08-04-PLAN.md — GitHub Actions release (tag v* → build amd64/arm64, publish)
 
 ---
 
@@ -223,4 +223,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 5. Subscription System | 3/3 | ✓ Complete | 2026-02-12 |
 | 6. Traffic Statistics | 3/3 | ✓ Complete | 2026-02-12 |
 | 7. sing-box Core Management | 2/2 | ✓ Complete | 2026-02-12 |
-| 8. Deployment & Production | 0/— | Not started | - |
+| 8. Deployment & Production | 4/4 | ✓ Complete | 2026-02-12 |
