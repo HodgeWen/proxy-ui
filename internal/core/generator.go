@@ -64,6 +64,7 @@ func (g *ConfigGenerator) vlessToSingBox(ib *db.Inbound) map[string]any {
 			}
 			if tls, ok := cfg["tls"]; ok && tls != nil {
 				if t, ok := tls.(map[string]any); ok && len(t) > 0 {
+					resolveCertInTLS(t)
 					out["tls"] = t
 				}
 			}
@@ -115,6 +116,7 @@ func (g *ConfigGenerator) hysteria2ToSingBox(ib *db.Inbound) map[string]any {
 			}
 			if tls, ok := cfg["tls"]; ok && tls != nil {
 				if t, ok := tls.(map[string]any); ok && len(t) > 0 {
+					resolveCertInTLS(t)
 					out["tls"] = t
 				}
 			}
@@ -135,4 +137,55 @@ func toFloat(v any) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// toUint converts float64, int, int64, json.Number to uint; returns (uint, ok).
+func toUint(v any) (uint, bool) {
+	switch x := v.(type) {
+	case float64:
+		if x >= 0 && x == float64(uint(x)) {
+			return uint(x), true
+		}
+		return 0, false
+	case int:
+		if x >= 0 {
+			return uint(x), true
+		}
+		return 0, false
+	case int64:
+		if x >= 0 {
+			return uint(x), true
+		}
+		return 0, false
+	case json.Number:
+		n, err := x.Int64()
+		if err != nil || n < 0 {
+			return 0, false
+		}
+		return uint(n), true
+	default:
+		return 0, false
+	}
+}
+
+// resolveCertInTLS resolves certificate_id in tls map to certificate_path and key_path.
+// Modifies tls in-place. Deletes certificate_id before emitting (sing-box does not know it).
+func resolveCertInTLS(tls map[string]any) {
+	certID, ok := tls["certificate_id"]
+	if !ok || certID == nil {
+		return
+	}
+	id, ok := toUint(certID)
+	if !ok {
+		delete(tls, "certificate_id")
+		return
+	}
+	cert, err := db.GetCertificateByID(id)
+	if err != nil {
+		delete(tls, "certificate_id")
+		return
+	}
+	tls["certificate_path"] = cert.FullchainPath
+	tls["key_path"] = cert.PrivkeyPath
+	delete(tls, "certificate_id")
 }
