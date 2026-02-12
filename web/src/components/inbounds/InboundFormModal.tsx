@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Info } from "lucide-react"
 import {
@@ -41,6 +41,8 @@ const baseSchema = z.object({
 const vlessSchema = baseSchema.extend({
   tls_type: z.enum(["none", "tls", "reality"]),
   tls_server_name: z.string().optional(),
+  tls_cert_mode: z.enum(["cert", "manual"]).optional(),
+  certificate_id: z.number().optional().nullable(),
   tls_certificate_path: z.string().optional(),
   tls_key_path: z.string().optional(),
   reality_server: z.string().optional(),
@@ -60,6 +62,8 @@ const hysteria2Schema = baseSchema.extend({
   down_mbps: z.coerce.number().min(1).optional(),
   obfs_password: z.string().optional(),
   tls_server_name: z.string().optional(),
+  tls_cert_mode: z.enum(["cert", "manual"]).optional(),
+  certificate_id: z.number().optional().nullable(),
   tls_certificate_path: z.string().optional(),
   tls_key_path: z.string().optional(),
 })
@@ -75,6 +79,20 @@ export type InboundForEdit = {
   user_count: number
   created_at: string
   config_json?: string
+}
+
+type Certificate = {
+  id: number
+  name: string
+  fullchain_path: string
+  privkey_path: string
+  created_at: string
+}
+
+async function fetchCerts(): Promise<{ data: Certificate[] }> {
+  const res = await fetch("/api/certs", { credentials: "include" })
+  if (!res.ok) throw new Error("获取证书列表失败")
+  return res.json()
 }
 
 type InboundFormModalProps = {
@@ -121,13 +139,18 @@ function buildConfigJson(
     const v = values as VLESSFormValues
     const config: Record<string, unknown> = { users: [] }
 
-    if (v.tls_type === "tls" && (v.tls_server_name || v.tls_certificate_path)) {
-      config.tls = {
+    if (v.tls_type === "tls" && (v.tls_server_name || v.tls_certificate_path || (v.certificate_id != null && v.certificate_id > 0))) {
+      const tls: Record<string, unknown> = {
         enabled: true,
         server_name: v.tls_server_name || "",
-        certificate_path: v.tls_certificate_path || "",
-        key_path: v.tls_key_path || "",
       }
+      if (v.certificate_id != null && v.certificate_id > 0) {
+        tls.certificate_id = v.certificate_id
+      } else {
+        tls.certificate_path = v.tls_certificate_path || ""
+        tls.key_path = v.tls_key_path || ""
+      }
+      config.tls = tls
     } else if (v.tls_type === "reality") {
       config.tls = {
         enabled: true,
@@ -166,14 +189,19 @@ function buildConfigJson(
     return config
   } else {
     const v = values as Hysteria2FormValues
+    const tls: Record<string, unknown> = {
+      enabled: true,
+      server_name: v.tls_server_name || "",
+    }
+    if (v.certificate_id != null && v.certificate_id > 0) {
+      tls.certificate_id = v.certificate_id
+    } else {
+      tls.certificate_path = v.tls_certificate_path || ""
+      tls.key_path = v.tls_key_path || ""
+    }
     const config: Record<string, unknown> = {
       users: [],
-      tls: {
-        enabled: true,
-        server_name: v.tls_server_name || "",
-        certificate_path: v.tls_certificate_path || "",
-        key_path: v.tls_key_path || "",
-      },
+      tls,
     }
     if (v.up_mbps) config.up_mbps = v.up_mbps
     if (v.down_mbps) config.down_mbps = v.down_mbps
@@ -208,8 +236,18 @@ function parseConfigFromJson(
       } else if (tls.enabled) {
         out.tls_type = "tls"
         out.tls_server_name = tls.server_name
-        out.tls_certificate_path = tls.certificate_path
-        out.tls_key_path = tls.key_path
+        const certId = tls.certificate_id
+        const id = typeof certId === "number" ? certId : (typeof certId === "string" ? parseInt(certId, 10) : 0)
+        if (id > 0) {
+          out.certificate_id = id
+          out.tls_cert_mode = "cert"
+          out.tls_certificate_path = ""
+          out.tls_key_path = ""
+        } else {
+          out.tls_cert_mode = "manual"
+          out.tls_certificate_path = tls.certificate_path
+          out.tls_key_path = tls.key_path
+        }
       } else {
         out.tls_type = "none"
       }
@@ -258,6 +296,8 @@ export function InboundFormModal({
       listen: "::",
       listen_port: 443,
       tls_type: "none",
+      tls_cert_mode: "manual",
+      certificate_id: null,
       transport_type: "tcp",
       transport_path: "/vless",
       transport_service_name: "TunService",
@@ -278,12 +318,24 @@ export function InboundFormModal({
       down_mbps: 100,
       obfs_password: "",
       tls_server_name: "",
+      tls_cert_mode: "manual",
+      certificate_id: null,
       tls_certificate_path: "",
       tls_key_path: "",
     },
   })
 
   const form = protocol === "vless" ? vlessForm : hy2Form
+
+  const showCertSelector =
+    protocol === "hysteria2" ||
+    (protocol === "vless" && form.watch("tls_type") === "tls")
+  const { data: certData } = useQuery({
+    queryKey: ["certificates"],
+    queryFn: fetchCerts,
+    enabled: open && showCertSelector,
+  })
+  const certificates = certData?.data ?? []
 
   useEffect(() => {
     if (inbound) {
@@ -295,12 +347,16 @@ export function InboundFormModal({
       }
       const parsed = parseConfigFromJson(inbound.config_json)
       if (inbound.protocol === "vless") {
+        const certMode = parsed.tls_cert_mode as "cert" | "manual" | undefined
+        const certId = parsed.certificate_id ?? null
         vlessForm.reset({
           ...base,
           tls_type: (parsed.tls_type as "none" | "tls" | "reality") || "none",
           tls_server_name: parsed.tls_server_name || "",
-          tls_certificate_path: parsed.tls_certificate_path || "",
-          tls_key_path: parsed.tls_key_path || "",
+          tls_cert_mode: certMode || "manual",
+          certificate_id: certId,
+          tls_certificate_path: certId ? "" : (parsed.tls_certificate_path || ""),
+          tls_key_path: certId ? "" : (parsed.tls_key_path || ""),
           reality_server: parsed.reality_server || "",
           reality_server_port: parsed.reality_server_port || 443,
           reality_private_key: parsed.reality_private_key || "",
@@ -313,14 +369,18 @@ export function InboundFormModal({
           flow: parsed.flow || "",
         })
       } else {
+        const certMode = parsed.tls_cert_mode as "cert" | "manual" | undefined
+        const certId = parsed.certificate_id ?? null
         hy2Form.reset({
           ...base,
           up_mbps: parsed.up_mbps || 100,
           down_mbps: parsed.down_mbps || 100,
           obfs_password: parsed.obfs_password || "",
           tls_server_name: parsed.tls_server_name || "",
-          tls_certificate_path: parsed.tls_certificate_path || "",
-          tls_key_path: parsed.tls_key_path || "",
+          tls_cert_mode: certMode || "manual",
+          certificate_id: certId,
+          tls_certificate_path: certId ? "" : (parsed.tls_certificate_path || ""),
+          tls_key_path: certId ? "" : (parsed.tls_key_path || ""),
         })
       }
     } else {
@@ -330,6 +390,8 @@ export function InboundFormModal({
         listen: "::",
         listen_port: 443,
         tls_type: "none",
+        tls_cert_mode: "manual",
+        certificate_id: null,
         transport_type: "tcp",
         transport_path: "/vless",
         transport_service_name: "TunService",
@@ -345,6 +407,8 @@ export function InboundFormModal({
         down_mbps: 100,
         obfs_password: "",
         tls_server_name: "",
+        tls_cert_mode: "manual",
+        certificate_id: null,
         tls_certificate_path: "",
         tls_key_path: "",
       })
@@ -554,26 +618,70 @@ export function InboundFormModal({
                     </div>
                     <div className="space-y-2">
                       <FieldLabel
-                        label="证书路径"
-                        tooltip="证书文件路径。典型值：/etc/certs/fullchain.pem。"
+                        label="证书"
+                        tooltip="选择已保存的证书或手动输入路径"
                       />
-                      <Input
-                        id="tls_certificate_path"
-                        {...form.register("tls_certificate_path")}
-                        placeholder="/etc/certs/fullchain.pem"
-                      />
+                      <Select
+                        value={
+                          form.watch("certificate_id") != null &&
+                          form.watch("certificate_id")! > 0
+                            ? String(form.watch("certificate_id"))
+                            : "manual"
+                        }
+                        onValueChange={(v) => {
+                          if (v === "manual") {
+                            form.setValue("certificate_id", null)
+                            form.setValue("tls_cert_mode", "manual")
+                            form.setValue("tls_certificate_path", "")
+                            form.setValue("tls_key_path", "")
+                          } else {
+                            form.setValue("certificate_id", Number(v))
+                            form.setValue("tls_cert_mode", "cert")
+                            form.setValue("tls_certificate_path", "")
+                            form.setValue("tls_key_path", "")
+                          }
+                        }}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="manual">手动输入</SelectItem>
+                          {certificates.map((c) => (
+                            <SelectItem key={c.id} value={String(c.id)}>
+                              {c.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
-                    <div className="space-y-2 sm:col-span-2">
-                      <FieldLabel
-                        label="私钥路径"
-                        tooltip="私钥文件路径。典型值：/etc/certs/privkey.pem。"
-                      />
-                      <Input
-                        id="tls_key_path"
-                        {...form.register("tls_key_path")}
-                        placeholder="/etc/certs/privkey.pem"
-                      />
-                    </div>
+                    {(!form.watch("certificate_id") ||
+                      form.watch("certificate_id")! <= 0) && (
+                      <>
+                        <div className="space-y-2">
+                          <FieldLabel
+                            label="证书路径"
+                            tooltip="证书文件路径。典型值：/etc/certs/fullchain.pem。"
+                          />
+                          <Input
+                            id="tls_certificate_path"
+                            {...form.register("tls_certificate_path")}
+                            placeholder="/etc/certs/fullchain.pem"
+                          />
+                        </div>
+                        <div className="space-y-2 sm:col-span-2">
+                          <FieldLabel
+                            label="私钥路径"
+                            tooltip="私钥文件路径。典型值：/etc/certs/privkey.pem。"
+                          />
+                          <Input
+                            id="tls_key_path"
+                            {...form.register("tls_key_path")}
+                            placeholder="/etc/certs/privkey.pem"
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
                 {form.watch("tls_type") === "reality" && (
@@ -641,26 +749,70 @@ export function InboundFormModal({
                 </div>
                 <div className="space-y-2">
                   <FieldLabel
-                    label="证书路径"
-                    tooltip="证书文件路径。典型值：/etc/certs/fullchain.pem。"
+                    label="证书"
+                    tooltip="选择已保存的证书或手动输入路径"
                   />
-                  <Input
-                    id="tls_certificate_path"
-                    {...form.register("tls_certificate_path")}
-                    placeholder="/etc/certs/fullchain.pem"
-                  />
+                  <Select
+                    value={
+                      form.watch("certificate_id") != null &&
+                      form.watch("certificate_id")! > 0
+                        ? String(form.watch("certificate_id"))
+                        : "manual"
+                    }
+                    onValueChange={(v) => {
+                      if (v === "manual") {
+                        form.setValue("certificate_id", null)
+                        form.setValue("tls_cert_mode", "manual")
+                        form.setValue("tls_certificate_path", "")
+                        form.setValue("tls_key_path", "")
+                      } else {
+                        form.setValue("certificate_id", Number(v))
+                        form.setValue("tls_cert_mode", "cert")
+                        form.setValue("tls_certificate_path", "")
+                        form.setValue("tls_key_path", "")
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="manual">手动输入</SelectItem>
+                      {certificates.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <FieldLabel
-                    label="私钥路径"
-                    tooltip="私钥文件路径。典型值：/etc/certs/privkey.pem。"
-                  />
-                  <Input
-                    id="tls_key_path"
-                    {...form.register("tls_key_path")}
-                    placeholder="/etc/certs/privkey.pem"
-                  />
-                </div>
+                {(!form.watch("certificate_id") ||
+                  form.watch("certificate_id")! <= 0) && (
+                  <>
+                    <div className="space-y-2">
+                      <FieldLabel
+                        label="证书路径"
+                        tooltip="证书文件路径。典型值：/etc/certs/fullchain.pem。"
+                      />
+                      <Input
+                        id="tls_certificate_path"
+                        {...form.register("tls_certificate_path")}
+                        placeholder="/etc/certs/fullchain.pem"
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <FieldLabel
+                        label="私钥路径"
+                        tooltip="私钥文件路径。典型值：/etc/certs/privkey.pem。"
+                      />
+                      <Input
+                        id="tls_key_path"
+                        {...form.register("tls_key_path")}
+                        placeholder="/etc/certs/privkey.pem"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </section>
