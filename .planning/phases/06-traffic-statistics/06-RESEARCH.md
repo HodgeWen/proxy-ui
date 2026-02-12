@@ -13,20 +13,24 @@ Phase 6 adds per-user and per-inbound traffic display (uplink/downlink) to the e
 **Primary recommendation:** Implement StatsClient (gRPC) + ConfigGenerator v2ray_api injection + Inbound/User traffic columns + frontend table updates. Use delta-based aggregation (API returns cumulative since process start; persist deltas to survive restarts).
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
 
 #### 入站流量展示
+
 - 流量数据直接内嵌在现有 Inbounds 列表表格中，增加上行/下行流量列
 - 每个入站仅展示上行总量 + 下行总量，纯数字展示，无图表
 - 入站列表支持按流量升降序排序
 
 #### 用户流量展示
+
 - 用户列表表格中增加流量列（上行/下行），与入站保持一致的展示风格
 - 流量超限与状态提示由 Claude 决定合理方案
 
 ### Claude's Discretion
+
 - 数据更新体验：自动轮询 vs 手动刷新、刷新频率
 - 后端采集频率与实时性策略（根据 sing-box API 能力决定）
 - 用户流量重置与入站统计的联动关系
@@ -34,8 +38,9 @@ Phase 6 adds per-user and per-inbound traffic display (uplink/downlink) to the e
 - 用户接近或超过流量限制时的界面提示方式
 
 ### Deferred Ideas (OUT OF SCOPE)
+
 - None — discussion stayed within phase scope
-</user_constraints>
+  </user_constraints>
 
 ---
 
@@ -43,28 +48,29 @@ Phase 6 adds per-user and per-inbound traffic display (uplink/downlink) to the e
 
 ### Core
 
-| Library | Version | Purpose | Why Standard |
-|---------|---------|---------|--------------|
-| google.golang.org/grpc | v1.x | gRPC client for V2Ray API | sing-box StatsService is gRPC; standard Go client |
-| protobuf (generated) | — | StatsService proto | v2fly/v2ray-core and sing-box share compatible proto; copy minimal proto to avoid heavy v2ray-core dep |
-| robfig/cron/v3 | v3 | Periodic stats fetch | STACK.md; used for scheduled tasks |
+| Library                | Version | Purpose                   | Why Standard                                                                                           |
+| ---------------------- | ------- | ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| google.golang.org/grpc | v1.x    | gRPC client for V2Ray API | sing-box StatsService is gRPC; standard Go client                                                      |
+| protobuf (generated)   | —       | StatsService proto        | v2fly/v2ray-core and sing-box share compatible proto; copy minimal proto to avoid heavy v2ray-core dep |
+| robfig/cron/v3         | v3      | Periodic stats fetch      | STACK.md; used for scheduled tasks                                                                     |
 
 ### Supporting
 
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| GORM | existing | Traffic columns on Inbound, User | Auto-migrate new columns |
-| formatBytes | existing | B/KB/MB/GB | UserTable already has it; extract to shared util |
+| Library     | Version  | Purpose                          | When to Use                                      |
+| ----------- | -------- | -------------------------------- | ------------------------------------------------ |
+| GORM        | existing | Traffic columns on Inbound, User | Auto-migrate new columns                         |
+| formatBytes | existing | B/KB/MB/GB                       | UserTable already has it; extract to shared util |
 
 ### Alternatives Considered
 
-| Instead of | Could Use | Tradeoff |
-|------------|-----------|----------|
-| V2Ray API gRPC | Log parsing | Log parsing is complex, fragile; prefer API when available |
+| Instead of           | Could Use          | Tradeoff                                                      |
+| -------------------- | ------------------ | ------------------------------------------------------------- |
+| V2Ray API gRPC       | Log parsing        | Log parsing is complex, fragile; prefer API when available    |
 | v2fly/v2ray-core dep | Copy minimal proto | v2ray-core is heavy; minimal proto avoids ~20 transitive deps |
-| Separate /api/stats | Embed in list APIs | CONTEXT: embed in tables; less API surface |
+| Separate /api/stats  | Embed in list APIs | CONTEXT: embed in tables; less API surface                    |
 
 **Installation:**
+
 ```bash
 go get google.golang.org/grpc
 go get google.golang.org/protobuf
@@ -105,6 +111,7 @@ web/src/
 **When to use:** Always; V2Ray API has no persistent storage.
 
 **Example:**
+
 ```go
 // Pseudocode: StatsClient.FetchAndPersist()
 func (c *StatsClient) FetchAndPersist() error {
@@ -126,6 +133,7 @@ func (c *StatsClient) FetchAndPersist() error {
 **When to use:** Each config generation; stats only work if configured.
 
 **Example:**
+
 ```json
 "experimental": {
   "v2ray_api": {
@@ -146,7 +154,7 @@ func (c *StatsClient) FetchAndPersist() error {
 
 **What:** sing-box uses fixed name format (source: sing-box experimental/v2rayapi/stats.go).
 
-**Inbound:** `inbound>>>{tag}>>>traffic>>>uplink` / `downlink`  
+**Inbound:** `inbound>>>{tag}>>>traffic>>>uplink` / `downlink`
 **User:** `user>>>{name}>>>traffic>>>uplink` / `downlink`
 
 Map: inbound tag → db.Inbound (GetInboundByTag); user name → db.User (by Name, unique per user).
@@ -161,12 +169,12 @@ Map: inbound tag → db.Inbound (GetInboundByTag); user name → db.User (by Nam
 
 ## Don't Hand-Roll
 
-| Problem | Don't Build | Use Instead | Why |
-|---------|-------------|-------------|-----|
-| gRPC client | Manual HTTP/JSON | google.golang.org/grpc + generated client | StatsService is gRPC; standard client is correct |
-| Proto generation | Hand-written structs | protoc + protoc-gen-go-grpc | Message format must match sing-box exactly |
-| Traffic formatting | Custom logic | formatBytes (B/KB/MB/GB) | UserTable already has this; reuse |
-| Cron/scheduler | time.Sleep loop | robfig/cron/v3 | STACK.md; idiomatic; supports configurable interval |
+| Problem            | Don't Build          | Use Instead                               | Why                                                 |
+| ------------------ | -------------------- | ----------------------------------------- | --------------------------------------------------- |
+| gRPC client        | Manual HTTP/JSON     | google.golang.org/grpc + generated client | StatsService is gRPC; standard client is correct    |
+| Proto generation   | Hand-written structs | protoc + protoc-gen-go-grpc               | Message format must match sing-box exactly          |
+| Traffic formatting | Custom logic         | formatBytes (B/KB/MB/GB)                  | UserTable already has this; reuse                   |
+| Cron/scheduler     | time.Sleep loop      | robfig/cron/v3                            | STACK.md; idiomatic; supports configurable interval |
 
 **Key insight:** sing-box's StatsService uses the same proto as v2ray-core; service name is `v2ray.core.app.stats.command.StatsService`. Copy the minimal proto (GetStats, QueryStats, Stat types) and generate client; avoid importing full v2ray-core.
 
@@ -237,10 +245,10 @@ for _, s := range resp.Stat {
 ```typescript
 // Source: web/src/components/users/UserTable.tsx
 function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B"
-  const units = ["B", "KB", "MB", "GB", "TB"]
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }
 ```
 
@@ -255,12 +263,13 @@ function formatBytes(bytes: number): string {
 
 ## State of the Art
 
-| Old Approach | Current Approach | When Changed | Impact |
-|--------------|------------------|--------------|--------|
-| Log parsing for stats | V2Ray API gRPC | sing-box added v2rayapi | Per-user stats possible; requires custom build |
-| Inbound-only stats | User + Inbound stats | Issue #185 (SagerNet/sing-box) | User stats supported |
+| Old Approach          | Current Approach     | When Changed                   | Impact                                         |
+| --------------------- | -------------------- | ------------------------------ | ---------------------------------------------- |
+| Log parsing for stats | V2Ray API gRPC       | sing-box added v2rayapi        | Per-user stats possible; requires custom build |
+| Inbound-only stats    | User + Inbound stats | Issue #185 (SagerNet/sing-box) | User stats supported                           |
 
 **Deprecated/outdated:**
+
 - Relying on default sing-box binary for stats: V2Ray API not in default build.
 
 ---
@@ -307,6 +316,7 @@ function formatBytes(bytes: number): string {
 ## Metadata
 
 **Confidence breakdown:**
+
 - Standard stack: HIGH — proto + grpc from official sources; cron from STACK.md
 - Architecture: HIGH — ARCHITECTURE.md + sing-box source code
 - Pitfalls: HIGH — PITFALLS.md + stats.go logic

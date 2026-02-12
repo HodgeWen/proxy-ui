@@ -95,5 +95,6 @@ None - no external service configuration required.
 - Commits: cc31e88, b81177a
 
 ---
-*Phase: 05-subscription-system*
-*Completed: 2026-02-12*
+
+_Phase: 05-subscription-system_
+_Completed: 2026-02-12_

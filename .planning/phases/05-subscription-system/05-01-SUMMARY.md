@@ -20,7 +20,14 @@ tech-stack:
   patterns: [subscription endpoint outside /api, host from tls.server_name]
 
 key-files:
-  created: [internal/core/subscription.go, internal/api/subscription.go, internal/db/user_test.go, internal/core/subscription_test.go, internal/api/subscription_test.go]
+  created:
+    [
+      internal/core/subscription.go,
+      internal/api/subscription.go,
+      internal/db/user_test.go,
+      internal/core/subscription_test.go,
+      internal/api/subscription_test.go,
+    ]
   modified: [internal/db/user.go, internal/db/db.go, internal/api/routes.go, go.mod]
 
 key-decisions:
@@ -104,5 +111,6 @@ None - no external service configuration required.
 - Commits: b35745e, 19a72dc, e03a746
 
 ---
-*Phase: 05-subscription-system*
-*Completed: 2026-02-12*
+
+_Phase: 05-subscription-system_
+_Completed: 2026-02-12_

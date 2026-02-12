@@ -17,18 +17,21 @@ Phase 7 adds one-click sing-box core update and rollback from the panel. The bac
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
+
 - 从 sing-box 官方 GitHub Releases API 获取可用版本列表
 - 一键更新到最新版本（无需从列表中手动选择特定版本）
 - 展示所有版本（包括预发布版），但清晰标记 stable / pre-release
 - 服务端自动检测 OS/ARCH，下载对应平台的二进制文件
 
 ### 版本管理界面
+
 - 嵌入仪表盘页面，作为 Dashboard 的一个板块展示
 - 展示当前安装版本 + 最新可用版本
 - 点击更新按钮后弹出确认对话框，确认后执行
 - Sidebar 或仪表盘上显示新版本可用的徽标提示
 
 ### Claude's Discretion
+
 - 回滚机制：保留几个旧版本、回滚触发方式、自动 vs 手动回滚
 - 更新安全：更新过程中 sing-box 服务的处理流程（停止→替换→启动）
 - 进度展示：步骤进度 vs spinner
@@ -36,6 +39,7 @@ Phase 7 adds one-click sing-box core update and rollback from the panel. The bac
 - 更新后验证：是否检查新版本启动成功和配置有效
 
 ### Deferred Ideas (OUT OF SCOPE)
+
 - 自动更新调度
 - 配置迁移
 
@@ -46,27 +50,30 @@ Phase 7 adds one-click sing-box core update and rollback from the panel. The bac
 ## Standard Stack
 
 ### Core (existing)
-| Library | Version | Purpose | Why Standard |
-|---------|---------|---------|--------------|
-| Go stdlib | — | `runtime.GOOS`, `runtime.GOARCH` | Platform detection at compile/runtime |
-| `archive/tar` | stdlib | Extract tar.gz | No external deps; standard for tar.gz |
-| `compress/gzip` | stdlib | Decompress gzip | tar.gz extraction |
-| `net/http` | stdlib | HTTP client | GitHub API, binary download |
-| `encoding/json` | stdlib | JSON parsing | GitHub API response |
+
+| Library         | Version | Purpose                          | Why Standard                          |
+| --------------- | ------- | -------------------------------- | ------------------------------------- |
+| Go stdlib       | —       | `runtime.GOOS`, `runtime.GOARCH` | Platform detection at compile/runtime |
+| `archive/tar`   | stdlib  | Extract tar.gz                   | No external deps; standard for tar.gz |
+| `compress/gzip` | stdlib  | Decompress gzip                  | tar.gz extraction                     |
+| `net/http`      | stdlib  | HTTP client                      | GitHub API, binary download           |
+| `encoding/json` | stdlib  | JSON parsing                     | GitHub API response                   |
 
 ### Supporting
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| Chi | v5.x | HTTP router | API routes (existing) |
-| TanStack Query | v5 | Server state | Status, versions, update mutation |
-| shadcn Dialog | — | Confirm modal | Update confirmation |
-| Sonner | — | Toast | Success/error feedback |
+
+| Library        | Version | Purpose       | When to Use                       |
+| -------------- | ------- | ------------- | --------------------------------- |
+| Chi            | v5.x    | HTTP router   | API routes (existing)             |
+| TanStack Query | v5      | Server state  | Status, versions, update mutation |
+| shadcn Dialog  | —       | Confirm modal | Update confirmation               |
+| Sonner         | —       | Toast         | Success/error feedback            |
 
 ### Alternatives Considered
-| Instead of | Could Use | Tradeoff |
-|------------|-----------|----------|
-| stdlib archive/tar | `helm.sh/helm/v3/pkg/archive` | stdlib sufficient; no extra deps |
-| GitHub API | GitHub GraphQL | REST simpler; no auth needed for public repo |
+
+| Instead of         | Could Use                     | Tradeoff                                     |
+| ------------------ | ----------------------------- | -------------------------------------------- |
+| stdlib archive/tar | `helm.sh/helm/v3/pkg/archive` | stdlib sufficient; no extra deps             |
+| GitHub API         | GitHub GraphQL                | REST simpler; no auth needed for public repo |
 
 **No new npm/go packages required** — stdlib covers download, decompress, extract.
 
@@ -132,7 +139,10 @@ func (u *CoreUpdater) Update(version string) error {
   "tag_name": "v1.12.21",
   "prerelease": false,
   "assets": [
-    { "name": "sing-box-1.12.21-linux-amd64.tar.gz", "browser_download_url": "https://github.com/..." }
+    {
+      "name": "sing-box-1.12.21-linux-amd64.tar.gz",
+      "browser_download_url": "https://github.com/..."
+    }
   ]
 }
 ```
@@ -155,10 +165,10 @@ func (u *CoreUpdater) Update(version string) error {
 
 ## Don't Hand-Roll
 
-| Problem | Don't Build | Use Instead | Why |
-|---------|-------------|-------------|-----|
-| Tar.gz extraction | Shell `tar -xzf` | `archive/tar` + `compress/gzip` | Cross-platform; no shell dependency |
-| GitHub API polling | Custom cache | TanStack Query cache + refetch | Already in stack; handles dedup |
+| Problem            | Don't Build          | Use Instead                                | Why                                                                |
+| ------------------ | -------------------- | ------------------------------------------ | ------------------------------------------------------------------ |
+| Tar.gz extraction  | Shell `tar -xzf`     | `archive/tar` + `compress/gzip`            | Cross-platform; no shell dependency                                |
+| GitHub API polling | Custom cache         | TanStack Query cache + refetch             | Already in stack; handles dedup                                    |
 | Version comparison | Custom semver parser | Simple string compare or `version` package | "Latest" = first in API; pre-release flagged by `prerelease` field |
 
 **Key insight:** GitHub API returns releases in reverse chronological order. "Latest" = first non-draft release (or first including prerelease if UI shows both). No complex semver needed for one-click "update to latest".
@@ -276,13 +286,13 @@ func extractBinary(tarGzPath, destPath string) error {
 
 ## Recommendations for Claude's Discretion
 
-| Area | Recommendation | Rationale |
-|------|----------------|-----------|
-| **Rollback** | Keep 1 previous version; manual rollback only | Simple; matches "rollback to previous" in success criteria. Auto-rollback only on update failure. |
-| **Update flow** | Stop → Backup → Download → Extract → Replace → Start → Verify | Matches ApplyConfig reliability; verify = `sing-box check` + optional process alive check. |
-| **Progress** | Step progress (Downloading → Extracting → Replacing → Restarting) | More informative than spinner; update can take 10–30s. |
-| **Failure** | Auto-restore backup + return error to frontend | Reliability-first; user notified via toast + optional modal with details. |
-| **Post-update** | Run `sing-box check` on config; restart; optional `Version()` check | Low cost; catches config incompatibility early. |
+| Area            | Recommendation                                                      | Rationale                                                                                         |
+| --------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **Rollback**    | Keep 1 previous version; manual rollback only                       | Simple; matches "rollback to previous" in success criteria. Auto-rollback only on update failure. |
+| **Update flow** | Stop → Backup → Download → Extract → Replace → Start → Verify       | Matches ApplyConfig reliability; verify = `sing-box check` + optional process alive check.        |
+| **Progress**    | Step progress (Downloading → Extracting → Replacing → Restarting)   | More informative than spinner; update can take 10–30s.                                            |
+| **Failure**     | Auto-restore backup + return error to frontend                      | Reliability-first; user notified via toast + optional modal with details.                         |
+| **Post-update** | Run `sing-box check` on config; restart; optional `Version()` check | Low cost; catches config incompatibility early.                                                   |
 
 ---
 
@@ -297,10 +307,10 @@ func extractBinary(tarGzPath, destPath string) error {
 
 ## State of the Art
 
-| Old Approach | Current Approach | When Changed | Impact |
-|--------------|------------------|--------------|--------|
-| Manual download + replace | Panel-managed update | Phase 7 | One-click; backup for rollback |
-| sing-box from PATH | Explicit binary path (env) | Phase 7 | Panel owns binary location |
+| Old Approach              | Current Approach           | When Changed | Impact                         |
+| ------------------------- | -------------------------- | ------------ | ------------------------------ |
+| Manual download + replace | Panel-managed update       | Phase 7      | One-click; backup for rollback |
+| sing-box from PATH        | Explicit binary path (env) | Phase 7      | Panel owns binary location     |
 
 **Deprecated/outdated:** None for this phase.
 
@@ -309,16 +319,19 @@ func extractBinary(tarGzPath, destPath string) error {
 ## Sources
 
 ### Primary (HIGH confidence)
+
 - [GitHub Releases API](https://docs.github.com/en/rest/releases/releases) — list releases, assets
 - [SagerNet/sing-box releases](https://github.com/SagerNet/sing-box/releases) — asset naming verified (v1.12.21)
 - Go `runtime` package — GOOS, GOARCH
 - Go `archive/tar`, `compress/gzip` — extraction
 
 ### Secondary (MEDIUM confidence)
+
 - WebSearch: sing-box Linux binary naming — `sing-box-{version}-linux-{arch}.tar.gz`
 - ApplyConfig pattern (internal/core/config.go) — temp file + atomic rename
 
 ### Tertiary (LOW confidence)
+
 - None — archive structure verified via `tar tf` on v1.12.21-linux-amd64.tar.gz
 
 ---
@@ -326,6 +339,7 @@ func extractBinary(tarGzPath, destPath string) error {
 ## Metadata
 
 **Confidence breakdown:**
+
 - Standard stack: HIGH — stdlib only; GitHub API well-documented
 - Architecture: HIGH — consistent with existing ProcessManager, ApplyConfig
 - Pitfalls: MEDIUM — binary path and archive structure need runtime verification

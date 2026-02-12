@@ -39,27 +39,27 @@ None — discussion stayed within phase scope
 
 ### Core
 
-| Library | Version | Purpose | Why Standard |
-|---------|---------|---------|--------------|
-| `encoding/base64` | stdlib | Base64 encode subscription body | V2Ray subscription spec; stdlib, no deps |
-| `crypto/rand` | stdlib | Short token generation | Cryptographically secure; URL-safe |
-| `qrcode.react` | v4.x | React QR code component | SVG rendering, TypeScript, zero deps; active maintenance |
+| Library           | Version | Purpose                         | Why Standard                                             |
+| ----------------- | ------- | ------------------------------- | -------------------------------------------------------- |
+| `encoding/base64` | stdlib  | Base64 encode subscription body | V2Ray subscription spec; stdlib, no deps                 |
+| `crypto/rand`     | stdlib  | Short token generation          | Cryptographically secure; URL-safe                       |
+| `qrcode.react`    | v4.x    | React QR code component         | SVG rendering, TypeScript, zero deps; active maintenance |
 
 ### Supporting
 
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| `gopkg.in/yaml.v3` | v3 | Clash YAML serialize | Go backend only; when generating Clash format |
-| `net/url` | stdlib | Query param parsing | `?format=clash` detection |
-| `strings` | stdlib | UA contains check | `strings.Contains(strings.ToLower(ua), "clash")` |
+| Library            | Version | Purpose              | When to Use                                      |
+| ------------------ | ------- | -------------------- | ------------------------------------------------ |
+| `gopkg.in/yaml.v3` | v3      | Clash YAML serialize | Go backend only; when generating Clash format    |
+| `net/url`          | stdlib  | Query param parsing  | `?format=clash` detection                        |
+| `strings`          | stdlib  | UA contains check    | `strings.Contains(strings.ToLower(ua), "clash")` |
 
 ### Alternatives Considered
 
-| Instead of | Could Use | Tradeoff |
-|------------|-----------|----------|
-| qrcode.react | react-qr-code | More downloads; qrcode.react has SVG, better a11y |
-| crypto/rand | uuid.NewString | UUID is 36 chars; user wants short token |
-| gopkg.in/yaml.v3 | gopkg.in/yaml.v2 | v3 is maintained; v2 has security issues |
+| Instead of       | Could Use        | Tradeoff                                          |
+| ---------------- | ---------------- | ------------------------------------------------- |
+| qrcode.react     | react-qr-code    | More downloads; qrcode.react has SVG, better a11y |
+| crypto/rand      | uuid.NewString   | UUID is 36 chars; user wants short token          |
+| gopkg.in/yaml.v3 | gopkg.in/yaml.v2 | v3 is maintained; v2 has security issues          |
 
 **Installation:**
 
@@ -161,12 +161,12 @@ func buildUserinfoHeader(u *db.User) string {
 
 ## Don't Hand-Roll
 
-| Problem | Don't Build | Use Instead | Why |
-|---------|-------------|-------------|-----|
-| Random token | `math/rand` | `crypto/rand` | Predictable tokens; security risk |
-| URL-safe chars | Custom base64 | `crypto/rand` + base32/hex | `rand.Text()` or custom base64url alphabet |
-| QR code | Canvas/SVG manual | qrcode.react | Encoding, error correction, size handling |
-| Clash YAML | Manual string concat | gopkg.in/yaml.v3 | Escaping, structure, indentation |
+| Problem        | Don't Build          | Use Instead                | Why                                        |
+| -------------- | -------------------- | -------------------------- | ------------------------------------------ |
+| Random token   | `math/rand`          | `crypto/rand`              | Predictable tokens; security risk          |
+| URL-safe chars | Custom base64        | `crypto/rand` + base32/hex | `rand.Text()` or custom base64url alphabet |
+| QR code        | Canvas/SVG manual    | qrcode.react               | Encoding, error correction, size handling  |
+| Clash YAML     | Manual string concat | gopkg.in/yaml.v3           | Escaping, structure, indentation           |
 
 **Key insight:** Subscription formats are finicky; clients expect exact schemes. VLESS and Hysteria2 URI schemes have specific query params; ClashMeta YAML has required fields. Use verified formats and libraries.
 
@@ -307,11 +307,11 @@ func wantClashFormat(r *http.Request) bool {
 
 ## State of the Art
 
-| Old Approach | Current Approach | When Changed | Impact |
-|--------------|------------------|--------------|--------|
-| VMess share links | VLESS + XTLS Vision | Xray/V2Ray 5 | VLESS is stateless; no time dependency |
-| Base64 only | Base64 + Clash YAML | ClashMeta clients | ClashMeta supports VLESS/H2 natively |
-| No userinfo header | subscription-userinfo | Clash Verge Rev v1.6+ | Clients display traffic/expiry |
+| Old Approach       | Current Approach      | When Changed          | Impact                                 |
+| ------------------ | --------------------- | --------------------- | -------------------------------------- |
+| VMess share links  | VLESS + XTLS Vision   | Xray/V2Ray 5          | VLESS is stateless; no time dependency |
+| Base64 only        | Base64 + Clash YAML   | ClashMeta clients     | ClashMeta supports VLESS/H2 natively   |
+| No userinfo header | subscription-userinfo | Clash Verge Rev v1.6+ | Clients display traffic/expiry         |
 
 **Deprecated/outdated:**
 
@@ -352,6 +352,7 @@ func wantClashFormat(r *http.Request) bool {
 ## Metadata
 
 **Confidence breakdown:**
+
 - Standard stack: HIGH — stdlib + qrcode.react; official docs
 - Architecture: HIGH — ARCHITECTURE.md + existing patterns; Clash Verge Rev docs
 - Pitfalls: HIGH — documented host/header/UA issues
