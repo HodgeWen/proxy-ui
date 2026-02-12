@@ -17,7 +17,9 @@ type User struct {
 	Password           string    `gorm:"size:255"`            // Hysteria2; auto-generated
 	SubscriptionToken  string    `gorm:"size:32;uniqueIndex"`  // short token for /sub/{token}
 	TrafficLimit       int64     `gorm:"default:0"`            // bytes; 0 = unlimited
-	TrafficUsed        int64     `gorm:"default:0"`            // bytes
+	TrafficUsed        int64     `gorm:"default:0"`            // bytes; StatsClient sets = TrafficUplink + TrafficDownlink
+	TrafficUplink      int64     `gorm:"default:0"`            // bytes
+	TrafficDownlink    int64     `gorm:"default:0"`            // bytes
 	ExpireAt           *time.Time                            // nil = no expiry
 	Enabled            bool      `gorm:"default:true"`
 	CreatedAt          time.Time `gorm:"autoCreateTime"`

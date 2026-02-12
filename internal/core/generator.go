@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"os"
 
 	"github.com/s-ui/s-ui/internal/db"
 )
@@ -31,7 +32,49 @@ func (g *ConfigGenerator) Generate() ([]byte, error) {
 		"route": map[string]any{"rules": []any{}},
 	}
 
+	if g.v2rayAPIEnabled() {
+		cfg["experimental"] = g.v2rayAPIBlock(inbounds)
+	}
+
 	return json.MarshalIndent(cfg, "", "  ")
+}
+
+func (g *ConfigGenerator) v2rayAPIEnabled() bool {
+	return os.Getenv("V2RAY_API_ENABLED") == "true"
+}
+
+func (g *ConfigGenerator) v2rayAPIListen() string {
+	if s := os.Getenv("V2RAY_API_LISTEN"); s != "" {
+		return s
+	}
+	return "127.0.0.1:8080"
+}
+
+func (g *ConfigGenerator) v2rayAPIBlock(inbounds []db.Inbound) map[string]any {
+	tags := make([]string, 0, len(inbounds))
+	userSet := make(map[string]struct{})
+	for _, ib := range inbounds {
+		tags = append(tags, ib.Tag)
+		users, _ := db.GetUsersForInbound(ib.ID)
+		for _, u := range users {
+			userSet[u.Name] = struct{}{}
+		}
+	}
+	users := make([]string, 0, len(userSet))
+	for name := range userSet {
+		users = append(users, name)
+	}
+	return map[string]any{
+		"v2ray_api": map[string]any{
+			"listen": g.v2rayAPIListen(),
+			"stats": map[string]any{
+				"enabled":   true,
+				"inbounds":  tags,
+				"users":     users,
+				"outbounds": []string{"direct"},
+			},
+		},
+	}
 }
 
 // inboundToSingBox converts db.Inbound to sing-box inbound JSON object.

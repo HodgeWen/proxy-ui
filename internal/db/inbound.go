@@ -11,9 +11,11 @@ type Inbound struct {
 	Tag        string         `gorm:"uniqueIndex;not null"`
 	Protocol   string         `gorm:"not null"` // "vless" or "hysteria2"
 	Listen     string         `gorm:"default:'::'"` // listen address
-	ListenPort uint           `gorm:"not null"`
-	ConfigJSON datatypes.JSON `gorm:"type:text"` // tls, transport, users, up_mbps, down_mbps, obfs per protocol
-	CreatedAt  time.Time      `gorm:"autoCreateTime"`
+	ListenPort     uint           `gorm:"not null"`
+	ConfigJSON     datatypes.JSON `gorm:"type:text"` // tls, transport, users, up_mbps, down_mbps, obfs per protocol
+	TrafficUplink  int64          `gorm:"default:0"` // bytes
+	TrafficDownlink int64         `gorm:"default:0"` // bytes
+	CreatedAt      time.Time     `gorm:"autoCreateTime"`
 	UpdatedAt  time.Time      `gorm:"autoUpdateTime"`
 }
 
