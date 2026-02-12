@@ -12,7 +12,7 @@
 
 - [x] **Phase 1: Foundation** - 项目脚手架、认证、sing-box 集成、UI 框架 ✓ (2026-02-11)
 - [x] **Phase 2: Inbound Management** - VLESS/Hysteria2 入站 CRUD、TLS、传输选项 ✓ (2026-02-11)
-- [ ] **Phase 3: Certificate Management** - 手动证书路径、关联入站 TLS
+- [x] **Phase 3: Certificate Management** - 手动证书路径、关联入站 TLS ✓ (2026-02-12)
 - [ ] **Phase 4: User Management** - 用户 CRUD、分配节点、流量/到期、批量操作
 - [ ] **Phase 5: Subscription System** - 订阅链接、Base64/Clash 格式、QR 码、信息页
 - [ ] **Phase 6: Traffic Statistics** - 按用户/按入站流量统计
@@ -88,9 +88,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Certificate model + DB + ConfigGenerator resolve cert_id
-- [ ] 03-02-PLAN.md — Cert CRUD API + certificates list/form UI
-- [ ] 03-03-PLAN.md — InboundFormModal TLS cert selector
+- [x] 03-01-PLAN.md — Certificate model + DB + ConfigGenerator resolve cert_id
+- [x] 03-02-PLAN.md — Cert CRUD API + certificates list/form UI
+- [x] 03-03-PLAN.md — InboundFormModal TLS cert selector
 
 ---
 
@@ -215,7 +215,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 |-------|----------------|--------|-----------|
 | 1. Foundation | 3/3 | ✓ Complete | 2026-02-11 |
 | 2. Inbound Management | 6/6 | ✓ Complete | 2026-02-11 |
-| 3. Certificate Management | 0/— | Not started | - |
+| 3. Certificate Management | 3/3 | ✓ Complete | 2026-02-12 |
 | 4. User Management | 0/— | Not started | - |
 | 5. Subscription System | 0/— | Not started | - |
 | 6. Traffic Statistics | 0/— | Not started | - |
