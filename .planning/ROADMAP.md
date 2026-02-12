@@ -18,7 +18,7 @@
 - [x] **Phase 6: Traffic Statistics** - 按用户/按入站流量统计 ✓ (2026-02-12)
 - [x] **Phase 7: sing-box Core Management** - 核心更新/回滚 ✓ (2026-02-12)
 - [x] **Phase 8: Deployment & Production** - HTTPS、Docker、bash、单二进制 ✓ (2026-02-12)
-- [ ] **Phase 9: Certificate Config Sync (Gap Closure)** - 证书更新配置联动修复（v1.0 审计补缺）
+- [x] **Phase 9: Certificate Config Sync (Gap Closure)** - 证书更新配置联动修复（v1.0 审计补缺） ✓ (2026-02-12)
 
 ## Phase Details
 
@@ -228,9 +228,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 09-01-PLAN.md — Backend wiring: UpdateCertificateHandler 触发 Generate/Apply/Restart
-- [ ] 09-02-PLAN.md — 回滚策略与错误处理一致化
-- [ ] 09-03-PLAN.md — 补充验证覆盖（证书路径更新后立即生效）
+- [x] 09-01-PLAN.md — Backend wiring: UpdateCertificateHandler 触发 Generate/Apply/Restart
+- [x] 09-02-PLAN.md — 回滚策略与错误处理一致化
+- [x] 09-03-PLAN.md — 补充验证覆盖（证书路径更新后立即生效）
 
 ---
 
@@ -249,4 +249,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 6. Traffic Statistics | 3/3 | ✓ Complete | 2026-02-12 |
 | 7. sing-box Core Management | 2/2 | ✓ Complete | 2026-02-12 |
 | 8. Deployment & Production | 4/4 | ✓ Complete | 2026-02-12 |
-| 9. Certificate Config Sync (Gap Closure) | 0/3 | ○ Planned | — |
+| 9. Certificate Config Sync (Gap Closure) | 3/3 | ✓ Complete | 2026-02-12 |
