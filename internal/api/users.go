@@ -324,3 +324,126 @@ func DeleteUserHandler(sm *scs.SessionManager) http.HandlerFunc {
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
+
+// batchRequest is the POST body for batch operations.
+type batchRequest struct {
+	Action string `json:"action"`
+	IDs    []uint `json:"ids"`
+}
+
+// BatchUsersHandler handles POST /api/users/batch.
+func BatchUsersHandler(sm *scs.SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req batchRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if req.Action == "" {
+			http.Error(w, "action required", http.StatusBadRequest)
+			return
+		}
+		if len(req.IDs) == 0 {
+			http.Error(w, "ids must be non-empty", http.StatusBadRequest)
+			return
+		}
+		switch req.Action {
+		case "delete", "enable", "disable", "reset_traffic":
+			// valid
+		default:
+			http.Error(w, "invalid action", http.StatusBadRequest)
+			return
+		}
+
+		// Store state for rollback; apply mutations
+		type rollbackFn func()
+		var rollbacks []rollbackFn
+
+		if req.Action == "delete" {
+			// Store users before deletion
+			var toRestore []*db.User
+			for _, id := range req.IDs {
+				u, err := db.GetUserByID(id)
+				if err != nil {
+					continue
+				}
+				toRestore = append(toRestore, u)
+			}
+			for _, id := range req.IDs {
+				if err := db.DeleteUser(id); err != nil {
+					for _, u := range toRestore {
+						u.ID = 0
+						db.CreateUser(u)
+					}
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+			}
+			rollbacks = append(rollbacks, func() {
+				for _, u := range toRestore {
+					u.ID = 0
+					db.CreateUser(u)
+				}
+			})
+		} else {
+			// enable, disable, reset_traffic
+			var snapshots []*db.User
+			for _, id := range req.IDs {
+				u, err := db.GetUserByID(id)
+				if err != nil {
+					continue
+				}
+				snapshots = append(snapshots, u)
+				updated := *u
+				switch req.Action {
+				case "enable":
+					updated.Enabled = true
+				case "disable":
+					updated.Enabled = false
+				case "reset_traffic":
+					updated.TrafficUsed = 0
+				}
+				if err := db.UpdateUser(&updated); err != nil {
+					for _, s := range snapshots {
+						db.UpdateUser(s)
+					}
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+			}
+			snapshotsCopy := make([]*db.User, len(snapshots))
+			copy(snapshotsCopy, snapshots)
+			rollbacks = []rollbackFn{func() {
+				for _, s := range snapshotsCopy {
+					db.UpdateUser(s)
+				}
+			}}
+		}
+
+		path := configPath()
+		gen := &core.ConfigGenerator{}
+		cfg, err := gen.Generate()
+		if err != nil {
+			for _, rb := range rollbacks {
+				rb()
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := core.ApplyConfig(path, cfg); err != nil {
+			for _, rb := range rollbacks {
+				rb()
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		pm := core.NewProcessManager()
+		if err := pm.Restart(path); err != nil {
+			// Config applied; restart failure is best-effort
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
+	}
+}

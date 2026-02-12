@@ -48,8 +48,9 @@ func Routes(staticFS fs.FS, sm *scs.SessionManager) chi.Router {
 		r.Route("/users", func(r chi.Router) {
 			r.Use(RequireAuth(sm))
 			r.Get("/", ListUsersHandler(sm))
-			r.Get("/{id}", GetUserHandler(sm))
 			r.Post("/", CreateUserHandler(sm))
+			r.Post("/batch", BatchUsersHandler(sm))
+			r.Get("/{id}", GetUserHandler(sm))
 			r.Put("/{id}", UpdateUserHandler(sm))
 			r.Delete("/{id}", DeleteUserHandler(sm))
 		})
