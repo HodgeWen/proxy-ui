@@ -3,6 +3,7 @@ import { Setup } from './pages/Setup'
 import { Login } from './pages/Login'
 import { Dashboard } from './pages/Dashboard'
 import { Inbounds } from './pages/Inbounds'
+import { Users } from './pages/Users'
 import { Certificates } from './pages/Certificates'
 import { AppLayout } from './components/layout/AppLayout'
 
@@ -25,6 +26,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Dashboard /> },
       { path: "inbounds", element: <Inbounds /> },
+      { path: "users", element: <Users /> },
       { path: "certificates", element: <Certificates /> },
     ],
   },
