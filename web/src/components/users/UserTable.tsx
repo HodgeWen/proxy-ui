@@ -17,6 +17,11 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
+export type SubscriptionNode = {
+  name: string
+  link: string
+}
+
 export type User = {
   id: number
   name: string
@@ -30,6 +35,8 @@ export type User = {
   created_at: string
   inbound_ids: number[]
   inbound_tags: string[]
+  subscription_url?: string
+  subscription_nodes?: SubscriptionNode[]
 }
 
 type UserTableProps = {

@@ -6,11 +6,7 @@ import { Copy, ChevronDown, ChevronUp, RotateCcw } from "lucide-react"
 import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-
-export type SubscriptionNode = {
-  name: string
-  link: string
-}
+import type { SubscriptionNode } from "@/components/users/UserTable"
 
 export type UserSubscriptionCardProps = {
   user: {

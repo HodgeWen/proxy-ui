@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Copy, ChevronDown } from "lucide-react"
 import type { User } from "@/components/users/UserTable"
+import { UserSubscriptionCard } from "@/components/users/UserSubscriptionCard"
 import {
   Dialog,
   DialogContent,
@@ -45,6 +46,13 @@ async function fetchInbounds(): Promise<{ data: Inbound[] }> {
   const res = await fetch("/api/inbounds", { credentials: "include" })
   if (!res.ok) throw new Error("获取入站列表失败")
   return res.json()
+}
+
+async function fetchUser(id: number): Promise<User> {
+  const res = await fetch(`/api/users/${id}`, { credentials: "include" })
+  if (!res.ok) throw new Error("获取用户详情失败")
+  const data = await res.json()
+  return data
 }
 
 type UserFormModalProps = {
@@ -88,6 +96,12 @@ export function UserFormModal({
     enabled: open,
   })
   const inbounds = inboundData?.data ?? []
+
+  const { data: fullUser } = useQuery({
+    queryKey: ["users", "detail", user?.id],
+    queryFn: () => fetchUser(user!.id),
+    enabled: open && !!user?.id,
+  })
 
   const bytesToGB = (bytes: number) => (bytes > 0 ? Math.round(bytes / (1024 * 1024 * 1024)) : 0)
   const gbToBytes = (gb: number) => (gb > 0 ? gb * 1024 * 1024 * 1024 : 0)
@@ -163,6 +177,23 @@ export function UserFormModal({
     form.setValue("inbound_ids", next)
   }
 
+  const subscriptionUser = fullUser ?? user
+  const handleResetSubscription = async () => {
+    if (!user?.id) return
+    const res = await fetch(`/api/users/${user.id}/reset-subscription`, {
+      method: "POST",
+      credentials: "include",
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      toast.error(data.error || "重置失败")
+      return
+    }
+    toast.success("订阅已重置")
+    queryClient.invalidateQueries({ queryKey: ["users"] })
+    queryClient.invalidateQueries({ queryKey: ["users", "detail", user.id] })
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -212,6 +243,20 @@ export function UserFormModal({
                 </div>
               </div>
             </div>
+          )}
+
+          {user && subscriptionUser && (
+            <UserSubscriptionCard
+              user={{
+                name: subscriptionUser.name,
+                subscription_url: subscriptionUser.subscription_url ?? "",
+                subscription_nodes: subscriptionUser.subscription_nodes,
+                traffic_used: subscriptionUser.traffic_used ?? 0,
+                traffic_limit: subscriptionUser.traffic_limit ?? 0,
+                expire_at: subscriptionUser.expire_at ?? null,
+              }}
+              onReset={handleResetSubscription}
+            />
           )}
 
           <div className="grid gap-4 sm:grid-cols-2">
