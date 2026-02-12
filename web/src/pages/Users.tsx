@@ -1,10 +1,10 @@
-import { useState } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { UserTable, type User } from "@/components/users/UserTable"
-import { UserFormModal, type UserForEdit } from "@/components/users/UserFormModal"
+import { UserFormModal } from "@/components/users/UserFormModal"
 import { BatchActionBar } from "@/components/users/BatchActionBar"
 
 async function fetchUsers(q?: string): Promise<{ data: User[] }> {
@@ -19,22 +19,26 @@ export function Users() {
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [searchInput, setSearchInput] = useState("")
   const [searchQ, setSearchQ] = useState("")
 
-  const { data, isLoading, isError, error } = useQuery({
+  // Debounce: only update query key 300ms after last keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchQ(searchInput), 300)
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: ["users", searchQ],
     queryFn: () => fetchUsers(searchQ || undefined),
+    placeholderData: (prev) => prev, // keep previous data while fetching new query key
   })
 
-  const { data: editingUser } = useQuery({
-    queryKey: ["user", editingId],
-    queryFn: async (): Promise<UserForEdit> => {
-      const res = await fetch(`/api/users/${editingId}`, { credentials: "include" })
-      if (!res.ok) throw new Error("获取用户详情失败")
-      return res.json()
-    },
-    enabled: !!editingId,
-  })
+  // Look up the editing user directly from the list (no separate fetch)
+  const editingUser = useMemo(() => {
+    if (!editingId || !data?.data) return undefined
+    return data.data.find((u) => u.id === editingId)
+  }, [editingId, data])
 
   const handleAddUser = () => {
     setEditingId(null)
@@ -62,7 +66,7 @@ export function Users() {
       return
     }
     toast.success("用户已删除")
-    queryClient.invalidateQueries({ queryKey: ["users", searchQ] })
+    queryClient.invalidateQueries({ queryKey: ["users"] })
     setSelectedIds((prev) => prev.filter((i) => i !== id))
   }
 
@@ -79,29 +83,11 @@ export function Users() {
       return
     }
     toast.success("操作成功")
-    queryClient.invalidateQueries({ queryKey: ["users", searchQ] })
+    queryClient.invalidateQueries({ queryKey: ["users"] })
     setSelectedIds([])
   }
 
   const handleBatchDelete = () => runBatchAction("delete")
-
-  if (isLoading) {
-    return (
-      <div className="p-6 space-y-6">
-        <h1 className="text-2xl font-bold">用户管理</h1>
-        <p className="text-muted-foreground">加载中...</p>
-      </div>
-    )
-  }
-
-  if (isError) {
-    return (
-      <div className="p-6 space-y-6">
-        <h1 className="text-2xl font-bold">用户管理</h1>
-        <p className="text-destructive">{error?.message ?? "加载失败"}</p>
-      </div>
-    )
-  }
 
   return (
     <div className="p-6 space-y-6">
@@ -112,10 +98,11 @@ export function Users() {
       <div className="flex items-center gap-4">
         <Input
           placeholder="搜索用户（名称/备注/UUID）"
-          value={searchQ}
-          onChange={(e) => setSearchQ(e.target.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           className="max-w-sm"
         />
+        {isFetching && <span className="text-sm text-muted-foreground">搜索中...</span>}
       </div>
       {selectedIds.length > 0 && (
         <BatchActionBar
@@ -127,21 +114,25 @@ export function Users() {
           onClearSelection={() => setSelectedIds([])}
         />
       )}
-      <UserTable
-        users={data?.data ?? []}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-        selectedIds={selectedIds}
-        onSelectionChange={setSelectedIds}
-        isLoading={isLoading}
-      />
+      {isError ? (
+        <p className="text-destructive">{error?.message ?? "加载失败"}</p>
+      ) : (
+        <UserTable
+          users={data?.data ?? []}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+          selectedIds={selectedIds}
+          onSelectionChange={setSelectedIds}
+          isLoading={isLoading}
+        />
+      )}
       <UserFormModal
         open={formOpen}
         onOpenChange={(open) => {
           if (!open) setEditingId(null)
           setFormOpen(open)
         }}
-        user={editingUser ?? undefined}
+        user={editingUser}
         onSuccess={handleEditSuccess}
       />
     </div>

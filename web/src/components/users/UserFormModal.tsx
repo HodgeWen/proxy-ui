@@ -7,6 +7,7 @@ import { z } from "zod"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Copy, ChevronDown } from "lucide-react"
+import type { User } from "@/components/users/UserTable"
 import {
   Dialog,
   DialogContent,
@@ -34,21 +35,6 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>
 
-export type UserForEdit = {
-  id: number
-  name: string
-  remark: string
-  uuid: string
-  password: string
-  traffic_limit: number
-  traffic_used: number
-  expire_at: string | null
-  enabled: boolean
-  created_at: string
-  inbound_ids: number[]
-  inbound_tags: string[]
-}
-
 type Inbound = {
   id: number
   tag: string
@@ -64,7 +50,7 @@ async function fetchInbounds(): Promise<{ data: Inbound[] }> {
 type UserFormModalProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  user?: UserForEdit
+  user?: User
   onSuccess?: () => void
 }
 
