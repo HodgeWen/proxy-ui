@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"strings"
@@ -26,6 +27,12 @@ func (p *ProcessManager) ConfigPath() string {
 	return p.configPath
 }
 
+// Available returns true if the sing-box binary is found in PATH.
+func (p *ProcessManager) Available() bool {
+	_, err := exec.LookPath("sing-box")
+	return err == nil
+}
+
 // Version runs "sing-box version -n" (no color) and returns the trimmed stdout.
 // Returns empty string and error if sing-box is not found or fails.
 func (p *ProcessManager) Version() (string, error) {
@@ -38,8 +45,13 @@ func (p *ProcessManager) Version() (string, error) {
 }
 
 // Check runs "sing-box check -c path" and returns combined output.
+// If sing-box is not installed, logs a warning and returns success (skip check).
 // On failure, returns error containing stderr output for frontend display.
 func (p *ProcessManager) Check(configPath string) (output string, err error) {
+	if !p.Available() {
+		log.Println("[warn] sing-box not found in PATH, skipping config check")
+		return "", nil
+	}
 	cmd := exec.Command("sing-box", "check", "-c", configPath)
 	out, e := cmd.CombinedOutput()
 	if e != nil {
@@ -57,7 +69,13 @@ func (p *ProcessManager) IsRunning() bool {
 }
 
 // Restart stops any existing sing-box process and starts "sing-box run -c path" in background.
+// If sing-box is not installed, logs a warning and returns nil (no-op).
 func (p *ProcessManager) Restart(configPath string) error {
+	if !p.Available() {
+		log.Println("[warn] sing-box not found in PATH, skipping restart")
+		return nil
+	}
+
 	// Stop existing process
 	_ = exec.Command("pkill", "-x", "sing-box").Run()
 
