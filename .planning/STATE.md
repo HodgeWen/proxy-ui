@@ -6,18 +6,18 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 **Core value:** 提供一个界面美观、体验流畅、部署简单的 sing-box 管理面板
 
-**Current focus:** Phase 7 Plan 01 complete — CoreUpdater + API
+**Current focus:** Phase 7 Plan 02 complete — Dashboard Core Version Management
 
 ## Current Position
 
 Phase: 7 of 8 (Core Management)
-Plan: 1/2 complete
-Current Plan: 01-02
+Plan: 2/2 complete
+Current Plan: 07-02
 Total Plans in Phase: 2
-Status: Ready to execute
-Last activity: 2026-02-12 — Phase 07 Plan 01 complete
+Status: Phase complete
+Last activity: 2026-02-12 — Phase 07 Plan 02 complete
 
-Progress: [█████-----] 50% (Phase 7)
+Progress: [██████████] 100% (Phase 7)
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Progress: [█████-----] 50% (Phase 7)
 | Phase 06-traffic-statistics P02 | 102 | 2 tasks | 6 files |
 | Phase 06-traffic-statistics P03 | 2 | 2 tasks | 6 files |
 | Phase 07 P01 | 5 | 2 tasks | 4 files |
+| Phase 07-core-management P02 | 5 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,8 @@ Recent decisions affecting current work:
 - [Phase 06]: reset_traffic clears TrafficUplink, TrafficDownlink, TrafficUsed
 - 06-03: formatBytes shared in lib; InboundTable/UserTable 上行/下行 columns; sort dropdown; 超限 in status badge
 - 07-01: binaryPath: SINGBOX_BINARY_PATH or dataDir/bin/sing-box; CoreUpdater ListReleases, Update, Rollback; single .backup; GET /versions, POST /update, POST /rollback
+- 07-02: Dashboard CoreVersionCard: current+latest, update/rollback with confirm, version list modal, new-version badge
+- [Phase 07-core-management]: Dashboard card badge only for new version; latestStable=first prerelease=false
 
 ### Pending Todos
 
@@ -98,5 +101,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 07-01-PLAN.md
+Stopped at: Completed 07-02-PLAN.md
 Resume file: None
