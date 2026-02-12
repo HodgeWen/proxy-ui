@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/robfig/cron/v3"
 	"github.com/s-ui/s-ui/internal/api"
+	"github.com/s-ui/s-ui/internal/core"
 	"github.com/s-ui/s-ui/internal/db"
 	"github.com/s-ui/s-ui/internal/session"
 	"github.com/s-ui/s-ui/web"
@@ -24,6 +28,26 @@ func main() {
 	dbPath := filepath.Join(dataDir, "s-ui.db")
 	if err := db.Init(dbPath); err != nil {
 		log.Fatalf("db init: %v", err)
+	}
+
+	if os.Getenv("V2RAY_API_ENABLED") == "true" {
+		addr := os.Getenv("V2RAY_API_LISTEN")
+		if addr == "" {
+			addr = "127.0.0.1:8080"
+		}
+		statsClient := core.NewStatsClient(addr)
+		intervalSec := 60
+		if s := os.Getenv("V2RAY_STATS_INTERVAL"); s != "" {
+			if n, err := strconv.Atoi(s); err == nil && n > 0 {
+				intervalSec = n
+			}
+		}
+		c := cron.New()
+		_, _ = c.AddFunc("@every "+strconv.Itoa(intervalSec)+"s", func() {
+			_ = statsClient.FetchAndPersist(context.Background())
+		})
+		c.Start()
+		log.Printf("[stats] cron started, polling every %ds", intervalSec)
 	}
 
 	sm, err := session.NewManager(db.DB)
