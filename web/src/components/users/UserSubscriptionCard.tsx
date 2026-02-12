@@ -5,6 +5,7 @@ import { QRCodeSVG } from "qrcode.react"
 import { Copy, ChevronDown, ChevronUp, RotateCcw } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { formatBytes } from "@/lib/format"
 import type { SubscriptionNode } from "@/components/users/UserTable"
 
 export type UserSubscriptionCardProps = {
@@ -26,13 +27,6 @@ async function copyToClipboard(text: string) {
   } catch {
     toast.error("复制失败")
   }
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B"
-  const units = ["B", "KB", "MB", "GB", "TB"]
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`
 }
 
 export function UserSubscriptionCard({ user, onReset }: UserSubscriptionCardProps) {

@@ -35,6 +35,7 @@ export function Users() {
     queryKey: ["users", searchQ],
     queryFn: () => fetchUsers(searchQ || undefined),
     placeholderData: (prev) => prev, // keep previous data while fetching new query key
+    refetchInterval: 60000,
   })
 
   // Look up the editing user directly from the list (no separate fetch)

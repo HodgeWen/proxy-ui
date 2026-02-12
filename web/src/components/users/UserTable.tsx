@@ -2,6 +2,7 @@ import { Pencil, MoreHorizontal, Trash2, Link } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
+import { formatBytes } from "@/lib/format"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,6 +31,8 @@ export type User = {
   password: string
   traffic_limit: number
   traffic_used: number
+  traffic_uplink: number
+  traffic_downlink: number
   expire_at: string | null
   enabled: boolean
   created_at: string
@@ -47,21 +50,6 @@ type UserTableProps = {
   selectedIds: number[]
   onSelectionChange: (ids: number[]) => void
   isLoading?: boolean
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B"
-  const units = ["B", "KB", "MB", "GB", "TB"]
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`
-}
-
-function formatTraffic(used: number, limit: number): string {
-  if (limit === 0) return "无限制"
-  const usedStr = formatBytes(used)
-  const limitStr = formatBytes(limit)
-  const pct = limit > 0 ? Math.round((used / limit) * 100) : 0
-  return `${usedStr} / ${limitStr} (${pct}%)`
 }
 
 function formatExpire(expireAt: string | null): string {
@@ -123,7 +111,8 @@ export function UserTable({
           <TableHead>名称</TableHead>
           <TableHead>备注</TableHead>
           <TableHead>状态</TableHead>
-          <TableHead>流量</TableHead>
+          <TableHead>上行</TableHead>
+          <TableHead>下行</TableHead>
           <TableHead>到期</TableHead>
           <TableHead>节点</TableHead>
           <TableHead>操作</TableHead>
@@ -132,13 +121,13 @@ export function UserTable({
       <TableBody>
         {isLoading ? (
           <TableRow>
-            <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+            <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
               加载中...
             </TableCell>
           </TableRow>
         ) : users.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+            <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
               暂无用户
             </TableCell>
           </TableRow>
@@ -159,7 +148,8 @@ export function UserTable({
                 <TableCell>
                   <Badge variant={status.variant}>{status.label}</Badge>
                 </TableCell>
-                <TableCell>{formatTraffic(user.traffic_used, user.traffic_limit)}</TableCell>
+                <TableCell>{formatBytes(user.traffic_uplink ?? 0)}</TableCell>
+                <TableCell>{formatBytes(user.traffic_downlink ?? 0)}</TableCell>
                 <TableCell>{formatExpire(user.expire_at)}</TableCell>
                 <TableCell>{user.inbound_tags?.length ? user.inbound_tags.join(", ") : "—"}</TableCell>
                 <TableCell>
