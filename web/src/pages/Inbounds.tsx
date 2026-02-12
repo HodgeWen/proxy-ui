@@ -2,14 +2,28 @@ import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { InboundTable, type Inbound } from "@/components/inbounds/InboundTable"
 import {
   InboundFormModal,
   type InboundForEdit,
 } from "@/components/inbounds/InboundFormModal"
 
-async function fetchInbounds(): Promise<{ data: Inbound[] }> {
-  const res = await fetch("/api/inbounds", { credentials: "include" })
+type SortOption = "created" | "traffic_asc" | "traffic_desc"
+
+async function fetchInbounds(sort?: SortOption): Promise<{ data: Inbound[] }> {
+  const opts: RequestInit = { credentials: "include" }
+  const url =
+    sort && sort !== "created"
+      ? `/api/inbounds?sort=${sort}`
+      : "/api/inbounds"
+  const res = await fetch(url, opts)
   if (!res.ok) throw new Error("获取入站列表失败")
   return res.json()
 }
@@ -31,10 +45,12 @@ export function Inbounds() {
   const queryClient = useQueryClient()
   const [formOpen, setFormOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [sort, setSort] = useState<SortOption>("created")
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["inbounds"],
-    queryFn: fetchInbounds,
+    queryKey: ["inbounds", sort],
+    queryFn: () => fetchInbounds(sort),
+    refetchInterval: 60000,
   })
 
   const { data: editingInbound } = useQuery({
@@ -94,7 +110,22 @@ export function Inbounds() {
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">入站管理</h1>
-        <Button onClick={handleAddInbound}>添加入站</Button>
+        <div className="flex items-center gap-4">
+          <Select
+            value={sort}
+            onValueChange={(v) => setSort(v as SortOption)}
+          >
+            <SelectTrigger className="w-32">
+              <SelectValue placeholder="排序" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="created">默认</SelectItem>
+              <SelectItem value="traffic_asc">流量升序</SelectItem>
+              <SelectItem value="traffic_desc">流量降序</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button onClick={handleAddInbound}>添加入站</Button>
+        </div>
       </div>
       <InboundTable
         inbounds={data?.data ?? []}

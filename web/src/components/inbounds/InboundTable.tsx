@@ -1,5 +1,6 @@
 import { Pencil, MoreHorizontal, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { formatBytes } from "@/lib/format"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,6 +25,8 @@ export type Inbound = {
   tls_type: string
   transport_type: string
   user_count: number
+  traffic_uplink: number
+  traffic_downlink: number
   created_at: string
 }
 
@@ -49,6 +52,8 @@ export function InboundTable({
           <TableHead>传输</TableHead>
           <TableHead>监听地址</TableHead>
           <TableHead>用户数</TableHead>
+          <TableHead>上行</TableHead>
+          <TableHead>下行</TableHead>
           <TableHead>创建时间</TableHead>
           <TableHead>操作</TableHead>
         </TableRow>
@@ -63,6 +68,8 @@ export function InboundTable({
             <TableCell>{ib.transport_type}</TableCell>
             <TableCell>{ib.listen}</TableCell>
             <TableCell>{ib.user_count}</TableCell>
+            <TableCell>{formatBytes(ib.traffic_uplink ?? 0)}</TableCell>
+            <TableCell>{formatBytes(ib.traffic_downlink ?? 0)}</TableCell>
             <TableCell>{ib.created_at}</TableCell>
             <TableCell>
               <div className="flex items-center gap-2">
