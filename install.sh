@@ -67,26 +67,87 @@ do_install() {
   mv "$tmp_bin" "${INSTALL_DIR}/s-ui"
   chmod +x "${INSTALL_DIR}/s-ui"
 
-  write_systemd_unit "8080"
+  # Port prompt
+  local port="8080"
+  local config_file="${INSTALL_DIR}/config.json"
+  if [[ -f "$config_file" ]]; then
+    local existing
+    existing=$(grep -oE '"addr"[[:space:]]*:[[:space:]]*":[0-9]+"' "$config_file" 2>/dev/null | grep -oE '[0-9]+' | head -1)
+    [[ -n "$existing" ]] && port="$existing"
+  fi
+  read -p "监听端口 [${port}]: " input
+  port="${input:-$port}"
+  if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+    echo "端口必须是数字" >&2
+    exit 1
+  fi
+  if command -v ss &>/dev/null; then
+    if ss -ltn 2>/dev/null | grep -q ":${port} "; then
+      echo "端口 ${port} 已被占用" >&2
+      exit 1
+    fi
+  fi
+
+  # Config
+  if [[ ! -f "$config_file" ]]; then
+    local secret
+    secret=$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | xxd -p -c 32)
+    cat > "$config_file" << EOF
+{
+  "addr": ":${port}",
+  "session_secret": "${secret}",
+  "data_dir": "${INSTALL_DIR}/data",
+  "singbox_config_path": "${INSTALL_DIR}/sing-box.json",
+  "singbox_binary_path": ""
+}
+EOF
+  fi
+
+  write_systemd_unit "$port"
 
   systemctl daemon-reload
   systemctl enable ${SERVICE_NAME}
   systemctl start ${SERVICE_NAME}
 
+  local ip
+  ip=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "YOUR_IP")
   echo ""
   echo "安装完成！"
-  echo "访问 http://YOUR_IP:8080/setup 设置管理员密码"
+  echo "访问 http://${ip}:${port}/setup 设置管理员密码"
   echo "服务状态: systemctl status ${SERVICE_NAME}"
 }
 
 do_update() {
-  echo "update 子命令请运行 Task 2 完成"
-  exit 1
+  echo "=== s-ui 更新 ==="
+  [[ ! -f "${INSTALL_DIR}/s-ui" ]] && { echo "s-ui 未安装" >&2; exit 1; }
+  local tag
+  tag=$(get_latest_tag) || { echo "获取最新版本失败" >&2; exit 1; }
+  echo "版本: $tag"
+  systemctl stop ${SERVICE_NAME} 2>/dev/null || true
+  local tmp_bin="/tmp/s-ui-$$"
+  download_binary "$tag" "$tmp_bin"
+  mv "$tmp_bin" "${INSTALL_DIR}/s-ui"
+  chmod +x "${INSTALL_DIR}/s-ui"
+  systemctl start ${SERVICE_NAME}
+  echo "更新完成"
 }
 
 do_uninstall() {
-  echo "uninstall 子命令请运行 Task 2 完成"
-  exit 1
+  echo "=== s-ui 卸载 ==="
+  systemctl stop ${SERVICE_NAME} 2>/dev/null || true
+  systemctl disable ${SERVICE_NAME} 2>/dev/null || true
+  rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
+  systemctl daemon-reload
+  if [[ -d "$INSTALL_DIR" ]]; then
+    read -p "是否删除数据目录 ${INSTALL_DIR}? (y/N): " confirm
+    if [[ "${confirm}" =~ ^[yY]$ ]]; then
+      rm -rf "$INSTALL_DIR"
+      echo "已删除 $INSTALL_DIR"
+    else
+      echo "保留数据目录 $INSTALL_DIR"
+    fi
+  fi
+  echo "卸载完成"
 }
 
 case "${1:-install}" in
