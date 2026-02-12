@@ -11,13 +11,13 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 4 of 8 (User Management)
-Plan: 2/4 complete
-**Current Plan:** 02
+Plan: 3/4 complete
+**Current Plan:** 03
 **Total Plans in Phase:** 4
-**Status:** Phase 4 Plan 2 complete — User REST API + batch
-**Last activity:** 2026-02-12 — 04-02 summary created
+**Status:** Phase 4 Plan 3 complete — User UI
+**Last activity:** 2026-02-12
 
-Progress: [███░░░░░░░] 25% (Phase 4)
+Progress: [██████░░░░] 50% (Phase 4)
 
 ## Performance Metrics
 
@@ -44,6 +44,7 @@ Progress: [███░░░░░░░] 25% (Phase 4)
 | Phase 03-certificate-management P02 | 5 | 2 tasks | 8 files |
 | Phase 03-certificate-management P03 | 3 | 1 task | 1 file |
 | Phase 04-user-management P02 | 3 | 2 tasks | 4 files |
+| Phase 04-user-management P03 | 8 | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -68,6 +69,8 @@ Recent decisions affecting current work:
 - 03-03: InboundFormModal cert selector; 选择证书 vs 手动输入; certificate_id in config_json
 - 04-01: User model with UserInbound many-to-many; ConfigGenerator derives users from DB, not config_json
 - [Phase 04-user-management]: Batch rollback uses snapshot-and-revert (Generate reads committed state)
+- [Phase 04-user-management]: Traffic limit: user enters GB in form; convert to bytes for API (0 = unlimited)
+- [Phase 04-user-management]: Expire_at: date input YYYY-MM-DD; send ISO midnight for API
 
 ### Pending Todos
 
@@ -80,5 +83,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 04-02-PLAN.md
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None
