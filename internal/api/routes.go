@@ -37,6 +37,14 @@ func Routes(staticFS fs.FS, sm *scs.SessionManager) chi.Router {
 			r.Put("/{id}", UpdateInboundHandler(sm))
 			r.Delete("/{id}", DeleteInboundHandler(sm))
 		})
+		r.Route("/certs", func(r chi.Router) {
+			r.Use(RequireAuth(sm))
+			r.Get("/", ListCertificatesHandler(sm))
+			r.Get("/{id}", GetCertificateHandler(sm))
+			r.Post("/", CreateCertificateHandler(sm))
+			r.Put("/{id}", UpdateCertificateHandler(sm))
+			r.Delete("/{id}", DeleteCertificateHandler(sm))
+		})
 	})
 
 	r.NotFound(spaHandler(staticFS))
