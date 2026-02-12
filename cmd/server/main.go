@@ -50,7 +50,8 @@ func main() {
 		log.Printf("[stats] cron started, polling every %ds", intervalSec)
 	}
 
-	sm, err := session.NewManager(db.DB)
+	secure := os.Getenv("FORCE_HTTPS") == "true" || os.Getenv("FORCE_HTTPS") == "1"
+	sm, err := session.NewManager(db.DB, secure)
 	if err != nil {
 		log.Fatalf("session: %v", err)
 	}

@@ -10,7 +10,7 @@ import (
 
 const SessionKeyUserID = "user_id"
 
-func NewManager(db *gorm.DB) (*scs.SessionManager, error) {
+func NewManager(db *gorm.DB, secure bool) (*scs.SessionManager, error) {
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, err
@@ -29,7 +29,7 @@ func NewManager(db *gorm.DB) (*scs.SessionManager, error) {
 	sm.Store = store
 	sm.Lifetime = 7 * 24 * time.Hour
 	sm.Cookie.HttpOnly = true
-	sm.Cookie.Secure = false // set true when behind HTTPS
+	sm.Cookie.Secure = secure // true when behind HTTPS proxy (FORCE_HTTPS=true)
 	sm.Cookie.SameSite = http.SameSiteLaxMode
 	sm.Cookie.Persist = true
 
