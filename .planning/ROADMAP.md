@@ -156,11 +156,12 @@ Plans:
   1. 系统记录并展示每个用户的上行/下行流量使用量
   2. 系统记录并展示每个入站节点的总流量使用量
 
-**Plans**: TBD (预计 2–3 plans)
+**Plans:** 3 plans
 
 Plans:
-- [ ] 06-01: TBD
-- [ ] 06-02: TBD
+- [ ] 06-01-PLAN.md — Stats backend (proto, StatsClient, DB columns, ConfigGenerator v2ray_api, cron)
+- [ ] 06-02-PLAN.md — API traffic responses + sort + reset_traffic
+- [ ] 06-03-PLAN.md — Frontend InboundTable + UserTable traffic columns
 
 ---
 
