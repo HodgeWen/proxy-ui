@@ -6,18 +6,18 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 **Core value:** 提供一个界面美观、体验流畅、部署简单的 sing-box 管理面板
 
-**Current focus:** Phase 5 Complete — Ready for verification
+**Current focus:** Phase 6 — Traffic Statistics (Plan 1 complete)
 
 ## Current Position
 
-Phase: 5 of 8 (Subscription System)
-Plan: 3/3 complete
-Current Plan: Complete
+Phase: 6 of 8 (Traffic Statistics)
+Plan: 1/3 complete
+Current Plan: 1
 Total Plans in Phase: 3
-Status: All plans complete — awaiting verification
-Last activity: 2026-02-12 — Phase 5 all plans executed
+Status: Plan 1 complete — ready for Plan 2
+Last activity: 2026-02-12 — Phase 6 Plan 1 executed
 
-Progress: [██████████] 100% (Phase 5)
+Progress: [███░░░░░░░] 33% (Phase 6)
 
 ## Performance Metrics
 
@@ -78,6 +78,7 @@ Recent decisions affecting current work:
 - 05-01: Short token 16 chars a-z0-9 via crypto/rand; subscription-userinfo lowercase; host from tls.server_name
 - 05-02: SUB_URL_PREFIX env for full subscription URL; ListUsers subscription_url only; GetUser includes subscription_nodes
 - 05-03: Subscription info in separate modal (not edit form); fallbackHost from request Host header; VLESS non-TLS security=none
+- 06-01: Minimal stats proto in internal/statsproto; V2RAY_API_ENABLED gates ConfigGenerator v2ray_api and cron; delta aggregation for traffic
 
 ### Pending Todos
 
@@ -90,5 +91,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Phase 5 complete, awaiting verification
+Stopped at: Completed 06-01-PLAN.md (Traffic Stats Backend)
 Resume file: None
