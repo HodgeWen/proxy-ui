@@ -199,12 +199,13 @@ Plans:
   3. 支持 bash 安装脚本部署（curl | bash）
   4. 支持下载单二进制文件 + 配置文件运行
 
-**Plans**: TBD (预计 4–5 plans)
+**Plans:** 4 plans
 
 Plans:
-- [ ] 08-01: TBD
-- [ ] 08-02: TBD
-- [ ] 08-03: TBD
+- [ ] 08-01-PLAN.md — Panel config + HTTPS proxy (auto-generate, FORCE_HTTPS, reverse proxy docs)
+- [ ] 08-02-PLAN.md — Docker (Dockerfile + compose, single container s-ui+sing-box)
+- [ ] 08-03-PLAN.md — Install script (curl|bash, systemd, install/update/uninstall)
+- [ ] 08-04-PLAN.md — GitHub Actions release (tag v* → build amd64/arm64, publish)
 
 ---
 
