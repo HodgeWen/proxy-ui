@@ -5,3 +5,5 @@
 
 .account
 # Embed requires web/dist - build frontend first
+
+config.json
