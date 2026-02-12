@@ -11,13 +11,13 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 8 of 8 (Deployment & Production)
-Plan: 3/4 complete
-Current Plan: 08-03 complete
+Plan: 2/4 complete
+Current Plan: 08-01 complete
 Total Plans in Phase: 4
-Status: Plan 08-03 execution complete
-Last activity: 2026-02-12 — Phase 8 Plan 03 complete
+Status: Plan 08-01 execution complete
+Last activity: 2026-02-12 — Phase 8 Plan 01 complete
 
-Progress: [███████░░░] 75% (Phase 8)
+Progress: [█████░░░░░] 50% (Phase 8)
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [███████░░░] 75% (Phase 8)
 | Phase 07 P01 | 5 | 2 tasks | 4 files |
 | Phase 07-core-management P02 | 5 | 2 tasks | 1 files |
 | Phase 08-deployment-production P03 | 12 | 2 tasks | 1 file |
+| Phase 08 P01 | 6 | 4 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,7 @@ Recent decisions affecting current work:
 - 07-01: binaryPath: SINGBOX_BINARY_PATH or dataDir/bin/sing-box; CoreUpdater ListReleases, Update, Rollback; single .backup; GET /versions, POST /update, POST /rollback
 - 07-02: Dashboard CoreVersionCard: current+latest, update/rollback with confirm, version list modal, new-version badge
 - [Phase 07-core-management]: Dashboard card badge only for new version; latestStable=first prerelease=false
+- 08-01: glebarez/sqlite CGO-free; internal sqlStore; LoadConfig with CONFIG_PATH; FORCE_HTTPS for Cookie.Secure
 - 08-03: install.sh with install/update/uninstall; GITHUB_REPO=HodgeWen/proxy-ui; INSTALL_DIR=/usr/local/s-ui
 
 ### Pending Todos
@@ -103,5 +105,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 08-03-PLAN.md (bash install script)
+Stopped at: Completed 08-01-PLAN.md (CGO-free SQLite, config file, HTTPS proxy)
 Resume file: None
