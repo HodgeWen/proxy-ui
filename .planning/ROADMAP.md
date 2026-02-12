@@ -177,11 +177,11 @@ Plans:
   1. 管理员可在面板中将 sing-box 核心更新到最新版本
   2. 管理员可将 sing-box 核心回滚到上一个已安装版本
 
-**Plans**: TBD (预计 2 plans)
+**Plans:** 2 plans
 
 Plans:
-- [ ] 07-01: TBD
-- [ ] 07-02: TBD
+- [ ] 07-01-PLAN.md — Backend: CoreUpdater + API (versions, update, rollback)
+- [ ] 07-02-PLAN.md — Frontend: Dashboard version card + update/rollback + badge
 
 ---
 
