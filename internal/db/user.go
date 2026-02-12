@@ -65,6 +65,22 @@ func UpdateUser(u *User) error {
 	return DB.Save(u).Error
 }
 
+// ReplaceUserInbounds replaces user's inbound associations.
+func ReplaceUserInbounds(userID uint, inboundIDs []uint) error {
+	user, err := GetUserByID(userID)
+	if err != nil {
+		return err
+	}
+	var inbounds []Inbound
+	if len(inboundIDs) > 0 {
+		inbounds, err = GetInboundsByIDs(inboundIDs)
+		if err != nil {
+			return err
+		}
+	}
+	return DB.Model(user).Association("Inbounds").Replace(inbounds)
+}
+
 // DeleteUser deletes a user.
 func DeleteUser(id uint) error {
 	return DB.Transaction(func(tx *gorm.DB) error {

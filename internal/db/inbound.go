@@ -36,6 +36,16 @@ func GetInboundByID(id uint) (*Inbound, error) {
 	return &in, nil
 }
 
+// GetInboundsByIDs returns inbounds by IDs for user-inbound association.
+func GetInboundsByIDs(ids []uint) ([]Inbound, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var inbounds []Inbound
+	err := DB.Where("id IN ?", ids).Find(&inbounds).Error
+	return inbounds, err
+}
+
 func CreateInbound(in *Inbound) error {
 	return DB.Create(in).Error
 }
