@@ -11,13 +11,13 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 ## Current Position
 
 Phase: 3 of 8 (Certificate Management)
-Plan: 2/3 complete
+Plan: 3/3 complete
 Current Plan: 03
 Total Plans in Phase: 3
-Status: Ready to execute
-Last activity: 2026-02-12 — Plan 03-02 complete
+Status: Phase 3 complete
+Last activity: 2026-02-12 — Plan 03-03 complete
 
-Progress: [██████░░░░] 67% (Phase 3)
+Progress: [██████████] 100% (Phase 3)
 
 ## Performance Metrics
 
@@ -42,6 +42,7 @@ Progress: [██████░░░░] 67% (Phase 3)
 | Phase 02 P02 | 1 | 2 tasks | 1 files |
 | Phase 03-certificate-management P01 | 2 | 2 tasks | 3 files |
 | Phase 03-certificate-management P02 | 5 | 2 tasks | 8 files |
+| Phase 03-certificate-management P03 | 3 | 1 task | 1 file |
 
 ## Accumulated Context
 
@@ -63,6 +64,7 @@ Recent decisions affecting current work:
 - [Phase 02]: ConfigGenerator reads from DB via ListInbounds; produces full sing-box JSON; VLESS/Hysteria2 inbound mapping
 - 03-01: Certificate model with CRUD; ConfigGenerator resolves certificate_id to paths; backward compat with inline paths
 - 03-02: Cert CRUD API; Certificates page with table and form; delete blocked when cert in use
+- 03-03: InboundFormModal cert selector; 选择证书 vs 手动输入; certificate_id in config_json
 
 ### Pending Todos
 
@@ -75,5 +77,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-12
-Stopped at: Completed 03-02-PLAN.md
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None
