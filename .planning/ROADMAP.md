@@ -232,12 +232,36 @@ Plans:
 - [x] 09-02-PLAN.md — 回滚策略与错误处理一致化
 - [x] 09-03-PLAN.md — 补充验证覆盖（证书路径更新后立即生效）
 
+### Phase 10: Sidebar Pages & Config Fix — 订阅/流量/核心独立页面 + 配置路径修复
+
+**Goal:** 侧边栏三个禁用页面全部启用（订阅/流量/核心），仪表盘改为统计概览，配置路径 bug 全面修复
+
+**Depends on:** Phase 9
+
+**Requirements**: UX-01, UX-02, UX-05
+
+**Success Criteria** (what must be TRUE):
+  1. 用户可导航到 /subscriptions 查看订阅列表（用户名、链接、状态、QR）
+  2. 用户可导航到 /traffic 查看按入站/按用户分 Tab 的流量聚合视图
+  3. 用户可导航到 /core 进行核心管理（状态、重启、更新、回滚、版本列表、配置查看）
+  4. 仪表盘展示真实统计数据（入站数、用户数、流量总计）
+  5. 退出登录按钮在侧边栏底部，任何页面可见
+  6. ApplyConfig 使用正确的 sing-box 二进制路径（从 panel config，非 env 默认值）
+  7. 无死代码（NewProcessManager、ConfigPathFromEnv 已删除）
+
+**Plans:** 3 plans
+
+Plans:
+- [ ] 10-01-PLAN.md — 后端配置路径修复 + stats/config-file 端点
+- [ ] 10-02-PLAN.md — 订阅页 + 流量页（前端，独立于后端）
+- [ ] 10-03-PLAN.md — 核心页 + 仪表盘重构 + 侧边栏/路由
+
 ---
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -250,3 +274,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. sing-box Core Management | 2/2 | ✓ Complete | 2026-02-12 |
 | 8. Deployment & Production | 4/4 | ✓ Complete | 2026-02-12 |
 | 9. Certificate Config Sync (Gap Closure) | 3/3 | ✓ Complete | 2026-02-12 |
+| 10. Sidebar Pages & Config Fix | 0/3 | ◻ Planned | — |
