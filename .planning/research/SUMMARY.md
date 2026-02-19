@@ -1,278 +1,160 @@
 # Project Research Summary
 
-**Project:** s-ui — sing-box proxy management panel  
-**Domain:** Proxy management / network infrastructure  
-**Researched:** 2026-02-11  
+**Project:** s-ui (sing-box proxy management panel)
+**Domain:** Admin panel enhancement — UI polish & core management optimization
+**Researched:** 2026-02-19
 **Confidence:** HIGH
-
----
 
 ## Executive Summary
 
-s-ui is a sing-box proxy management panel targeting the sing-box ecosystem. Unlike Xray-based panels (3x-ui, Marzban), sing-box has no management API—the panel controls it via JSON config file and process lifecycle. Experts build these panels as a control-plane/data-plane split: the panel (Go + React) persists config to SQLite, generates sing-box JSON, validates with `sing-box check`, then restarts the binary. The data plane (sing-box) runs as an external process.
+s-ui v1.1 is an enhancement milestone for an existing, functional proxy management panel. The codebase already contains every npm dependency needed — react-bits (v1.0.5) is installed but completely unused, tw-animate-css (v1.4.0) is imported, and the consolidated radix-ui (v1.4.3) includes the Progress primitive. The Go backend requires zero new modules; SSE uses stdlib `http.Flusher`. This is a "activate and wire up" milestone, not a "research and adopt" one. The risk of scope creep into heavy animation territory (route transitions, particle effects, 3D cards) must be actively resisted — this is a server management tool used repeatedly by power users.
 
-The recommended approach is Go 1.24+ backend with Chi router, GORM + SQLite, and React 18/19 frontend with Vite, shadcn/ui, and Tailwind v4. Chi aligns with sing-box (which uses Chi internally); SQLite enables single-binary deployment. The frontend uses modal-driven forms, smart defaults, and field tooltips to differentiate from dated 3x-ui UX. Scope v1 to VLESS + Hysteria2 only; defer traffic stats, REST API, Telegram bot, and multi-protocol sprawl.
+The recommended approach splits work into two independent tracks that converge at the end: (1) UI animation polish using react-bits + tw-animate-css applied across existing pages, and (2) core management improvements adding explicit Start/Stop controls and SSE-based update progress. The animation track is low-risk and can proceed page-by-page. The core management track carries the milestone's only critical risks: concurrent update corruption (needs mutex), SSE connection leaks (needs useEffect cleanup), and reverse proxy buffering (needs `X-Accel-Buffering: no` header). All three have straightforward mitigations documented in PITFALLS.md.
 
-Key risks: (1) Panel auth bypass and HTTPS→HTTP redirect (3x-ui issues); (2) sing-box config schema drift and protocol-specific mistakes (Hysteria2 port range `-` vs `:`); (3) V2Ray API requires custom sing-box build—stats may need Phase 2 research. Mitigate with no default credentials, respect `X-Forwarded-Proto`, run `sing-box check` before every apply, and atomic config writes.
+The key architectural decision is keeping SSE strictly for the update progress flow while retaining TanStack Query's 5-second polling for status. SSE adds complexity — connection lifecycle, proxy compatibility, cleanup — and that complexity is only justified where sub-second granularity matters (download progress). Status changes are infrequent enough that polling is the correct pattern.
 
----
+## Key Findings
 
-## Stack Recommendations
+### Recommended Stack
 
-(From STACK.md)
+No new npm packages or Go modules. The entire milestone uses already-installed dependencies that need activation, plus one new shadcn/ui component wrapper (Progress).
 
-### Backend (Go)
+**Core technologies:**
+- **react-bits** (v1.0.5, installed): Animation primitives — CountUp, AnimatedContent, SpotlightCard, Stepper — all via shadcn CLI install of copy-paste components
+- **tw-animate-css** (v1.4.0, imported): `animate-in`/`animate-out` utility classes for card entrance animations and staggered timing
+- **radix-ui Progress** (v1.4.3, installed): Accessible progress bar for download tracking — just needs `bunx shadcn@latest add progress`
+- **Native EventSource API**: Browser-native SSE client for update progress — no library needed, works with cookie auth
+- **Go stdlib http.Flusher**: Server-sent events for real-time progress during core update — zero new Go dependencies
 
-| Technology | Version | Purpose | Rationale |
-|------------|---------|---------|------------|
-| **Go** | 1.24+ | Runtime | sing-box 1.13.0 requires Go 1.24 minimum; same language enables single-binary deployment |
-| **Chi** | v5.x | HTTP router | sing-box uses Chi; lighter than Gin; stdlib-compatible |
-| **GORM** | v1.31+ | ORM | Industry standard; 3x-ui uses GORM + SQLite; migrations, soft deletes |
-| **embed** | stdlib | Static assets | Bundle React build into single binary; no CGO |
-| **certmagic** | v0.25+ | ACME TLS | Same library sing-box uses; panel HTTPS |
+See [STACK.md](STACK.md) for version verification, installation commands, and rejected alternatives.
 
-### Frontend (React)
+### Expected Features
 
-| Technology | Version | Purpose | Rationale |
-|------------|---------|---------|------------|
-| **React** | 18.x or 19.x | UI framework | Stable; shadcn supports both |
-| **Vite** | 6.x | Build tool | CRA deprecated; fast HMR, ESM |
-| **TypeScript** | 5.x | Type safety | Required for shadcn; API types shared with Go |
-| **shadcn/ui** | latest | Component library | Copy-paste; dark theme; `new-york` style |
-| **Tailwind CSS** | v4 | Styling | shadcn native |
-| **TanStack Query** | v5 | Server state | Caching, invalidation, loading/error states |
-| **react-bits** | — | Micro-interactions | 110+ animated components; PROJECT.md requirement |
-| **Sonner** | — | Toast | shadcn-recommended |
-| **React Hook Form** | v7 | Forms | shadcn Forms + Zod validation |
-| **React Router** | v7 | Routing | SPA routing |
+**Must have (table stakes):**
+- Animated number transitions on dashboard stats (CountUp)
+- Card entrance animations across all pages (AnimatedContent + tw-animate-css)
+- Download progress bar during core update (SSE + Progress)
+- Explicit start/stop controls for sing-box process
+- Animated status indicator (pulse when running, clear state distinction)
+- Error detail display for failed update/rollback operations
 
-### Database & sing-box Integration
+**Should have (differentiators):**
+- Multi-step Stepper visualization for update process (download → extract → verify → restart)
+- SpotlightCard hover effect on Core status card
+- Staggered card entrance timing on Dashboard
 
-- **SQLite** — Primary store; single file, portable; GORM driver. Optional PostgreSQL for multi-instance.
-- **sing-box** — Config-file driven; no gRPC. Panel: read config → modify → validate (`sing-box check`) → write → restart.
+**Defer to future milestone:**
+- Update to specific version (requires version selection UI, API parameter change)
+- Auto-start on panel boot (operational concern, needs config option)
+- Real-time log streaming (significant backend infrastructure)
 
-### Avoid
+See [FEATURES.md](FEATURES.md) for dependency map, anti-features list, and MVP rationale.
 
-- Create React App, Gin (use Chi), Fiber, PostgreSQL as default, Next.js, Redux, direct sing-box API.
+### Architecture Approach
 
----
+The architecture adds three elements to the existing stack: an **Animation Layer** (react-bits + tw-animate-css wrapping existing shadcn/ui components), a **native EventSource** client for SSE update progress, and **three new backend endpoints** (Start, Stop, UpdateSSE). TanStack Query remains the server state manager for all non-streaming concerns.
 
-## Feature Landscape
+**Major components:**
+1. **Animation Layer** — Presentational wrappers around existing shadcn/ui components; no API communication, no state management
+2. **ProcessManager extensions** — `Start()` and `Stop()` methods added to existing Go struct; `Start()` starts without killing first, `Stop()` stops without restarting
+3. **UpdateSSEHandler** — New SSE endpoint at `GET /api/core/update/stream` with mutex protection, step-based progress events, and context cancellation for the download phase
+4. **useUpdateStream hook** — React hook managing EventSource lifecycle, progress state, and TanStack Query cache invalidation on completion
 
-(From FEATURES.md)
+See [ARCHITECTURE.md](ARCHITECTURE.md) for data flow diagrams, code patterns, and anti-patterns.
 
-### Table Stakes (Must Have)
+### Critical Pitfalls
 
-| Category | Features |
-|----------|----------|
-| **Inbound** | Add/Edit/Delete inbound; VLESS + Hysteria2; port, TLS, tag config; modal forms |
-| **User** | Create/Edit/Delete user; assign to inbound(s); traffic cap; expiry; UUID generation |
-| **Traffic & Stats** | Per-user and per-inbound traffic stats; online client count |
-| **Subscription** | Subscription URL per user; Base64 format; QR code; Sing-box client compatible |
-| **Certificate** | Manual cert path; auto-apply cert to inbound |
-| **System** | sing-box config apply/restart; basic auth; HTTPS for panel |
+1. **Concurrent update corruption** — No mutex on current `UpdateHandler`; two simultaneous updates corrupt the binary. Fix: `sync.Mutex` with `TryLock()`, return HTTP 409 if locked.
+2. **SSE connection leaks** — EventSource stays open if user navigates away mid-update. Fix: close in `useEffect` cleanup, store reference in `useRef`.
+3. **Reverse proxy buffering** — Nginx/Caddy buffer SSE events by default, defeating real-time progress. Fix: set `X-Accel-Buffering: no` header, document `proxy_buffering off` for Nginx.
+4. **Progress bar stuck at 0%** — GitHub API fetch takes 1-3s before download starts; bar sits at 0%. Fix: use step model with indeterminate state for non-download steps.
+5. **react-bits dark mode colors** — Components may use hardcoded colors instead of CSS variables. Fix: review each generated component file after CLI install, replace with project's CSS variable classes.
 
-### Differentiators (Should Have)
+See [PITFALLS.md](PITFALLS.md) for all 11 pitfalls with phase-specific warnings.
 
-| Category | Features |
-|----------|----------|
-| **Inbound** | Smart defaults; field tooltips; modal-driven forms; advanced transport (WebSocket first) |
-| **User** | User search/filter |
-| **Subscription** | Subscription info page (usage/expiry) |
-| **Certificate** | One-click Let's Encrypt; auto-renewal |
-| **System** | Docker / bash / single-binary deploy (all three required) |
+## Implications for Roadmap
 
-### Defer to v2+
+Based on research, the milestone splits into 4 phases with clear dependency ordering:
 
-- Traffic statistics (Phase 2—need sing-box API research)
-- Bulk user actions
-- REST API
-- Clash/ClashMeta subscription formats
-- Periodic traffic limits
-- Database backup/restore
-- External subscription merge
+### Phase 1: UI Animation Foundation
+**Rationale:** Zero backend dependencies, low risk, immediately visible results. Establishes the animation patterns that later phases (like update progress UI) build on. Gets react-bits activated and validated before using it in more complex contexts.
+**Delivers:** Polished dashboard with animated stats, entrance animations on all pages, hover effects, status indicator animation.
+**Features addressed:** CountUp on stats, AnimatedContent on pages, staggered card entrance, status indicator pulse, consistent hover effects.
+**Avoids:** Pitfall 4 (style conflicts) — catch early by testing dark mode for each component; Pitfall 5 (jank) — set reasonable durations, prefer GPU-composited transforms; Pitfall 9 (re-render animation) — only animate on mount.
+**Stack:** react-bits (CountUp, AnimatedContent, SpotlightCard), tw-animate-css classes, Tailwind v4 transitions.
 
-### Anti-Features (Do Not Build)
+### Phase 2: Core Process Control
+**Rationale:** Adds Start/Stop before the SSE update flow because the update flow's final step is a restart — the ProcessManager needs clean start/stop separation first. Also delivers user-facing value (explicit controls) independently of the more complex SSE work.
+**Delivers:** Separate Start and Stop buttons on Core page, improved status detection, clear process state transitions in the UI.
+**Features addressed:** Explicit start/stop controls, status indicator with state transitions.
+**Avoids:** Pitfall 8 (pgrep false negatives) — keep existing approach, sufficient for controlled environment.
+**Stack:** Go ProcessManager extensions (Start, Stop), new API endpoints, TanStack Query mutations.
 
-- System resource monitoring (CPU/RAM)
-- Multi-language/i18n (Chinese-only)
-- Protocols beyond VLESS + Hysteria2
-- Telegram bot
-- Mobile app
-- Multiple admin roles
-- v2board-style SaaS (plans, payments)
-- CLI tool
+### Phase 3: Update Progress System
+**Rationale:** Most complex phase — SSE endpoint, progress tracking, multi-step visualization, error handling. Depends on Phase 2 (restart capability) and Phase 1 (animation components for Stepper/Progress UI). Contains the milestone's three critical pitfalls, all addressable with documented mitigations.
+**Delivers:** Real-time update progress with step visualization, download percentage, error display, and graceful completion.
+**Features addressed:** Download progress bar, Stepper visualization, error detail display.
+**Avoids:** Pitfall 1 (concurrent updates) — mutex with TryLock; Pitfall 2 (SSE leaks) — useEffect cleanup; Pitfall 3 (disconnect) — context cancellation for download phase; Pitfall 6 (proxy buffering) — X-Accel-Buffering header; Pitfall 11 (stuck at 0%) — step model with indeterminate states.
+**Stack:** Go SSE handler (stdlib), EventSource API, shadcn/ui Progress, react-bits Stepper, sonner for error toasts.
 
----
+### Phase 4: Polish & Consistency Pass
+**Rationale:** Final pass after all functional work is complete. Ensures consistent spacing, colors, animation timing across all pages. Catches dark mode issues that slipped through Phase 1. Low-risk finishing work.
+**Delivers:** Visually consistent panel across all pages, verified dark mode, refined animation timing, documentation for proxy configuration.
+**Features addressed:** Remaining spacing/color inconsistencies, dark mode verification, animation timing refinement.
+**Avoids:** Pitfall 10 (dark mode colors) — systematic review of all react-bits components in dark mode.
 
-## Architecture Overview
+### Phase Ordering Rationale
 
-(From ARCHITECTURE.md)
+- **Phase 1 → 2:** Independent tracks, but Phase 1 first because it validates react-bits integration patterns used in Phase 3's Stepper UI
+- **Phase 2 → 3:** Phase 3's update flow ends with a restart — needs Phase 2's clean Start/Stop separation
+- **Phase 3 → 4:** Polish pass must come after all components are in place to assess consistency holistically
+- **Phases 1 and 2 could technically run in parallel** since they touch different parts of the stack (frontend animation vs. backend process control), but sequential ordering reduces context-switching and ensures Phase 1's patterns inform Phase 3's UI work
 
-**Control-plane / data-plane separation.** Panel manages sing-box as an external process via config file. DB is source of truth; ConfigGenerator reads from DB and produces sing-box JSON.
+### Research Flags
 
-### Major Components
+Phases likely needing deeper research during planning:
+- **Phase 3 (Update Progress):** SSE implementation details, Go `http.ResponseController` vs `http.Flusher`, EventSource error handling edge cases, proxy configuration documentation. The critical pitfalls cluster here — worth a focused research pass before implementation.
 
-1. **Frontend (React SPA)** — Modal forms, shadcn/ui, TanStack Query, session auth. Talks only to Backend API.
-2. **Backend API (Go)** — Chi router, session middleware (SCS), `/api/*` routes, embedded static assets.
-3. **sing-box Integration Layer** — ConfigGenerator (DB → JSON), ProcessManager (start/stop/restart), StatsClient (V2Ray API gRPC, optional).
-4. **Database (GORM + SQLite)** — Inbound, User, UserInbound, Certificate, TrafficStat models.
-5. **Certificate Manager** — Manual path + optional certbot/ACME.
-6. **Subscription Service** — `/sub/:token` endpoint; Base64-encoded proxy list; token maps to user.
-
-### Key Data Flow
-
-- **Config update:** User edit → API → DB transaction → ConfigGenerator → temp file → `sing-box check` → atomic move → ProcessManager.Restart()
-- **Subscription:** GET `/sub/:token` → validate token → fetch user + inbounds → build URIs → Base64 encode → return
-
-### sing-box Constraints
-
-- No hot-reload; config changes require full restart.
-- Always run `sing-box check` before applying config.
-- Use temp file + atomic rename for config writes.
-- Tag convention: `{protocol}-in-{id}` for stats mapping.
-
----
-
-## Key Risks & Mitigations
-
-(From PITFALLS.md)
-
-### Critical
-
-| Risk | Mitigation |
-|------|------------|
-| **Panel auth bypass / weak auth** | No default credentials; bcrypt/argon2; session timeout; login rate limiting; secure cookie flags |
-| **HTTPS→HTTP redirect** (3x-ui #2857) | Respect `X-Forwarded-Proto`; generate URLs from config, not request headers; test behind reverse proxy |
-| **sing-box CVE-2023-43644** | Pin sing-box ≥ 1.4.5; check version on startup; document minimum version |
-| **Listen address over-exposure** | Default panel to `127.0.0.1`; provide sensible inbound listen defaults |
-| **Subscription token exposure** | Opaque token; support rotation; avoid logging; no Referer leakage |
-
-### sing-box Integration
-
-| Risk | Mitigation |
-|------|------------|
-| **Deprecated/unknown field errors** | Run `sing-box check` before every apply; track deprecated list; test against latest stable |
-| **Protocol-specific mistakes** (Hysteria2 port `:` vs `-`) | Protocol-specific validation; field tooltips; smart defaults |
-| **Config file corruption/race** | Temp file + atomic rename; file lock; single writer; validate before restart |
-
-### Certificate & Deployment
-
-| Risk | Mitigation |
-|------|------------|
-| **ACME rate limits** | Use staging for dev; backoff; cache success; one account per deployment |
-| **Cert renewal failure** | Renew 30 days before expiry; log attempts; in-app warning when &lt; 14 days |
-| **Docker volume permissions** | chown in Dockerfile; document paths and permissions |
-
-### UX
-
-| Risk | Mitigation |
-|------|------------|
-| **Form validation too late** | Client-side format validation; field-level server errors; preserve form state |
-| **Filter reset on navigation** | Persist filter in URL query or sessionStorage |
-
----
-
-## Recommended Build Order
-
-### Phase 1: Foundation
-
-**Rationale:** DB, auth, and core integration before features.  
-**Delivers:** GORM + SQLite, session auth, ConfigGenerator (minimal), ProcessManager, basic frontend shell.  
-**Avoids:** 1.1 (auth), 1.4 (listen), 6.2 (Docker permissions).
-
-### Phase 2: Inbound Management
-
-**Rationale:** Base for users and subscriptions.  
-**Delivers:** Inbound CRUD (VLESS, Hysteria2), modal forms, smart defaults, field tooltips.  
-**Avoids:** 1.3 (CVE), 2.1 (deprecated), 2.2 (protocol), 2.3 (config race).
-
-### Phase 3: Certificate Management
-
-**Rationale:** Required for TLS inbounds.  
-**Delivers:** Manual cert path, Cert API, optional Certbot integration.  
-**Avoids:** 4.1 (rate limit), 4.2 (proxy), 4.3 (renewal).
-
-### Phase 4: User Management
-
-**Rationale:** Users attach to inbounds; core value.  
-**Delivers:** User CRUD, traffic cap, expiry, user-inbound assignment, search/filter.  
-**Avoids:** 1.5 (token), 7.1 (validation), 7.2 (filter).
-
-### Phase 5: Subscription System
-
-**Rationale:** Delivers value to end users; depends on users + inbounds.  
-**Delivers:** `/sub/:token`, Base64 proxy list, QR code, subscription info page.  
-**Avoids:** 1.5 (token exposure).
-
-### Phase 6: Traffic & Statistics
-
-**Rationale:** Operational visibility; depends on running sing-box with V2Ray API.  
-**Delivers:** StatsClient, per-user/per-inbound stats, dashboard.  
-**⚠️ Needs research:** V2Ray API requires `with_v2ray_api` build tag; verify default sing-box build. Fallback: defer or log parsing.
-
-### Phase 7: Deployment & Polish
-
-**Rationale:** Production readiness.  
-**Delivers:** Docker, bash install script, single-binary with embed; HTTPS; reverse proxy testing.  
-**Avoids:** 1.2 (HTTPS redirect), 6.1, 6.3 (Docker TUN).
-
-### Dependency Chain
-
-```
-Foundation → Inbound → Cert (parallel after Inbound)
-         → User (after Inbound)
-         → Subscription (after User)
-         → Stats (after core running)
-```
-
----
-
-## Open Questions
-
-1. **Traffic stats source:** V2Ray API requires custom sing-box build. Is `with_v2ray_api` in default releases? Document custom build requirement or defer stats to Phase 2.
-2. **react-bits compatibility:** Verify Tailwind v4 + shadcn compatibility with react-bits micro-interactions.
-3. **ACME for inbound certs:** sing-box supports `acme` in TLS config with `with_acme` build tag. Prefer built-in or external certbot/acme.sh?
-4. **Subscription token design:** Per-user UUID vs opaque token? Rotation without changing user identity?
-5. **Config merge:** If user edits config.json manually, document overwrite or implement merge (higher complexity)?
-
----
+Phases with standard patterns (skip research-phase):
+- **Phase 1 (UI Animation):** react-bits components have clear documentation, install via CLI, copy-paste with adjustment. Well-trodden path.
+- **Phase 2 (Process Control):** Straightforward Go process management. `exec.Command` + signal handling is well-documented stdlib territory.
+- **Phase 4 (Polish):** No research needed — this is a review-and-refine pass.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | sing-box changelog, Chi usage, Vite default, shadcn docs |
-| Features | HIGH | Ecosystem analysis; 3x-ui, Marzban, s-ui feature sets |
-| Architecture | HIGH | Official sing-box config docs; standard 3-tier pattern |
-| Pitfalls | HIGH | 3x-ui GitHub issues; CVE; sing-box deprecation list |
+| Stack | HIGH | All packages verified in package.json/bun.lock; versions confirmed; react-bits GitHub active (35.9K stars, pushed 2026-02-14) |
+| Features | HIGH | Based on direct codebase analysis of existing pages and components; feature scope is well-bounded |
+| Architecture | HIGH | Patterns verified against existing code structure; SSE is stdlib Go; EventSource is browser-native |
+| Pitfalls | HIGH | Critical pitfalls (mutex, SSE cleanup, proxy buffering) are well-documented problems with known solutions |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Traffic stats:** V2Ray API build tag availability—validate during Phase 6 planning.
-- **ACME integration:** Panel HTTPS vs inbound certs—clarify certmagic scope.
-- **react-bits:** Verify shadcn v4 + Tailwind v4 compatibility.
-
----
+- **react-bits component quality in practice:** While react-bits is well-maintained and popular, the specific components (CountUp, SpotlightCard, Stepper) haven't been tested in this codebase. Phase 1 serves as validation — if components don't meet quality bar after CSS variable adjustment, fall back to hand-rolled equivalents using tw-animate-css.
+- **SSE through s-ui's specific reverse proxy setup:** The PITFALLS.md documents the general proxy buffering issue, but the specific proxy configuration users run (Nginx, Caddy, or direct) should be validated. The `X-Accel-Buffering: no` header is the primary mitigation.
+- **EventSource browser support on mobile admin access:** EventSource is supported in all modern browsers, but users accessing the panel from older mobile browsers should be considered. Fallback to polling if EventSource is unavailable (graceful degradation).
 
 ## Sources
 
 ### Primary (HIGH confidence)
-
-- sing-box changelog, go.mod, configuration docs
-- 3x-ui go.mod, GitHub issues (#2857, #2806)
-- shadcn/ui installation, changelog (Tailwind v4)
-- CVE-2023-43644, sing-box deprecated list
-- Let's Encrypt rate limits
+- react-bits GitHub (35.9K stars): https://github.com/DavidHDev/react-bits — component catalog, TS-TW variants
+- tw-animate-css (5.8M weekly downloads): https://github.com/Wombosvideo/tw-animate-css — utility class reference
+- shadcn/ui Progress: https://ui.shadcn.com/docs/components/progress — Radix primitive wrapper
+- Radix UI consolidated package: https://www.npmjs.com/package/radix-ui — v1.4.3 includes Progress
+- Go SSE stdlib: https://freecodecamp.org/news/how-to-implement-server-sent-events-in-go — verified implementation pattern
+- MDN EventSource API: https://developer.mozilla.org/en-US/docs/Web/API/EventSource — browser-native SSE client
+- motion v12.34.0: https://www.npmjs.com/package/motion — verified for "not recommended" rationale
 
 ### Secondary (MEDIUM confidence)
+- TanStack Query + SSE integration: https://ollioddi.dev/blog/tanstack-sse-guide — community pattern, not official TanStack guidance
+- Nginx SSE proxy configuration: Nginx `proxy_buffering` documentation — standard but depends on user's setup
 
-- react-bits (DavidHDev)
-- DeepWiki s-ui architecture
-- Docker TUN limitations
+### Tertiary (LOW confidence)
+- react-bits dark mode behavior: Inferred from component variant structure — needs validation during Phase 1
 
 ---
-*Research completed: 2026-02-11*  
+*Research completed: 2026-02-19*
 *Ready for roadmap: yes*
