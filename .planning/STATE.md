@@ -6,18 +6,18 @@ See: .planning/PROJECT.md (updated 2026-02-11)
 
 **Core value:** 提供一个界面美观、体验流畅、部署简单的 sing-box 管理面板
 
-**Current focus:** Phase 9 — Certificate Config Sync
+**Current focus:** Phase 10 — Sidebar Pages & Config Fix
 
 ## Current Position
 
-Phase: 9 of 9 (Certificate Config Sync)
-Plan: 3/3 complete
-Current Plan: 3
-Total Plans in Phase: 3
-Status: Phase 9 complete — Plans 09-01, 09-02, 09-03 done
-Last activity: 2026-02-12 — Phase 9 Plan 03 complete
+Phase: 10 of 10 (Sidebar Pages & Config Fix)
+Plan: 0/0 complete
+Current Plan: —
+Total Plans in Phase: 0
+Status: Not planned yet
+Last activity: 2026-02-19 — Phase 10 added
 
-Progress: [██████████] 100% (Phase 9)
+Progress: [░░░░░░░░░░] 0% (Phase 10)
 
 ## Performance Metrics
 
@@ -107,12 +107,16 @@ Recent decisions affecting current work:
 
 None yet.
 
+### Roadmap Evolution
+
+- Phase 10 added: Sidebar Pages & Config Fix — 订阅/流量/核心独立页面 + 配置路径修复
+
 ### Blockers/Concerns
 
 None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-12
-Stopped at: Completed 09-02-PLAN.md
-Resume file: None
+Last session: 2026-02-19
+Stopped at: Phase 10 context gathered
+Resume file: .planning/phases/10-sidebar-pages-config-fix/10-CONTEXT.md
