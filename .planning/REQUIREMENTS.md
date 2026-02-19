@@ -77,24 +77,24 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| UIANM-01 | — | Pending |
-| UIANM-02 | — | Pending |
-| UIANM-03 | — | Pending |
-| UIANM-04 | — | Pending |
-| UICON-01 | — | Pending |
-| UICON-02 | — | Pending |
-| CORE-01 | — | Pending |
-| CORE-02 | — | Pending |
-| CORE-03 | — | Pending |
-| CORE-04 | — | Pending |
-| UPDT-01 | — | Pending |
-| UPDT-02 | — | Pending |
+| UIANM-01 | Phase 11 | Pending |
+| UIANM-02 | Phase 11 | Pending |
+| UIANM-03 | Phase 11 | Pending |
+| UIANM-04 | Phase 11 | Pending |
+| CORE-01 | Phase 12 | Pending |
+| CORE-02 | Phase 12 | Pending |
+| CORE-03 | Phase 12 | Pending |
+| CORE-04 | Phase 12 | Pending |
+| UPDT-01 | Phase 13 | Pending |
+| UPDT-02 | Phase 13 | Pending |
+| UICON-01 | Phase 14 | Pending |
+| UICON-02 | Phase 14 | Pending |
 
 **Coverage:**
 - v1.1 requirements: 12 total
-- Mapped to phases: 0
-- Unmapped: 12 ⚠️
+- Mapped to phases: 12 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-19*
-*Last updated: 2026-02-19 after initial definition*
+*Last updated: 2026-02-19 after roadmap creation*
