@@ -1,4 +1,4 @@
-import { Link, useLocation } from "react-router-dom"
+import { Link, useLocation, useNavigate } from "react-router-dom"
 import {
   LayoutDashboard,
   Radio,
@@ -7,10 +7,12 @@ import {
   Shield,
   Gauge,
   Box,
+  LogOut,
 } from "lucide-react"
 import {
   Sidebar as ShadcnSidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarHeader,
@@ -18,24 +20,30 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { Button } from "@/components/ui/button"
 
 const navItems: Array<{
   to: string
   label: string
   icon: typeof LayoutDashboard
-  disabled?: boolean
 }> = [
   { to: "/", label: "仪表盘", icon: LayoutDashboard },
   { to: "/inbounds", label: "入站", icon: Radio },
   { to: "/users", label: "用户", icon: Users },
-  { to: "/subscriptions", label: "订阅", icon: Link2, disabled: true },
+  { to: "/subscriptions", label: "订阅", icon: Link2 },
   { to: "/certificates", label: "证书", icon: Shield },
-  { to: "/traffic", label: "流量", icon: Gauge, disabled: true },
-  { to: "/core", label: "核心", icon: Box, disabled: true },
+  { to: "/traffic", label: "流量", icon: Gauge },
+  { to: "/core", label: "核心", icon: Box },
 ]
 
 export function Sidebar() {
   const location = useLocation()
+  const navigate = useNavigate()
+
+  const handleLogout = async () => {
+    await fetch("/api/logout", { method: "POST", credentials: "include" })
+    navigate("/login", { replace: true })
+  }
 
   return (
     <ShadcnSidebar side="left" collapsible="none" className="border-0">
@@ -55,17 +63,8 @@ export function Sidebar() {
                     : location.pathname.startsWith(item.to)
                 return (
                   <SidebarMenuItem key={item.to}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={isActive}
-                        disabled={item.disabled ?? false}
-                      >
-                      <Link
-                        to={item.to}
-                        className={
-                          item.disabled ? "pointer-events-none opacity-50" : ""
-                        }
-                      >
+                    <SidebarMenuButton asChild isActive={isActive}>
+                      <Link to={item.to}>
                         <item.icon className="size-4" />
                         <span>{item.label}</span>
                       </Link>
@@ -77,6 +76,17 @@ export function Sidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter className="p-4">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2"
+          onClick={handleLogout}
+        >
+          <LogOut className="size-4" />
+          <span>退出登录</span>
+        </Button>
+      </SidebarFooter>
     </ShadcnSidebar>
   )
 }

@@ -32,8 +32,13 @@ func Routes(staticFS fs.FS, sm *scs.SessionManager, cfg *config.Config) chi.Rout
 			r.Get("/versions", VersionsHandler(sm, cfg))
 			r.Post("/restart", RestartHandler(sm, cfg))
 			r.Post("/config", ConfigHandler(sm, cfg))
+			r.Get("/config-file", ConfigFileHandler(sm, cfg))
 			r.Post("/update", UpdateHandler(sm, cfg))
 			r.Post("/rollback", RollbackHandler(sm, cfg))
+		})
+		r.Route("/stats", func(r chi.Router) {
+			r.Use(RequireAuth(sm))
+			r.Get("/summary", StatsSummaryHandler(sm))
 		})
 		r.Route("/inbounds", func(r chi.Router) {
 			r.Use(RequireAuth(sm))

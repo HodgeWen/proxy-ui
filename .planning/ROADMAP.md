@@ -252,9 +252,9 @@ Plans:
 **Plans:** 3 plans
 
 Plans:
-- [ ] 10-01-PLAN.md — 后端配置路径修复 + stats/config-file 端点
-- [ ] 10-02-PLAN.md — 订阅页 + 流量页（前端，独立于后端）
-- [ ] 10-03-PLAN.md — 核心页 + 仪表盘重构 + 侧边栏/路由
+- [x] 10-01-PLAN.md — 后端配置路径修复 + stats/config-file 端点
+- [x] 10-02-PLAN.md — 订阅页 + 流量页（前端，独立于后端）
+- [x] 10-03-PLAN.md — 核心页 + 仪表盘重构 + 侧边栏/路由
 
 ---
 
@@ -274,4 +274,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | 7. sing-box Core Management | 2/2 | ✓ Complete | 2026-02-12 |
 | 8. Deployment & Production | 4/4 | ✓ Complete | 2026-02-12 |
 | 9. Certificate Config Sync (Gap Closure) | 3/3 | ✓ Complete | 2026-02-12 |
-| 10. Sidebar Pages & Config Fix | 0/3 | ◻ Planned | — |
+| 10. Sidebar Pages & Config Fix | 3/3 | ✓ Complete | 2026-02-19 |

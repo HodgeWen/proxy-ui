@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
@@ -25,6 +26,13 @@ func main() {
 	}
 
 	_ = config.EnsureDir(cfg.DataDir)
+	_ = os.MkdirAll(filepath.Dir(cfg.SingboxConfigPath), 0755)
+
+	pm := core.NewProcessManagerFromConfig(cfg)
+	if !pm.Available() {
+		log.Printf("[warn] sing-box binary not found at configured path: %s", cfg.SingboxBinaryPath)
+	}
+
 	dbPath := config.DBPath(cfg.DataDir)
 	if err := db.Init(dbPath); err != nil {
 		log.Fatalf("db init: %v", err)

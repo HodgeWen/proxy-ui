@@ -10,4 +10,5 @@ services:
     environment:
       CONFIG_PATH: /data/config.json
       DATA_DIR: /data
+      SINGBOX_BINARY_PATH: /usr/local/bin/sing-box
     restart: unless-stopped

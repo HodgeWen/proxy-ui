@@ -105,6 +105,11 @@ func (u *CoreUpdater) assetForPlatform(releases []githubRelease, version string)
 	return "", "", fmt.Errorf("asset %s not found for version %s", assetName, version)
 }
 
+// BinaryPath returns the configured target binary path.
+func (u *CoreUpdater) BinaryPath() string {
+	return u.binaryPath
+}
+
 // Update downloads the latest release, replaces the binary atomically, and restarts.
 func (u *CoreUpdater) Update() error {
 	if u.binaryPath == "" {
@@ -113,11 +118,9 @@ func (u *CoreUpdater) Update() error {
 
 	pm := NewProcessManagerWithBinary(u.configPath, u.binaryPath)
 
-	// 1. Stop
 	_ = execPkill("sing-box")
 	time.Sleep(100 * time.Millisecond)
 
-	// 2. Fetch releases
 	resp, err := http.Get("https://api.github.com/repos/SagerNet/sing-box/releases")
 	if err != nil {
 		return fmt.Errorf("fetch releases: %w", err)
@@ -147,8 +150,10 @@ func (u *CoreUpdater) Update() error {
 		return err
 	}
 
-	// 3. Download to temp file
-	tmpDir, err := os.MkdirTemp("", "s-ui-update-*")
+	// Use a temp dir next to the target binary so rename stays on same filesystem.
+	targetDir := filepath.Dir(u.binaryPath)
+	_ = os.MkdirAll(targetDir, 0755)
+	tmpDir, err := os.MkdirTemp(targetDir, ".s-ui-update-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
@@ -158,13 +163,11 @@ func (u *CoreUpdater) Update() error {
 		return err
 	}
 
-	// 4. Extract binary
 	extractedPath, err := extractBinary(tarPath, tmpDir)
 	if err != nil {
 		return err
 	}
 
-	// 5. Backup
 	backupPath := u.binaryPath + ".backup"
 	if _, err := os.Stat(u.binaryPath); err == nil {
 		_ = os.Remove(backupPath)
@@ -173,7 +176,6 @@ func (u *CoreUpdater) Update() error {
 		}
 	}
 
-	// 6. Atomic replace
 	tmpBinary := filepath.Join(tmpDir, "sing-box-new")
 	if err := copyFile(extractedPath, tmpBinary); err != nil {
 		restoreBackup(u.binaryPath, backupPath)
@@ -183,18 +185,16 @@ func (u *CoreUpdater) Update() error {
 		restoreBackup(u.binaryPath, backupPath)
 		return fmt.Errorf("chmod: %w", err)
 	}
-	if err := os.Rename(tmpBinary, u.binaryPath); err != nil {
+	if err := atomicReplace(tmpBinary, u.binaryPath); err != nil {
 		restoreBackup(u.binaryPath, backupPath)
-		return fmt.Errorf("atomic replace: %w", err)
+		return fmt.Errorf("replace binary: %w", err)
 	}
 
-	// 7. Verify
 	if out, err := pm.Check(u.configPath); err != nil {
 		restoreBackup(u.binaryPath, backupPath)
 		return fmt.Errorf("verify failed: %w\n%s", err, out)
 	}
 
-	// 8. Start
 	if err := pm.Restart(u.configPath); err != nil {
 		return fmt.Errorf("restart: %w", err)
 	}
@@ -329,10 +329,15 @@ func restoreBackup(target, backup string) {
 	_ = os.Chmod(target, 0755)
 }
 
-// ConfigPathFromEnv returns the sing-box config path from env or default.
-func ConfigPathFromEnv() string {
-	if p := os.Getenv("SINGBOX_CONFIG_PATH"); p != "" {
-		return p
+// atomicReplace tries os.Rename first; falls back to copy+remove for cross-device moves.
+func atomicReplace(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
 	}
-	return "./config.json"
+	if err := copyFile(src, dst); err != nil {
+		return err
+	}
+	_ = os.Remove(src)
+	return nil
 }
+

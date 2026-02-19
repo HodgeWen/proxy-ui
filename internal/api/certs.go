@@ -152,14 +152,14 @@ func UpdateCertificateHandler(sm *scs.SessionManager, panelCfg *config.Config) h
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := core.ApplyConfig(path, cfg); err != nil {
+		pm := core.NewProcessManagerFromConfig(panelCfg)
+		if err := core.ApplyConfig(path, cfg, pm); err != nil {
 			db.UpdateCertificate(old)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		pm := core.NewProcessManagerFromConfig(panelCfg)
 		if err := pm.Restart(path); err != nil {
 			// Config applied; restart failure is best-effort
 		}

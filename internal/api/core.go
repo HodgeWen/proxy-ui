@@ -35,7 +35,7 @@ func binaryPath(cfg *config.Config) string {
 	return filepath.Join(cfg.DataDir, "bin", "sing-box")
 }
 
-// StatusHandler returns sing-box running state and version.
+// StatusHandler returns sing-box running state, version, and path info.
 func StatusHandler(sm *scs.SessionManager, cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		pm := core.NewProcessManagerFromConfig(cfg)
@@ -46,8 +46,10 @@ func StatusHandler(sm *scs.SessionManager, cfg *config.Config) http.HandlerFunc 
 		running := pm.IsRunning()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"running": running,
-			"version": version,
+			"running":    running,
+			"version":    version,
+			"binaryPath": binaryPath(cfg),
+			"configPath": configPath(cfg),
 		})
 	}
 }
@@ -88,7 +90,8 @@ func ConfigHandler(sm *scs.SessionManager, cfg *config.Config) http.HandlerFunc 
 			http.Error(w, "failed to create config dir", http.StatusInternalServerError)
 			return
 		}
-		if err := core.ApplyConfig(path, body); err != nil {
+		pm := core.NewProcessManagerFromConfig(cfg)
+		if err := core.ApplyConfig(path, body, pm); err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -96,6 +99,26 @@ func ConfigHandler(sm *scs.SessionManager, cfg *config.Config) http.HandlerFunc 
 		}
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{"ok": "true"})
+	}
+}
+
+// ConfigFileHandler returns the raw sing-box config file as JSON.
+func ConfigFileHandler(sm *scs.SessionManager, cfg *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		path := configPath(cfg)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]string{"error": "config file not found"})
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
 	}
 }
 

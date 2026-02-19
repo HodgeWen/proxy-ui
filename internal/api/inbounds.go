@@ -189,17 +189,16 @@ func CreateInboundHandler(sm *scs.SessionManager, panelCfg *config.Config) http.
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := core.ApplyConfig(path, cfg); err != nil {
+		pm := core.NewProcessManagerFromConfig(panelCfg)
+		if err := core.ApplyConfig(path, cfg, pm); err != nil {
 			db.DeleteInbound(ib.ID)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		pm := core.NewProcessManagerFromConfig(panelCfg)
 		if err := pm.Restart(path); err != nil {
-			// Config applied; restart failure is logged but inbound is persisted
-			// Per plan: apply succeeded, return 201. Restart is best-effort.
+			// Config applied; restart failure is best-effort
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -265,14 +264,14 @@ func UpdateInboundHandler(sm *scs.SessionManager, panelCfg *config.Config) http.
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := core.ApplyConfig(path, cfg); err != nil {
+		pm := core.NewProcessManagerFromConfig(panelCfg)
+		if err := core.ApplyConfig(path, cfg, pm); err != nil {
 			db.UpdateInbound(old)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		pm := core.NewProcessManagerFromConfig(panelCfg)
 		if err := pm.Restart(path); err != nil {
 			// Config applied; restart failure is best-effort
 		}
@@ -312,14 +311,14 @@ func DeleteInboundHandler(sm *scs.SessionManager, panelCfg *config.Config) http.
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := core.ApplyConfig(path, cfg); err != nil {
+		pm := core.NewProcessManagerFromConfig(panelCfg)
+		if err := core.ApplyConfig(path, cfg, pm); err != nil {
 			db.CreateInbound(ib)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		pm := core.NewProcessManagerFromConfig(panelCfg)
 		if err := pm.Restart(path); err != nil {
 			// Config applied; restart failure is best-effort
 		}

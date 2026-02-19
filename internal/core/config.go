@@ -9,7 +9,7 @@ import (
 // ApplyConfig writes configJSON to a temp file, runs sing-box check, and atomically
 // renames to configPath on success. On check failure, original config is preserved
 // and error includes check output for frontend Modal display.
-func ApplyConfig(configPath string, configJSON []byte) error {
+func ApplyConfig(configPath string, configJSON []byte, pm *ProcessManager) error {
 	dir := filepath.Dir(configPath)
 	tmpPath := filepath.Join(dir, filepath.Base(configPath)+".tmp")
 
@@ -18,7 +18,6 @@ func ApplyConfig(configPath string, configJSON []byte) error {
 	}
 	defer os.Remove(tmpPath)
 
-	pm := NewProcessManager()
 	_, err := pm.Check(tmpPath)
 	if err != nil {
 		return err

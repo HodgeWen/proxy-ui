@@ -5,6 +5,9 @@ import { Dashboard } from './pages/Dashboard'
 import { Inbounds } from './pages/Inbounds'
 import { Users } from './pages/Users'
 import { Certificates } from './pages/Certificates'
+import { Subscriptions } from './pages/Subscriptions'
+import { Traffic } from './pages/Traffic'
+import { Core } from './pages/Core'
 import { AppLayout } from './components/layout/AppLayout'
 
 async function checkAuth() {
@@ -27,7 +30,10 @@ export const router = createBrowserRouter([
       { index: true, element: <Dashboard /> },
       { path: "inbounds", element: <Inbounds /> },
       { path: "users", element: <Users /> },
+      { path: "subscriptions", element: <Subscriptions /> },
       { path: "certificates", element: <Certificates /> },
+      { path: "traffic", element: <Traffic /> },
+      { path: "core", element: <Core /> },
     ],
   },
   { path: '*', element: <Navigate to="/" replace /> },

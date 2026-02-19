@@ -17,20 +17,6 @@ type ProcessManager struct {
 	binaryPath string // explicit path; empty = use LookPath
 }
 
-// NewProcessManager creates a ProcessManager with config path from env or default.
-func NewProcessManager() *ProcessManager {
-	configPath := os.Getenv("SINGBOX_CONFIG_PATH")
-	if configPath == "" {
-		configPath = "./config.json"
-	}
-	binaryPath := os.Getenv("SINGBOX_BINARY_PATH")
-	if binaryPath != "" {
-		dir := filepath.Dir(binaryPath)
-		_ = os.MkdirAll(dir, 0755)
-	}
-	return &ProcessManager{configPath: configPath, binaryPath: binaryPath}
-}
-
 // NewProcessManagerFromConfig creates a ProcessManager from panel config.
 func NewProcessManagerFromConfig(cfg *config.Config) *ProcessManager {
 	configPath := cfg.SingboxConfigPath

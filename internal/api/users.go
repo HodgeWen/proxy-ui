@@ -206,14 +206,14 @@ func CreateUserHandler(sm *scs.SessionManager, panelCfg *config.Config) http.Han
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := core.ApplyConfig(path, cfg); err != nil {
+		pm := core.NewProcessManagerFromConfig(panelCfg)
+		if err := core.ApplyConfig(path, cfg, pm); err != nil {
 			db.DeleteUser(u.ID)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		pm := core.NewProcessManagerFromConfig(panelCfg)
 		if err := pm.Restart(path); err != nil {
 			// Config applied; restart failure is best-effort
 		}
@@ -284,7 +284,8 @@ func UpdateUserHandler(sm *scs.SessionManager, panelCfg *config.Config) http.Han
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := core.ApplyConfig(path, cfg); err != nil {
+		pm := core.NewProcessManagerFromConfig(panelCfg)
+		if err := core.ApplyConfig(path, cfg, pm); err != nil {
 			db.UpdateUser(old)
 			db.ReplaceUserInbounds(id, inboundIDsFromUsers(old.Inbounds))
 			w.Header().Set("Content-Type", "application/json")
@@ -292,7 +293,6 @@ func UpdateUserHandler(sm *scs.SessionManager, panelCfg *config.Config) http.Han
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		pm := core.NewProcessManagerFromConfig(panelCfg)
 		if err := pm.Restart(path); err != nil {
 			// Config applied; restart failure is best-effort
 		}
@@ -341,7 +341,8 @@ func DeleteUserHandler(sm *scs.SessionManager, panelCfg *config.Config) http.Han
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := core.ApplyConfig(path, cfg); err != nil {
+		pm := core.NewProcessManagerFromConfig(panelCfg)
+		if err := core.ApplyConfig(path, cfg, pm); err != nil {
 			u.ID = 0
 			db.CreateUser(u)
 			w.Header().Set("Content-Type", "application/json")
@@ -349,7 +350,6 @@ func DeleteUserHandler(sm *scs.SessionManager, panelCfg *config.Config) http.Han
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		pm := core.NewProcessManagerFromConfig(panelCfg)
 		if err := pm.Restart(path); err != nil {
 			// Config applied; restart failure is best-effort
 		}
@@ -503,7 +503,8 @@ func BatchUsersHandler(sm *scs.SessionManager, panelCfg *config.Config) http.Han
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if err := core.ApplyConfig(path, cfg); err != nil {
+		pm := core.NewProcessManagerFromConfig(panelCfg)
+		if err := core.ApplyConfig(path, cfg, pm); err != nil {
 			for _, rb := range rollbacks {
 				rb()
 			}
@@ -512,7 +513,6 @@ func BatchUsersHandler(sm *scs.SessionManager, panelCfg *config.Config) http.Han
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
-		pm := core.NewProcessManagerFromConfig(panelCfg)
 		if err := pm.Restart(path); err != nil {
 			// Config applied; restart failure is best-effort
 		}
