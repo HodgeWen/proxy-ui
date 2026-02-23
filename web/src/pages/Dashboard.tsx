@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query"
 import { Radio, Users, ArrowUpDown } from "lucide-react"
 import { formatBytes } from "@/lib/format"
+import { useCountUp } from "@/hooks/use-count-up"
+import { SpotlightCard } from "@/components/ui/spotlight-card"
 import {
   Card,
   CardContent,
@@ -27,52 +29,64 @@ export function Dashboard() {
     refetchInterval: 30000,
   })
 
+  const ready = !isLoading
+  const inboundCount = useCountUp({ to: stats?.inbound_count ?? 0, startWhen: ready })
+  const userCount = useCountUp({ to: stats?.user_count ?? 0, startWhen: ready })
+  const activeUserCount = useCountUp({ to: stats?.active_user_count ?? 0, startWhen: ready })
+  const uplinkBytes = useCountUp({ to: stats?.total_uplink ?? 0, startWhen: ready })
+  const downlinkBytes = useCountUp({ to: stats?.total_downlink ?? 0, startWhen: ready })
+
+  const cards = [
+    {
+      title: "入站数",
+      icon: Radio,
+      value: inboundCount.formatted,
+      sub: null,
+    },
+    {
+      title: "用户数",
+      icon: Users,
+      value: userCount.formatted,
+      sub: `活跃 ${activeUserCount.formatted}`,
+    },
+    {
+      title: "总流量",
+      icon: ArrowUpDown,
+      value: `↑ ${formatBytes(uplinkBytes.value)}`,
+      sub: `↓ ${formatBytes(downlinkBytes.value)}`,
+      smallValue: true,
+    },
+  ] as const
+
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">仪表盘</h1>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        <Card className="transition-shadow hover:shadow-md">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">入站数</CardTitle>
-            <Radio className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {isLoading ? "..." : (stats?.inbound_count ?? 0)}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="transition-shadow hover:shadow-md">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">用户数</CardTitle>
-            <Users className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {isLoading ? "..." : (stats?.user_count ?? 0)}
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {isLoading ? "" : `活跃 ${stats?.active_user_count ?? 0}`}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="transition-shadow hover:shadow-md">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">总流量</CardTitle>
-            <ArrowUpDown className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-xl font-bold">
-              {isLoading ? "..." : `↑ ${formatBytes(stats?.total_uplink ?? 0)}`}
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {isLoading ? "" : `↓ ${formatBytes(stats?.total_downlink ?? 0)}`}
-            </p>
-          </CardContent>
-        </Card>
+        {cards.map((card, index) => (
+          <div
+            key={card.title}
+            className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none"
+            style={{ animationDelay: `${index * 75}ms` }}
+          >
+            <SpotlightCard>
+              <Card className="transition-shadow hover:shadow-md">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">{card.title}</CardTitle>
+                  <card.icon className="size-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className={card.smallValue ? "text-xl font-bold" : "text-2xl font-bold"}>
+                    {card.value}
+                  </div>
+                  {card.sub && (
+                    <p className="text-sm text-muted-foreground">{card.sub}</p>
+                  )}
+                </CardContent>
+              </Card>
+            </SpotlightCard>
+          </div>
+        ))}
       </div>
     </div>
   )
