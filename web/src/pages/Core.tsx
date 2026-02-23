@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
+import { SpotlightCard } from "@/components/ui/spotlight-card"
 import { useState } from "react"
 
 type CoreStatus = {
@@ -176,6 +177,7 @@ export function Core() {
 
       {/* Status & Version */}
       <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none">
+      <SpotlightCard>
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -293,6 +295,7 @@ export function Core() {
           )}
         </CardContent>
       </Card>
+      </SpotlightCard>
       </div>
 
       {/* Config File Viewer */}
