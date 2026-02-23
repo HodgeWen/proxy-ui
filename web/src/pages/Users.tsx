@@ -100,10 +100,13 @@ export function Users() {
 
   return (
     <div className="p-6 space-y-6">
+      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">用户管理</h1>
         <Button onClick={handleAddUser}>添加用户</Button>
       </div>
+      </div>
+      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none" style={{ animationDelay: '75ms' }}>
       <div className="flex items-center gap-4">
         <Input
           placeholder="搜索用户（名称/备注/UUID）"
@@ -112,6 +115,7 @@ export function Users() {
           className="max-w-sm"
         />
         {isFetching && <span className="text-sm text-muted-foreground">搜索中...</span>}
+      </div>
       </div>
       {selectedIds.length > 0 && (
         <BatchActionBar
@@ -123,6 +127,7 @@ export function Users() {
           onClearSelection={() => setSelectedIds([])}
         />
       )}
+      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none" style={{ animationDelay: '150ms' }}>
       {isError ? (
         <p className="text-destructive">{error?.message ?? "加载失败"}</p>
       ) : (
@@ -136,6 +141,7 @@ export function Users() {
           isLoading={isLoading}
         />
       )}
+      </div>
       <UserFormModal
         open={formOpen}
         onOpenChange={(open) => {

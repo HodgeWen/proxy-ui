@@ -69,8 +69,11 @@ export function Subscriptions() {
 
   return (
     <div className="p-6 space-y-6">
+      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none">
       <h1 className="text-2xl font-bold">订阅</h1>
+      </div>
 
+      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none" style={{ animationDelay: '75ms' }}>
       <Table>
         <TableHeader>
           <TableRow>
@@ -142,6 +145,7 @@ export function Subscriptions() {
           )}
         </TableBody>
       </Table>
+      </div>
 
       <Dialog open={!!qrUser} onOpenChange={(open) => !open && setQrUser(null)}>
         <DialogContent className="max-w-sm">
