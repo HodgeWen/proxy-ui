@@ -10,24 +10,24 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 11 of 14 (UI Animation Foundation)
-Plan: — (not yet planned)
-Status: Ready to plan
-Last activity: 2026-02-19 — Roadmap created for v1.1
+Plan: 2 of 2
+Status: Phase 11 complete
+Last activity: 2026-02-23 — Completed 11-02 (Card Hover & Page Entrance Animations)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 17%
 
 ## Performance Metrics
 
 **Velocity:**
 - Total plans completed: 34 (v1.0)
-- v1.1 plans completed: 0
-- Average duration: TBD for v1.1
+- v1.1 plans completed: 2
+- Average duration: 2min for v1.1
 
 **By Phase (v1.1):**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 11. UI Animation Foundation | 0/? | - | - |
+| 11. UI Animation Foundation | 2/2 | 4min | 2min |
 | 12. Core Process Control | 0/? | - | - |
 | 13. Core Update Progress | 0/? | - | - |
 | 14. UI Polish & Consistency | 0/? | - | - |
@@ -41,6 +41,9 @@ Recent decisions affecting current work:
 
 - v1.1: SSE only for update progress; status polling stays with TanStack Query 5s interval
 - v1.1: No new npm/Go dependencies — activate already-installed react-bits, use stdlib SSE
+- 11-02: Card hover uses border-ring/50 for theme-aware border glow
+- 11-02: Entrance animation pattern: animate-in fade-in zoom-in-95 duration-300 with 75ms stagger
+- 11-01: Used Intl.NumberFormat for per-frame CountUp formatting, refs for SpotlightCard mouse tracking
 
 ### Pending Todos
 
@@ -58,6 +61,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-23
-Stopped at: Phase 11 context gathered
-Resume file: .planning/phases/11-ui-animation-foundation/11-CONTEXT.md
-Next: Plan Phase 11 (UI Animation Foundation)
+Stopped at: Completed 11-02-PLAN.md
+Resume file: .planning/phases/11-ui-animation-foundation/11-02-SUMMARY.md
+Next: Phase 12 (Core Process Control)

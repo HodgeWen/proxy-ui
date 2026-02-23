@@ -27,7 +27,7 @@
 
 **Milestone Goal:** 全局润色 UI 提升视觉体验，优化核心管理的启动、状态检测和更新逻辑
 
-- [ ] **Phase 11: UI Animation Foundation** - Activate react-bits animations across all pages for polished visual feedback
+- [x] **Phase 11: UI Animation Foundation** - Activate react-bits animations across all pages for polished visual feedback (completed 2026-02-23)
 - [ ] **Phase 12: Core Process Control** - Explicit start/stop/restart with 4-state status API and context-aware UI
 - [ ] **Phase 13: Core Update Progress** - SSE real-time download progress with concurrent update protection
 - [ ] **Phase 14: UI Polish & Consistency** - Global spacing/color audit and animated status indicators
@@ -93,7 +93,7 @@ Plans:
 | 8. Deployment & Production | v1.0 | 4/4 | ✓ Complete | 2026-02-12 |
 | 9. Certificate Config Sync | v1.0 | 3/3 | ✓ Complete | 2026-02-12 |
 | 10. Sidebar Pages & Config Fix | v1.0 | 3/3 | ✓ Complete | 2026-02-19 |
-| 11. UI Animation Foundation | v1.1 | 0/2 | Planned | - |
+| 11. UI Animation Foundation | 2/2 | Complete   | 2026-02-23 | - |
 | 12. Core Process Control | v1.1 | 0/? | Not started | - |
 | 13. Core Update Progress | v1.1 | 0/? | Not started | - |
 | 14. UI Polish & Consistency | v1.1 | 0/? | Not started | - |
