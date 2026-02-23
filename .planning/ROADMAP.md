@@ -43,7 +43,10 @@
   2. Cards across all pages fade/slide in on first render with no layout shift (AnimatedContent + tw-animate-css)
   3. Hovering over the core status card produces a spotlight glow that follows the cursor (SpotlightCard)
   4. Buttons, cards, and table rows share consistent hover transitions with uniform timing and visual feedback
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 11-01-PLAN.md — Dashboard & Traffic CountUp + SpotlightCard + entrance animations
+- [ ] 11-02-PLAN.md — Global hover consistency + entrance animations for all remaining pages
 
 ### Phase 12: Core Process Control
 **Goal**: Users have clear, accurate control over sing-box core lifecycle across all states
@@ -90,7 +93,7 @@
 | 8. Deployment & Production | v1.0 | 4/4 | ✓ Complete | 2026-02-12 |
 | 9. Certificate Config Sync | v1.0 | 3/3 | ✓ Complete | 2026-02-12 |
 | 10. Sidebar Pages & Config Fix | v1.0 | 3/3 | ✓ Complete | 2026-02-19 |
-| 11. UI Animation Foundation | v1.1 | 0/? | Not started | - |
+| 11. UI Animation Foundation | v1.1 | 0/2 | Planned | - |
 | 12. Core Process Control | v1.1 | 0/? | Not started | - |
 | 13. Core Update Progress | v1.1 | 0/? | Not started | - |
 | 14. UI Polish & Consistency | v1.1 | 0/? | Not started | - |
