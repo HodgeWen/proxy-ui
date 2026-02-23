@@ -175,6 +175,7 @@ export function Core() {
       <h1 className="text-2xl font-bold">核心管理</h1>
 
       {/* Status & Version */}
+      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none">
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -292,8 +293,10 @@ export function Core() {
           )}
         </CardContent>
       </Card>
+      </div>
 
       {/* Config File Viewer */}
+      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none" style={{ animationDelay: '75ms' }}>
       <Card>
         <CardHeader>
           <CardTitle>sing-box 配置文件</CardTitle>
@@ -313,6 +316,7 @@ export function Core() {
           )}
         </CardContent>
       </Card>
+      </div>
 
       {/* Update Confirm Dialog */}
       <Dialog open={updateConfirmOpen} onOpenChange={setUpdateConfirmOpen}>

@@ -108,6 +108,7 @@ export function Inbounds() {
 
   return (
     <div className="p-6 space-y-6">
+      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">入站管理</h1>
         <div className="flex items-center gap-4">
@@ -127,11 +128,14 @@ export function Inbounds() {
           <Button onClick={handleAddInbound}>添加入站</Button>
         </div>
       </div>
+      </div>
+      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none" style={{ animationDelay: '75ms' }}>
       <InboundTable
         inbounds={data?.data ?? []}
         onEdit={handleEdit}
         onDelete={handleDelete}
       />
+      </div>
       <InboundFormModal
         open={formOpen}
         onOpenChange={(open) => {

@@ -88,15 +88,19 @@ export function Certificates() {
 
   return (
     <div className="p-6 space-y-6">
+      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">证书管理</h1>
         <Button onClick={handleAdd}>添加证书</Button>
       </div>
+      </div>
+      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none" style={{ animationDelay: '75ms' }}>
       <CertificateTable
         certificates={data?.data ?? []}
         onEdit={handleEdit}
         onDelete={handleDelete}
       />
+      </div>
       <CertificateFormModal
         open={formOpen}
         onOpenChange={(open) => {
