@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 ## Current Position
 
 Phase: 13 of 14 (Core Update Progress)
-Plan: 1 of ? (next)
-Status: Phase 12 complete, ready for Phase 13 planning/execution
-Last activity: 2026-02-26 — Completed 12-02 (Core State-Driven Frontend UI & Logs Flow)
+Plan: 2 of 2 (next)
+Status: Phase 13 in progress — completed 13-01, ready for 13-02
+Last activity: 2026-02-26 — Completed 13-01 (Core Update Progress Backend Loop)
 
 Progress: [█████░░░░░] 50%
 
@@ -20,7 +20,7 @@ Progress: [█████░░░░░] 50%
 
 **Velocity:**
 - Total plans completed: 34 (v1.0)
-- v1.1 plans completed: 4
+- v1.1 plans completed: 5
 - Average duration: 3min for v1.1
 
 **By Phase (v1.1):**
@@ -29,10 +29,11 @@ Progress: [█████░░░░░] 50%
 |-------|-------|-------|----------|
 | 11. UI Animation Foundation | 2/2 | 4min | 2min |
 | 12. Core Process Control | 2/2 | 9min | 4.5min |
-| 13. Core Update Progress | 0/? | - | - |
+| 13. Core Update Progress | 1/2 | 3min | 3min |
 | 14. UI Polish & Consistency | 0/? | - | - |
 | Phase 12-core-process-control P01 | 5 min | 3 tasks | 6 files |
 | Phase 12-core-process-control P02 | 4 min | 3 tasks | 2 files |
+| Phase 13 P01 | 3 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -52,6 +53,8 @@ Recent decisions affecting current work:
 - [Phase 12-core-process-control]: Centralized frontend core state contract in web/src/lib/core-status.ts for consistent four-state rendering.
 - [Phase 12-core-process-control]: Lifecycle controls are rendered via state matrix intersected with backend actions to prevent invalid actions in error state.
 - [Phase 12-core-process-control]: Error-state diagnostics use on-demand /api/core/logs dialog with explicit loading, empty, and error feedback.
+- [Phase 13]: POST /api/core/update returns 202 and runs async background update — Prevents request blocking while preserving single-flight update semantics via TryLock
+- [Phase 13]: SSE stream sends snapshot-first events with no-buffer headers — Ensures refresh continuity and real-time progress delivery behind reverse proxies
 
 ### Pending Todos
 
@@ -69,6 +72,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 12-02-PLAN.md
+Stopped at: Completed 13-01-PLAN.md
 Resume file: None
-Next: Begin Phase 13 with 13-01-PLAN.md
+Next: Begin Phase 13 with 13-02-PLAN.md

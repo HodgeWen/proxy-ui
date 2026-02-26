@@ -93,7 +93,7 @@ Plans:
 | 8. Deployment & Production | v1.0 | 4/4 | ✓ Complete | 2026-02-12 |
 | 9. Certificate Config Sync | v1.0 | 3/3 | ✓ Complete | 2026-02-12 |
 | 10. Sidebar Pages & Config Fix | v1.0 | 3/3 | ✓ Complete | 2026-02-19 |
-| 11. UI Animation Foundation | 2/2 | Complete    | 2026-02-23 | - |
-| 12. Core Process Control | 2/2 | Complete    | 2026-02-26 | - |
-| 13. Core Update Progress | v1.1 | 0/? | Not started | - |
+| 11. UI Animation Foundation | v1.1 | 2/2 | ✓ Complete | 2026-02-23 |
+| 12. Core Process Control | v1.1 | 2/2 | ✓ Complete | 2026-02-26 |
+| 13. Core Update Progress | v1.1 | 1/2 | In Progress | - |
 | 14. UI Polish & Consistency | v1.1 | 0/? | Not started | - |

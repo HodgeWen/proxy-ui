@@ -28,8 +28,8 @@ Requirements for v1.1 UI与核心优化。Each maps to roadmap phases.
 
 ### 核心更新
 
-- [ ] **UPDT-01**: SSE 实时推送核心更新下载进度，前端使用 Progress 组件展示进度条
-- [ ] **UPDT-02**: 并发更新保护（sync.Mutex + TryLock），防止多次点击重复触发更新，返回 HTTP 409
+- [x] **UPDT-01**: SSE 实时推送核心更新下载进度，前端使用 Progress 组件展示进度条
+- [x] **UPDT-02**: 并发更新保护（sync.Mutex + TryLock），防止多次点击重复触发更新，返回 HTTP 409
 
 ## Future Requirements
 
@@ -85,8 +85,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CORE-02 | Phase 12 | Complete |
 | CORE-03 | Phase 12 | Complete |
 | CORE-04 | Phase 12 | Complete |
-| UPDT-01 | Phase 13 | Pending |
-| UPDT-02 | Phase 13 | Pending |
+| UPDT-01 | Phase 13 | Complete |
+| UPDT-02 | Phase 13 | Complete |
 | UICON-01 | Phase 14 | Pending |
 | UICON-02 | Phase 14 | Pending |
 
