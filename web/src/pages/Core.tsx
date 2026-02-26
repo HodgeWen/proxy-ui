@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { RefreshCw, Loader2 } from "lucide-react"
+import { Play, Square, RefreshCw, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -19,8 +19,24 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { SpotlightCard } from "@/components/ui/spotlight-card"
 import { useState } from "react"
+import {
+  ACTIONS_BY_STATE,
+  type CoreState,
+  getStateMeta,
+  normalizeCoreState,
+} from "@/lib/core-status"
+
+type CoreLastError = {
+  message: string
+  occurredAt: string
+  stage: string
+  source: string
+}
 
 type CoreStatus = {
+  state: CoreState
+  actions: string[]
+  lastError: CoreLastError | null
   running: boolean
   version: string
   binaryPath: string
@@ -37,10 +53,59 @@ type VersionsResponse = {
   releases: Release[]
 }
 
+type CoreAction = "start" | "stop" | "restart"
+
+const CORE_ACTION_ENDPOINTS: Record<CoreAction, string> = {
+  start: "/api/core/start",
+  stop: "/api/core/stop",
+  restart: "/api/core/restart",
+}
+
+type CoreActionErrorPayload = {
+  code?: string
+  message?: string
+  detail?: string
+}
+
+function mapActionErrorMessage(action: CoreAction, error: CoreActionErrorPayload): string {
+  switch (error.code) {
+    case "CORE_NOT_INSTALLED":
+      return "未检测到 sing-box 核心，请先下载安装。"
+    case "CORE_ALREADY_RUNNING":
+      return "核心已在运行，无需重复启动。"
+    case "CORE_ALREADY_STOPPED":
+      return "核心已停止。"
+    case "CORE_START_FAILED":
+      return error.detail
+        ? `核心启动失败：${error.detail}`
+        : "核心启动失败，请查看日志并重试。"
+    case "CORE_CONFIG_NOT_FOUND":
+      return "未找到核心配置文件，请先保存配置。"
+    default: {
+      const actionLabelMap: Record<CoreAction, string> = {
+        start: "启动",
+        stop: "停止",
+        restart: "重启",
+      }
+      return error.message || `核心${actionLabelMap[action]}失败`
+    }
+  }
+}
+
 async function fetchStatus(): Promise<CoreStatus> {
   const res = await fetch("/api/core/status", { credentials: "include" })
   if (!res.ok) throw new Error("获取状态失败")
-  return res.json()
+  const data = (await res.json()) as Partial<CoreStatus> & { state?: string }
+  const state = normalizeCoreState(data.state, data.running)
+  return {
+    state,
+    actions: Array.isArray(data.actions) ? data.actions : [...ACTIONS_BY_STATE[state]],
+    lastError: data.lastError ?? null,
+    running: Boolean(data.running),
+    version: data.version || "",
+    binaryPath: data.binaryPath || "",
+    configPath: data.configPath || "",
+  }
 }
 
 async function fetchVersions(): Promise<VersionsResponse> {
@@ -60,15 +125,27 @@ async function fetchConfigFile(): Promise<string> {
   return JSON.stringify(data, null, 2)
 }
 
-async function restartCore(): Promise<void> {
-  const res = await fetch("/api/core/restart", {
+async function executeCoreAction(action: CoreAction): Promise<void> {
+  const res = await fetch(CORE_ACTION_ENDPOINTS[action], {
     method: "POST",
     credentials: "include",
   })
   if (!res.ok) {
-    const text = await res.text()
-    throw new Error(text || "重启失败")
+    const payload = (await res.json().catch(() => ({}))) as CoreActionErrorPayload
+    throw new Error(mapActionErrorMessage(action, payload))
   }
+}
+
+async function startCore(): Promise<void> {
+  return executeCoreAction("start")
+}
+
+async function stopCore(): Promise<void> {
+  return executeCoreAction("stop")
+}
+
+async function restartCore(): Promise<void> {
+  return executeCoreAction("restart")
 }
 
 async function updateCore(): Promise<void> {
@@ -125,19 +202,48 @@ export function Core() {
     !!latestStable &&
     status.version !== latestStable.version
 
+  const invalidateCoreStatus = () =>
+    queryClient.invalidateQueries({ queryKey: ["core", "status"] })
+
+  const handleCoreActionError = (err: Error) => {
+    const msg = err.message
+    toast.error(msg)
+    if (msg.includes("：")) {
+      setErrorDetail(msg)
+      setErrorModalOpen(true)
+    }
+  }
+
+  const startMutation = useMutation({
+    mutationFn: startCore,
+    onSuccess: () => {
+      void invalidateCoreStatus()
+      toast.success("sing-box 已启动")
+    },
+    onError: (err: Error) => {
+      handleCoreActionError(err)
+    },
+  })
+
+  const stopMutation = useMutation({
+    mutationFn: stopCore,
+    onSuccess: () => {
+      void invalidateCoreStatus()
+      toast.success("sing-box 已停止")
+    },
+    onError: (err: Error) => {
+      handleCoreActionError(err)
+    },
+  })
+
   const restartMutation = useMutation({
     mutationFn: restartCore,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["core", "status"] })
+      void invalidateCoreStatus()
       toast.success("sing-box 已重启")
     },
     onError: (err: Error) => {
-      const msg = err.message
-      toast.error(msg)
-      if (msg.includes("\n") || msg.includes("check") || msg.length > 100) {
-        setErrorDetail(msg)
-        setErrorModalOpen(true)
-      }
+      handleCoreActionError(err)
     },
   })
 
@@ -196,16 +302,21 @@ export function Core() {
             </div>
           ) : status ? (
             <div className="space-y-4">
+              {(() => {
+                const meta = getStateMeta(status.state)
+                return (
               <div className="flex items-center gap-2">
                 <span
                   className={`inline-block w-2.5 h-2.5 rounded-full ${
-                    status.running ? "bg-emerald-500" : "bg-muted-foreground"
+                    meta.dotClassName
                   }`}
                 />
                 <span className="text-lg font-medium">
-                  {status.running ? "运行中" : "已停止"}
+                  {meta.label}
                 </span>
               </div>
+                )
+              })()}
               <div className="grid gap-2 sm:grid-cols-2 text-sm">
                 {status.version && (
                   <div>
@@ -243,8 +354,47 @@ export function Core() {
               <div className="flex flex-wrap gap-2">
                 <Button
                   size="sm"
+                  variant="secondary"
+                  onClick={() => startMutation.mutate()}
+                  disabled={
+                    startMutation.isPending ||
+                    (!status.actions.includes("start") && !status.actions.includes("retry_start"))
+                  }
+                >
+                  {startMutation.isPending ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      启动中...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="size-4" />
+                      启动
+                    </>
+                  )}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => stopMutation.mutate()}
+                  disabled={stopMutation.isPending || !status.actions.includes("stop")}
+                >
+                  {stopMutation.isPending ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      停止中...
+                    </>
+                  ) : (
+                    <>
+                      <Square className="size-4" />
+                      停止
+                    </>
+                  )}
+                </Button>
+                <Button
+                  size="sm"
                   onClick={() => restartMutation.mutate()}
-                  disabled={restartMutation.isPending}
+                  disabled={restartMutation.isPending || !status.actions.includes("restart")}
                 >
                   {restartMutation.isPending ? (
                     <>
@@ -425,8 +575,8 @@ export function Core() {
       <Dialog open={errorModalOpen} onOpenChange={setErrorModalOpen}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle>配置验证失败</DialogTitle>
-            <DialogDescription>sing-box check 输出如下：</DialogDescription>
+            <DialogTitle>核心操作失败</DialogTitle>
+            <DialogDescription>错误详情如下：</DialogDescription>
           </DialogHeader>
           <pre className="mt-2 p-4 rounded-lg bg-muted text-sm overflow-auto max-h-[60vh] font-mono whitespace-pre-wrap">
             {errorDetail}
