@@ -116,7 +116,7 @@ export function Traffic() {
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">流量</h1>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-6 md:grid-cols-3">
         {statCards.map((card, index) => (
           <div
             key={card.title}

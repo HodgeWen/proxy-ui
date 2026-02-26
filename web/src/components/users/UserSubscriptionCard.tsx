@@ -140,7 +140,7 @@ export function UserSubscriptionCard({ user, onReset }: UserSubscriptionCardProp
             )}
           </Button>
           {showQR && (
-            <div className="flex justify-center rounded-lg border border-muted-foreground/20 bg-white p-4">
+            <div className="flex justify-center rounded-lg border border-border bg-card p-4">
               <QRCodeSVG value={fullSubscriptionUrl} size={200} />
             </div>
           )}

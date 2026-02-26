@@ -154,7 +154,7 @@ export function Subscriptions() {
           </DialogHeader>
           {qrUser?.subscription_url && (
             <div className="flex flex-col items-center gap-4">
-              <div className="rounded-lg border border-muted-foreground/20 bg-white p-4">
+              <div className="rounded-lg border border-border bg-card p-4">
                 <QRCodeSVG value={fullUrl(qrUser.subscription_url)} size={200} />
               </div>
               <code className="text-xs font-mono text-muted-foreground break-all text-center px-4">
