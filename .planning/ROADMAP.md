@@ -30,7 +30,7 @@
 - [x] **Phase 11: UI Animation Foundation** - Activate react-bits animations across all pages for polished visual feedback (completed 2026-02-23)
 - [x] **Phase 12: Core Process Control** - Explicit start/stop/restart with 4-state status API and context-aware UI (completed 2026-02-26)
 - [x] **Phase 13: Core Update Progress** - SSE real-time download progress with concurrent update protection (completed 2026-02-26)
-- [ ] **Phase 14: UI Polish & Consistency** - Global spacing/color audit and animated status indicators
+- [x] **Phase 14: UI Polish & Consistency** - Global spacing/color audit and animated status indicators (completed 2026-02-26)
 
 ## Phase Details
 
@@ -96,4 +96,4 @@ Plans:
 | 11. UI Animation Foundation | v1.1 | 2/2 | ✓ Complete | 2026-02-23 |
 | 12. Core Process Control | v1.1 | 2/2 | ✓ Complete | 2026-02-26 |
 | 13. Core Update Progress | v1.1 | Complete    | 2026-02-26 | 2026-02-26 |
-| 14. UI Polish & Consistency | v1.1 | 0/? | Not started | - |
+| 14. UI Polish & Consistency | 2/2 | Complete   | 2026-02-26 | - |

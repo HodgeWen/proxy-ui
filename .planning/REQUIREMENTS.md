@@ -16,8 +16,8 @@ Requirements for v1.1 UI与核心优化。Each maps to roadmap phases.
 
 ### UI 一致性
 
-- [ ] **UICON-01**: 全局间距和色彩一致性审查与修正（页面间距统一、色彩变量规范、暗色主题一致性）
-- [ ] **UICON-02**: 核心状态指示器动效（运行中绿色脉冲、已停止灰色、未安装黄色提示、异常红色闪烁）
+- [x] **UICON-01**: 全局间距和色彩一致性审查与修正（页面间距统一、色彩变量规范、暗色主题一致性）
+- [x] **UICON-02**: 核心状态指示器动效（运行中绿色脉冲、已停止灰色、未安装黄色提示、异常红色闪烁）
 
 ### 核心进程管理
 
@@ -87,8 +87,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CORE-04 | Phase 12 | Complete |
 | UPDT-01 | Phase 13 | Complete |
 | UPDT-02 | Phase 13 | Complete |
-| UICON-01 | Phase 14 | Pending |
-| UICON-02 | Phase 14 | Pending |
+| UICON-01 | Phase 14 | Complete |
+| UICON-02 | Phase 14 | Complete |
 
 **Coverage:**
 - v1.1 requirements: 12 total

@@ -9,19 +9,19 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 
 ## Current Position
 
-Phase: 13 of 14 (Core Update Progress)
+Phase: 14 of 14 (UI Polish & Consistency)
 Plan: complete (2/2)
-Status: Phase 13 complete — ready to start Phase 14
-Last activity: 2026-02-26 — Completed 13-02 (Core Update Progress Frontend UX)
+Status: Phase 14 complete — UI consistency and status indicator polish delivered
+Last activity: 2026-02-26 — Completed 14-01 (UI Token and Spacing Consistency)
 
-Progress: [███████░░░] 75%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
 - Total plans completed: 34 (v1.0)
-- v1.1 plans completed: 6
-- Average duration: 4.5min for v1.1
+- v1.1 plans completed: 8
+- Average duration: 3.9min for v1.1
 
 **By Phase (v1.1):**
 
@@ -30,11 +30,13 @@ Progress: [███████░░░] 75%
 | 11. UI Animation Foundation | 2/2 | 4min | 2min |
 | 12. Core Process Control | 2/2 | 9min | 4.5min |
 | 13. Core Update Progress | 2/2 | 14min | 7min |
-| 14. UI Polish & Consistency | 0/? | - | - |
+| 14. UI Polish & Consistency | 2/2 | 4min | 2min |
 | Phase 12-core-process-control P01 | 5 min | 3 tasks | 6 files |
 | Phase 12-core-process-control P02 | 4 min | 3 tasks | 2 files |
 | Phase 13 P01 | 3 min | 3 tasks | 6 files |
 | Phase 13 P02 | 11 min | 3 tasks | 3 files |
+| Phase 14-ui-polish-consistency P02 | 2 min | 2 tasks | 4 files |
+| Phase 14-ui-polish-consistency P01 | 2 min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -57,6 +59,10 @@ Recent decisions affecting current work:
 - [Phase 13]: POST /api/core/update returns 202 and runs async background update — Prevents request blocking while preserving single-flight update semantics via TryLock
 - [Phase 13]: SSE stream sends snapshot-first events with no-buffer headers — Ensures refresh continuity and real-time progress delivery behind reverse proxies
 - [Phase 13]: Core 页面更新流程采用 SSE 进度驱动并在更新中静默禁用按钮 — 保证刷新连续感并降低多标签并发反馈噪音
+- [Phase 14-ui-polish-consistency]: Keep core state source unchanged (TanStack Query 5s polling + existing SSE boundary) and only polish visual mapping.
+- [Phase 14-ui-polish-consistency]: Implement error blink using CSS keyframes plus motion-reduce fallback instead of JS timers.
+- [Phase 14-ui-polish-consistency]: Use token classes (bg-background/bg-card/text-foreground/text-muted-foreground/border-input) to remove auth-page hardcoded dark palette.
+- [Phase 14-ui-polish-consistency]: Keep QR and spacing fixes strictly visual (class-only) to avoid touching API/data flow.
 
 ### Pending Todos
 
@@ -74,6 +80,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 13-02-PLAN.md
+Stopped at: Completed 14-01-PLAN.md
 Resume file: None
-Next: Begin Phase 14 with first available PLAN.md
+Next: Phase 14 complete — ready for milestone closeout workflow
