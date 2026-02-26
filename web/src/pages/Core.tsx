@@ -523,8 +523,8 @@ export function Core() {
             <div className="space-y-4">
               <div className="flex items-center gap-2">
                 <span
-                  className={`inline-block w-2.5 h-2.5 rounded-full ${
-                    stateMeta?.dotClassName || "bg-muted-foreground"
+                  className={`inline-block size-2.5 rounded-full ${
+                    stateMeta?.dotClassName ?? "bg-muted-foreground"
                   }`}
                 />
                 <span className="text-lg font-medium">
