@@ -112,6 +112,11 @@ func (u *CoreUpdater) BinaryPath() string {
 
 // Update downloads the latest release, replaces the binary atomically, and restarts.
 func (u *CoreUpdater) Update() error {
+	return u.UpdateWithProgress(nil)
+}
+
+// UpdateWithProgress downloads the latest release and reports download progress percentage.
+func (u *CoreUpdater) UpdateWithProgress(onProgress func(percent int)) error {
 	if u.binaryPath == "" {
 		return fmt.Errorf("请设置 SINGBOX_BINARY_PATH 以启用核心更新")
 	}
@@ -159,7 +164,7 @@ func (u *CoreUpdater) Update() error {
 	}
 	defer os.RemoveAll(tmpDir)
 	tarPath := filepath.Join(tmpDir, "release.tar.gz")
-	if err := downloadFile(assetURL, tarPath); err != nil {
+	if err := downloadFileWithProgress(assetURL, tarPath, onProgress); err != nil {
 		return err
 	}
 
@@ -243,6 +248,10 @@ func execPkill(name string) error {
 }
 
 func downloadFile(url, dest string) error {
+	return downloadFileWithProgress(url, dest, nil)
+}
+
+func downloadFileWithProgress(url, dest string, onProgress func(percent int)) error {
 	resp, err := http.Get(url)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
@@ -256,10 +265,53 @@ func downloadFile(url, dest string) error {
 		return fmt.Errorf("create temp: %w", err)
 	}
 	defer f.Close()
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		return fmt.Errorf("write: %w", err)
+
+	var pw *progressWriter
+	if onProgress != nil && resp.ContentLength > 0 {
+		pw = &progressWriter{
+			total:      resp.ContentLength,
+			onProgress: onProgress,
+		}
+		if _, err := io.Copy(f, io.TeeReader(resp.Body, pw)); err != nil {
+			return fmt.Errorf("write: %w", err)
+		}
+	} else {
+		if _, err := io.Copy(f, resp.Body); err != nil {
+			return fmt.Errorf("write: %w", err)
+		}
+	}
+
+	// When content length is missing, emit completion as deterministic fallback.
+	// For known lengths, force completion only if rounding never reached 100.
+	if onProgress != nil && (resp.ContentLength <= 0 || (pw != nil && pw.lastPercent < 100)) {
+		onProgress(100)
 	}
 	return nil
+}
+
+type progressWriter struct {
+	total       int64
+	wrote       int64
+	lastPercent int
+	onProgress  func(percent int)
+}
+
+func (pw *progressWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	pw.wrote += int64(n)
+	if pw.total <= 0 || pw.onProgress == nil {
+		return n, nil
+	}
+
+	percent := int((pw.wrote * 100) / pw.total)
+	if percent > 100 {
+		percent = 100
+	}
+	if percent > pw.lastPercent {
+		pw.lastPercent = percent
+		pw.onProgress(percent)
+	}
+	return n, nil
 }
 
 func extractBinary(tarGzPath, extractDir string) (string, error) {
