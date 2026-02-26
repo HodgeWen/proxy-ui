@@ -54,6 +54,7 @@ type VersionsResponse = {
 }
 
 type CoreAction = "start" | "stop" | "restart"
+type LifecycleAction = "install" | "start" | "stop" | "restart" | "retry_start" | "view_logs"
 
 const CORE_ACTION_ENDPOINTS: Record<CoreAction, string> = {
   start: "/api/core/start",
@@ -201,6 +202,12 @@ export function Core() {
     !!status?.version &&
     !!latestStable &&
     status.version !== latestStable.version
+  const stateMeta = status ? getStateMeta(status.state) : null
+  const lifecycleActions = status
+    ? ([...ACTIONS_BY_STATE[status.state]].filter(
+        (action) => status.actions.length === 0 || status.actions.includes(action)
+      ) as LifecycleAction[])
+    : []
 
   const invalidateCoreStatus = () =>
     queryClient.invalidateQueries({ queryKey: ["core", "status"] })
@@ -211,6 +218,124 @@ export function Core() {
     if (msg.includes("：")) {
       setErrorDetail(msg)
       setErrorModalOpen(true)
+    }
+  }
+
+  const renderLifecycleAction = (action: LifecycleAction) => {
+    switch (action) {
+      case "start":
+        return (
+          <Button
+            key={action}
+            size="sm"
+            onClick={() => startMutation.mutate()}
+            disabled={startMutation.isPending}
+          >
+            {startMutation.isPending ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                启动中...
+              </>
+            ) : (
+              <>
+                <Play className="size-4" />
+                启动
+              </>
+            )}
+          </Button>
+        )
+      case "retry_start":
+        return (
+          <Button
+            key={action}
+            size="sm"
+            onClick={() => startMutation.mutate()}
+            disabled={startMutation.isPending}
+          >
+            {startMutation.isPending ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                重试中...
+              </>
+            ) : (
+              <>
+                <Play className="size-4" />
+                重试启动
+              </>
+            )}
+          </Button>
+        )
+      case "stop":
+        return (
+          <Button
+            key={action}
+            size="sm"
+            variant="secondary"
+            onClick={() => stopMutation.mutate()}
+            disabled={stopMutation.isPending}
+          >
+            {stopMutation.isPending ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                停止中...
+              </>
+            ) : (
+              <>
+                <Square className="size-4" />
+                停止
+              </>
+            )}
+          </Button>
+        )
+      case "restart":
+        return (
+          <Button
+            key={action}
+            size="sm"
+            onClick={() => restartMutation.mutate()}
+            disabled={restartMutation.isPending}
+          >
+            {restartMutation.isPending ? (
+              <>
+                <RefreshCw className="size-4 animate-spin" />
+                重启中...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="size-4" />
+                重启
+              </>
+            )}
+          </Button>
+        )
+      case "install":
+        return (
+          <Button key={action} size="sm" asChild>
+            <a
+              href="https://github.com/SagerNet/sing-box/releases"
+              target="_blank"
+              rel="noreferrer"
+            >
+              下载并安装 sing-box
+            </a>
+          </Button>
+        )
+      case "view_logs":
+        return (
+          <Button
+            key={action}
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setErrorDetail(status?.lastError?.message || "暂无最近错误日志，请先重试启动后再查看。")
+              setErrorModalOpen(true)
+            }}
+          >
+            查看日志
+          </Button>
+        )
+      default:
+        return null
     }
   }
 
@@ -302,21 +427,47 @@ export function Core() {
             </div>
           ) : status ? (
             <div className="space-y-4">
-              {(() => {
-                const meta = getStateMeta(status.state)
-                return (
               <div className="flex items-center gap-2">
                 <span
                   className={`inline-block w-2.5 h-2.5 rounded-full ${
-                    meta.dotClassName
+                    stateMeta?.dotClassName || "bg-muted-foreground"
                   }`}
                 />
                 <span className="text-lg font-medium">
-                  {meta.label}
+                  {stateMeta?.label || "状态未知"}
                 </span>
               </div>
-                )
-              })()}
+              <p className="text-sm text-muted-foreground">
+                {stateMeta?.description || "当前状态暂不可用。"}
+              </p>
+              {status.state === "running" && (
+                <p className="text-sm">核心运行正常，可执行停止或重启操作。</p>
+              )}
+              {status.state === "stopped" && (
+                <p className="text-sm">核心已停止，点击“启动”即可恢复服务。</p>
+              )}
+              {status.state === "not_installed" && (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm space-y-2">
+                  <p className="font-medium text-amber-700 dark:text-amber-300">
+                    检测到核心未安装，请先下载并安装 sing-box 二进制。
+                  </p>
+                  <p className="text-muted-foreground">
+                    建议安装到当前路径：<span className="font-mono break-all">{status.binaryPath}</span>
+                  </p>
+                </div>
+              )}
+              {status.state === "error" && (
+                <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm space-y-1">
+                  <p className="font-medium text-red-700 dark:text-red-300">
+                    最近一次启动异常，可重试启动或查看日志定位问题。
+                  </p>
+                  {status.lastError?.message && (
+                    <p className="text-muted-foreground break-all">
+                      错误信息：{status.lastError.message}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="grid gap-2 sm:grid-cols-2 text-sm">
                 {status.version && (
                   <div>
@@ -352,62 +503,7 @@ export function Core() {
                 查看所有版本
               </Button>
               <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => startMutation.mutate()}
-                  disabled={
-                    startMutation.isPending ||
-                    (!status.actions.includes("start") && !status.actions.includes("retry_start"))
-                  }
-                >
-                  {startMutation.isPending ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" />
-                      启动中...
-                    </>
-                  ) : (
-                    <>
-                      <Play className="size-4" />
-                      启动
-                    </>
-                  )}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => stopMutation.mutate()}
-                  disabled={stopMutation.isPending || !status.actions.includes("stop")}
-                >
-                  {stopMutation.isPending ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" />
-                      停止中...
-                    </>
-                  ) : (
-                    <>
-                      <Square className="size-4" />
-                      停止
-                    </>
-                  )}
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => restartMutation.mutate()}
-                  disabled={restartMutation.isPending || !status.actions.includes("restart")}
-                >
-                  {restartMutation.isPending ? (
-                    <>
-                      <RefreshCw className="size-4 animate-spin" />
-                      重启中...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="size-4" />
-                      重启
-                    </>
-                  )}
-                </Button>
+                {lifecycleActions.map((action) => renderLifecycleAction(action))}
                 <Button
                   size="sm"
                   variant="secondary"
