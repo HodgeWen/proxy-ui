@@ -68,6 +68,18 @@ type CoreActionErrorPayload = {
   detail?: string
 }
 
+type CoreLogsResponse = {
+  path: string
+  count: number
+  entries: string[]
+}
+
+type CoreLogsErrorPayload = {
+  code?: string
+  message?: string
+  detail?: string
+}
+
 function mapActionErrorMessage(action: CoreAction, error: CoreActionErrorPayload): string {
   switch (error.code) {
     case "CORE_NOT_INSTALLED":
@@ -90,6 +102,19 @@ function mapActionErrorMessage(action: CoreAction, error: CoreActionErrorPayload
       }
       return error.message || `核心${actionLabelMap[action]}失败`
     }
+  }
+}
+
+function mapLogErrorMessage(error: CoreLogsErrorPayload): string {
+  switch (error.code) {
+    case "CORE_LOG_NOT_FOUND":
+      return "暂无日志文件，可先重试启动后再查看。"
+    case "CORE_LOG_READ_FAILED":
+      return error.detail ? `读取日志失败：${error.detail}` : "读取日志失败，请稍后重试。"
+    case "CORE_INVALID_LOG_LINES":
+      return "日志参数无效，请刷新页面后重试。"
+    default:
+      return error.message || "读取日志失败，请稍后重试。"
   }
 }
 
@@ -149,6 +174,20 @@ async function restartCore(): Promise<void> {
   return executeCoreAction("restart")
 }
 
+async function fetchCoreLogs(lines = 200): Promise<CoreLogsResponse> {
+  const res = await fetch(`/api/core/logs?lines=${lines}`, { credentials: "include" })
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => ({}))) as CoreLogsErrorPayload
+    throw new Error(mapLogErrorMessage(payload))
+  }
+  const data = (await res.json()) as Partial<CoreLogsResponse>
+  return {
+    path: data.path || "",
+    count: typeof data.count === "number" ? data.count : data.entries?.length || 0,
+    entries: Array.isArray(data.entries) ? data.entries : [],
+  }
+}
+
 async function updateCore(): Promise<void> {
   const res = await fetch("/api/core/update", {
     method: "POST",
@@ -178,6 +217,9 @@ export function Core() {
   const [updateConfirmOpen, setUpdateConfirmOpen] = useState(false)
   const [rollbackConfirmOpen, setRollbackConfirmOpen] = useState(false)
   const [versionsListOpen, setVersionsListOpen] = useState(false)
+  const [logsOpen, setLogsOpen] = useState(false)
+  const [logsData, setLogsData] = useState<CoreLogsResponse | null>(null)
+  const [logsError, setLogsError] = useState("")
 
   const { data: status, isLoading } = useQuery({
     queryKey: ["core", "status"],
@@ -249,10 +291,10 @@ export function Core() {
           <Button
             key={action}
             size="sm"
-            onClick={() => startMutation.mutate()}
-            disabled={startMutation.isPending}
+            onClick={() => retryStartMutation.mutate()}
+            disabled={retryStartMutation.isPending}
           >
-            {startMutation.isPending ? (
+            {retryStartMutation.isPending ? (
               <>
                 <Loader2 className="size-4 animate-spin" />
                 重试中...
@@ -327,8 +369,10 @@ export function Core() {
             size="sm"
             variant="outline"
             onClick={() => {
-              setErrorDetail(status?.lastError?.message || "暂无最近错误日志，请先重试启动后再查看。")
-              setErrorModalOpen(true)
+              setLogsOpen(true)
+              setLogsError("")
+              setLogsData(null)
+              logsMutation.mutate()
             }}
           >
             查看日志
@@ -372,6 +416,17 @@ export function Core() {
     },
   })
 
+  const retryStartMutation = useMutation({
+    mutationFn: startCore,
+    onSuccess: () => {
+      void invalidateCoreStatus()
+      toast.success("重试启动成功")
+    },
+    onError: (err: Error) => {
+      handleCoreActionError(err)
+    },
+  })
+
   const updateMutation = useMutation({
     mutationFn: updateCore,
     onSuccess: () => {
@@ -399,6 +454,16 @@ export function Core() {
     },
     onError: (err: Error) => {
       toast.error(err.message)
+    },
+  })
+
+  const logsMutation = useMutation({
+    mutationFn: () => fetchCoreLogs(200),
+    onSuccess: (data) => {
+      setLogsData(data)
+    },
+    onError: (err: Error) => {
+      setLogsError(err.message)
     },
   })
 
@@ -677,6 +742,46 @@ export function Core() {
           <pre className="mt-2 p-4 rounded-lg bg-muted text-sm overflow-auto max-h-[60vh] font-mono whitespace-pre-wrap">
             {errorDetail}
           </pre>
+        </DialogContent>
+      </Dialog>
+
+      {/* Core Logs Dialog */}
+      <Dialog
+        open={logsOpen}
+        onOpenChange={(open) => {
+          setLogsOpen(open)
+          if (!open) {
+            setLogsError("")
+            setLogsData(null)
+            logsMutation.reset()
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>核心日志</DialogTitle>
+            <DialogDescription>
+              {logsData?.path ? `日志路径：${logsData.path}` : "展示最近 200 行日志"}
+            </DialogDescription>
+          </DialogHeader>
+          {logsMutation.isPending ? (
+            <div className="h-40 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              正在读取日志...
+            </div>
+          ) : logsError ? (
+            <div className="h-40 flex items-center justify-center text-sm text-red-600 dark:text-red-400">
+              {logsError}
+            </div>
+          ) : logsData && logsData.entries.length > 0 ? (
+            <pre className="mt-2 p-4 rounded-lg bg-muted text-sm overflow-auto max-h-[60vh] font-mono whitespace-pre-wrap">
+              {logsData.entries.join("\n")}
+            </pre>
+          ) : (
+            <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">
+              暂无日志内容
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
