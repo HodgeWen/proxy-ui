@@ -96,4 +96,4 @@ Plans:
 | 11. UI Animation Foundation | v1.1 | 2/2 | ✓ Complete | 2026-02-23 |
 | 12. Core Process Control | v1.1 | 2/2 | ✓ Complete | 2026-02-26 |
 | 13. Core Update Progress | v1.1 | Complete    | 2026-02-26 | 2026-02-26 |
-| 14. UI Polish & Consistency | 2/2 | Complete   | 2026-02-26 | - |
+| 14. UI Polish & Consistency | v1.1 | 2/2 | ✓ Complete | 2026-02-26 |

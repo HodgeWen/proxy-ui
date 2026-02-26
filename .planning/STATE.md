@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-02-19)
 Phase: 14 of 14 (UI Polish & Consistency)
 Plan: complete (2/2)
 Status: Phase 14 complete — UI consistency and status indicator polish delivered
-Last activity: 2026-02-26 — Completed 14-01 (UI Token and Spacing Consistency)
+Last activity: 2026-02-26 — Completed 14-02 (Core Status Indicator Animations)
 
 Progress: [██████████] 100%
 
@@ -80,6 +80,6 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 14-01-PLAN.md
+Stopped at: Completed 14-02-PLAN.md
 Resume file: None
 Next: Phase 14 complete — ready for milestone closeout workflow
