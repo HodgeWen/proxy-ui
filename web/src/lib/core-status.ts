@@ -24,7 +24,7 @@ const STATE_META: Record<CoreState, CoreStateMeta> = {
   running: {
     label: "运行中",
     description: "sing-box 正在运行，可停止或重启。",
-    dotClassName: "bg-emerald-500",
+    dotClassName: "bg-emerald-500 animate-pulse motion-reduce:animate-none",
   },
   stopped: {
     label: "已停止",
@@ -39,7 +39,7 @@ const STATE_META: Record<CoreState, CoreStateMeta> = {
   error: {
     label: "启动异常",
     description: "最近一次启动失败，可重试启动或查看日志。",
-    dotClassName: "bg-red-500",
+    dotClassName: "bg-red-500 animate-[status-blink_1s_steps(2,end)_infinite] motion-reduce:animate-none",
   },
 }
 
