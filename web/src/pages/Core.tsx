@@ -82,6 +82,18 @@ type CoreLogsErrorPayload = {
   detail?: string
 }
 
+type CoreUpdateErrorPayload = {
+  code?: string
+  message?: string
+  detail?: string
+  error?: string
+}
+
+type CoreUpdateError = Error & {
+  status?: number
+  code?: string
+}
+
 function mapActionErrorMessage(action: CoreAction, error: CoreActionErrorPayload): string {
   switch (error.code) {
     case "CORE_NOT_INSTALLED":
@@ -195,10 +207,13 @@ async function updateCore(): Promise<void> {
     method: "POST",
     credentials: "include",
   })
-  const data = await res.json().catch(() => ({}))
+  const data = (await res.json().catch(() => ({}))) as CoreUpdateErrorPayload
   if (!res.ok) {
-    const payload = data as { message?: string; error?: string }
-    throw new Error(payload.message || payload.error || "更新失败")
+    const message = data.message || data.error || "更新失败"
+    const err = new Error(message) as CoreUpdateError
+    err.status = res.status
+    err.code = data.code
+    throw err
   }
 }
 
@@ -440,7 +455,13 @@ export function Core() {
     },
     onError: (err: Error) => {
       setUpdateConfirmOpen(false)
-      const msg = err.message
+      const updateErr = err as CoreUpdateError
+      if (updateErr.status === 409 || updateErr.code === "CORE_UPDATE_CONFLICT") {
+        void queryClient.invalidateQueries({ queryKey: ["core", "status"] })
+        return
+      }
+
+      const msg = updateErr.message
       toast.error(msg)
       if (msg.includes("请设置") || msg.includes("SINGBOX_BINARY_PATH")) {
         toast.error("核心更新需要设置 SINGBOX_BINARY_PATH", { duration: 6000 })
