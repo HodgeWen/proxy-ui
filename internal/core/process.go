@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,7 +31,12 @@ const (
 	ProcessErrorRestartFailed  ProcessErrorCode = "CORE_RESTART_FAILED"
 )
 
-const startupHealthWindow = 500 * time.Millisecond
+const (
+	startupHealthWindow = 500 * time.Millisecond
+	stopGraceWindow    = 2 * time.Second
+	stopForceWindow    = 1 * time.Second
+	stopPollInterval   = 100 * time.Millisecond
+)
 
 // ProcessError carries semantic lifecycle errors for API mapping.
 type ProcessError struct {
@@ -141,11 +147,13 @@ func (p *ProcessManager) Check(configPath string) (output string, err error) {
 }
 
 // IsRunning returns true if sing-box process exists.
-// Uses pgrep-style check via exec.
+// When configPath is set, only counts processes launched with that config path.
 func (p *ProcessManager) IsRunning() bool {
-	cmd := exec.Command("pgrep", "-x", "sing-box")
-	err := cmd.Run()
-	return err == nil
+	pids, err := p.runningPIDs()
+	if err != nil {
+		return legacyIsRunning()
+	}
+	return len(pids) > 0
 }
 
 // Start starts sing-box in background and validates startup health.
@@ -175,32 +183,54 @@ func (p *ProcessManager) Start(configPath string) error {
 	}
 
 	clearLastFailure()
-	if cmd.Process != nil {
-		_ = cmd.Process.Release()
-	}
+	// Keep a background waiter to reap process exit and avoid defunct children.
+	go reapProcess(cmd)
 	return nil
 }
 
 // Stop stops the running sing-box process.
 func (p *ProcessManager) Stop() error {
-	if !p.IsRunning() {
+	pids, err := p.runningPIDs()
+	if err != nil {
+		return newProcessError(ProcessErrorStopFailed, "failed to stop sing-box", err.Error())
+	}
+	if len(pids) == 0 {
 		return newProcessError(ProcessErrorAlreadyStopped, "sing-box is already stopped", "")
 	}
 
-	if err := exec.Command("pkill", "-x", "sing-box").Run(); err != nil {
-		// Re-check to handle short race where process exits before pkill.
+	if err := signalPIDs("TERM", pids); err != nil {
+		// Re-check to handle races where process exits before signal delivery.
 		if !p.IsRunning() {
-			return newProcessError(ProcessErrorAlreadyStopped, "sing-box is already stopped", "")
+			return nil
 		}
 		return newProcessError(ProcessErrorStopFailed, "failed to stop sing-box", err.Error())
 	}
 
-	time.Sleep(100 * time.Millisecond)
-	if p.IsRunning() {
-		return newProcessError(ProcessErrorStopFailed, "failed to stop sing-box", "process is still running")
+	if waitForProcessStop(p.IsRunning, stopGraceWindow) {
+		return nil
 	}
 
-	return nil
+	remaining, err := p.runningPIDs()
+	if err != nil {
+		return newProcessError(ProcessErrorStopFailed, "failed to stop sing-box", err.Error())
+	}
+
+	// Escalate to SIGKILL when graceful stop times out.
+	if err := signalPIDs("KILL", remaining); err != nil {
+		if !p.IsRunning() {
+			return nil
+		}
+		return newProcessError(ProcessErrorStopFailed, "failed to stop sing-box", err.Error())
+	}
+	if waitForProcessStop(p.IsRunning, stopForceWindow) {
+		return nil
+	}
+
+	remaining, err = p.runningPIDs()
+	if err != nil {
+		return newProcessError(ProcessErrorStopFailed, "failed to stop sing-box", err.Error())
+	}
+	return newProcessError(ProcessErrorStopFailed, "failed to stop sing-box", fmt.Sprintf("%d managed process(es) still running after SIGTERM and SIGKILL", len(remaining)))
 }
 
 // Restart is a strict Stop + Start sequence.
@@ -214,4 +244,145 @@ func (p *ProcessManager) Restart(configPath string) error {
 		return err
 	}
 	return nil
+}
+
+func (p *ProcessManager) runningPIDs() ([]int, error) {
+	pids, err := listSingBoxPIDs()
+	if err != nil {
+		return nil, err
+	}
+
+	// Backward compatibility: when config path is unknown, keep legacy behavior.
+	if strings.TrimSpace(p.configPath) == "" {
+		return pids, nil
+	}
+
+	targetConfig := normalizePath(p.configPath)
+	matched := make([]int, 0, len(pids))
+	for _, pid := range pids {
+		ok, err := processUsesConfig(pid, targetConfig)
+		if err != nil {
+			continue
+		}
+		if ok {
+			matched = append(matched, pid)
+		}
+	}
+	return matched, nil
+}
+
+func listSingBoxPIDs() ([]int, error) {
+	out, err := exec.Command("pgrep", "-x", "sing-box").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return []int{}, nil
+		}
+		return nil, err
+	}
+
+	fields := strings.Fields(string(out))
+	pids := make([]int, 0, len(fields))
+	for _, field := range fields {
+		pid, err := strconv.Atoi(field)
+		if err != nil {
+			continue
+		}
+		if pid > 0 {
+			pids = append(pids, pid)
+		}
+	}
+	return pids, nil
+}
+
+func processUsesConfig(pid int, targetConfig string) (bool, error) {
+	cmdlinePath := fmt.Sprintf("/proc/%d/cmdline", pid)
+	data, err := os.ReadFile(cmdlinePath)
+	if err != nil {
+		return false, err
+	}
+
+	parts := strings.Split(string(data), "\x00")
+	for idx, part := range parts {
+		part = strings.TrimSpace(part)
+		switch {
+		case part == "-c" || part == "--config":
+			if idx+1 < len(parts) && samePath(parts[idx+1], targetConfig) {
+				return true, nil
+			}
+		case strings.HasPrefix(part, "-c="):
+			if samePath(strings.TrimPrefix(part, "-c="), targetConfig) {
+				return true, nil
+			}
+		case strings.HasPrefix(part, "--config="):
+			if samePath(strings.TrimPrefix(part, "--config="), targetConfig) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+func normalizePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
+	}
+	return filepath.Clean(abs)
+}
+
+func samePath(left, right string) bool {
+	return normalizePath(left) == normalizePath(right)
+}
+
+func signalPIDs(signal string, pids []int) error {
+	if len(pids) == 0 {
+		return nil
+	}
+
+	args := []string{"-" + signal}
+	for _, pid := range pids {
+		args = append(args, strconv.Itoa(pid))
+	}
+
+	out, err := exec.Command("kill", args...).CombinedOutput()
+	if err == nil {
+		return nil
+	}
+
+	detail := strings.TrimSpace(string(out))
+	if detail == "" {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, detail)
+}
+
+func legacyIsRunning() bool {
+	cmd := exec.Command("pgrep", "-x", "sing-box")
+	err := cmd.Run()
+	return err == nil
+}
+
+func waitForProcessStop(isRunning func() bool, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if !isRunning() {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(stopPollInterval)
+	}
+}
+
+func reapProcess(cmd *exec.Cmd) {
+	if cmd == nil {
+		return
+	}
+	_ = cmd.Wait()
 }
