@@ -28,13 +28,23 @@ func TestUpdateDownloadProgressWithContentLength(t *testing.T) {
 	if len(events) == 0 {
 		t.Fatal("expected progress callbacks with content-length")
 	}
+	if len(events) < 2 {
+		t.Fatalf("expected continuous progress callbacks, got %v", events)
+	}
 	if events[len(events)-1] != 100 {
 		t.Fatalf("final percent = %d, want 100", events[len(events)-1])
 	}
+	hasIntermediate := events[0] > 0 && events[0] < 100
 	for i := 1; i < len(events); i++ {
 		if events[i] < events[i-1] {
 			t.Fatalf("progress not monotonic: %v", events)
 		}
+		if events[i] > 0 && events[i] < 100 {
+			hasIntermediate = true
+		}
+	}
+	if !hasIntermediate {
+		t.Fatalf("expected intermediate percent events before completion, got %v", events)
 	}
 
 	info, statErr := os.Stat(dest)
