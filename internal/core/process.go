@@ -1,12 +1,14 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/s-ui/s-ui/internal/config"
 )
@@ -15,6 +17,50 @@ import (
 type ProcessManager struct {
 	configPath string
 	binaryPath string // explicit path; empty = use LookPath
+}
+
+type ProcessErrorCode string
+
+const (
+	ProcessErrorNotInstalled   ProcessErrorCode = "CORE_NOT_INSTALLED"
+	ProcessErrorAlreadyRunning ProcessErrorCode = "CORE_ALREADY_RUNNING"
+	ProcessErrorAlreadyStopped ProcessErrorCode = "CORE_ALREADY_STOPPED"
+	ProcessErrorStartFailed    ProcessErrorCode = "CORE_START_FAILED"
+	ProcessErrorStopFailed     ProcessErrorCode = "CORE_STOP_FAILED"
+	ProcessErrorRestartFailed  ProcessErrorCode = "CORE_RESTART_FAILED"
+)
+
+const startupHealthWindow = 500 * time.Millisecond
+
+// ProcessError carries semantic lifecycle errors for API mapping.
+type ProcessError struct {
+	Code    ProcessErrorCode
+	Message string
+	Detail  string
+}
+
+func (e *ProcessError) Error() string {
+	if e.Detail == "" {
+		return e.Message
+	}
+	return fmt.Sprintf("%s: %s", e.Message, e.Detail)
+}
+
+func newProcessError(code ProcessErrorCode, message, detail string) error {
+	return &ProcessError{
+		Code:    code,
+		Message: message,
+		Detail:  detail,
+	}
+}
+
+// IsProcessErrorCode checks whether err is a ProcessError with the given code.
+func IsProcessErrorCode(err error, code ProcessErrorCode) bool {
+	var processErr *ProcessError
+	if !errors.As(err, &processErr) {
+		return false
+	}
+	return processErr.Code == code
 }
 
 // NewProcessManagerFromConfig creates a ProcessManager from panel config.
@@ -60,14 +106,17 @@ func (p *ProcessManager) BinaryPath() string {
 	return p.binaryPath
 }
 
+func (p *ProcessManager) binary() string {
+	if p.binaryPath != "" {
+		return p.binaryPath
+	}
+	return "sing-box"
+}
+
 // Version runs "sing-box version -n" (no color) and returns the trimmed stdout.
 // Returns empty string and error if sing-box is not found or fails.
 func (p *ProcessManager) Version() (string, error) {
-	bin := "sing-box"
-	if p.binaryPath != "" {
-		bin = p.binaryPath
-	}
-	cmd := exec.Command(bin, "version", "-n")
+	cmd := exec.Command(p.binary(), "version", "-n")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -83,11 +132,7 @@ func (p *ProcessManager) Check(configPath string) (output string, err error) {
 		log.Println("[warn] sing-box not found in PATH, skipping config check")
 		return "", nil
 	}
-	bin := "sing-box"
-	if p.binaryPath != "" {
-		bin = p.binaryPath
-	}
-	cmd := exec.Command(bin, "check", "-c", configPath)
+	cmd := exec.Command(p.binary(), "check", "-c", configPath)
 	out, e := cmd.CombinedOutput()
 	if e != nil {
 		return string(out), fmt.Errorf("check failed: %w\n%s", e, out)
@@ -103,27 +148,70 @@ func (p *ProcessManager) IsRunning() bool {
 	return err == nil
 }
 
-// Restart stops any existing sing-box process and starts sing-box in background.
-// If sing-box is not installed, logs a warning and returns nil (no-op).
-func (p *ProcessManager) Restart(configPath string) error {
+// Start starts sing-box in background and validates startup health.
+func (p *ProcessManager) Start(configPath string) error {
 	if !p.Available() {
-		log.Println("[warn] sing-box not found in PATH, skipping restart")
-		return nil
+		return newProcessError(ProcessErrorNotInstalled, "sing-box binary is not installed", p.BinaryPath())
+	}
+	if p.IsRunning() {
+		return newProcessError(ProcessErrorAlreadyRunning, "sing-box is already running", "")
 	}
 
-	// Stop existing process
-	_ = exec.Command("pkill", "-x", "sing-box").Run()
-
-	bin := "sing-box"
-	if p.binaryPath != "" {
-		bin = p.binaryPath
-	}
-	cmd := exec.Command(bin, "run", "-c", configPath)
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	cmd := exec.Command(p.binary(), "run", "-c", configPath)
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start sing-box: %w", err)
+		setLastFailure(newFailureContext("failed to start sing-box", "start", err.Error()))
+		return newProcessError(ProcessErrorStartFailed, "failed to start sing-box", err.Error())
 	}
-	_ = cmd.Process.Release()
+
+	time.Sleep(startupHealthWindow)
+	if !p.IsRunning() {
+		waitErr := cmd.Wait()
+		detail := "process exited during startup health check"
+		if waitErr != nil {
+			detail = waitErr.Error()
+		}
+		setLastFailure(newFailureContext("sing-box startup failed", "start", detail))
+		return newProcessError(ProcessErrorStartFailed, "sing-box exited during startup", detail)
+	}
+
+	clearLastFailure()
+	if cmd.Process != nil {
+		_ = cmd.Process.Release()
+	}
+	return nil
+}
+
+// Stop stops the running sing-box process.
+func (p *ProcessManager) Stop() error {
+	if !p.IsRunning() {
+		return newProcessError(ProcessErrorAlreadyStopped, "sing-box is already stopped", "")
+	}
+
+	if err := exec.Command("pkill", "-x", "sing-box").Run(); err != nil {
+		// Re-check to handle short race where process exits before pkill.
+		if !p.IsRunning() {
+			return newProcessError(ProcessErrorAlreadyStopped, "sing-box is already stopped", "")
+		}
+		return newProcessError(ProcessErrorStopFailed, "failed to stop sing-box", err.Error())
+	}
+
+	time.Sleep(100 * time.Millisecond)
+	if p.IsRunning() {
+		return newProcessError(ProcessErrorStopFailed, "failed to stop sing-box", "process is still running")
+	}
+
+	return nil
+}
+
+// Restart is a strict Stop + Start sequence.
+func (p *ProcessManager) Restart(configPath string) error {
+	stopErr := p.Stop()
+	if stopErr != nil && !IsProcessErrorCode(stopErr, ProcessErrorAlreadyStopped) {
+		return newProcessError(ProcessErrorRestartFailed, "failed to restart sing-box", stopErr.Error())
+	}
+
+	if err := p.Start(configPath); err != nil {
+		return err
+	}
 	return nil
 }
