@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Progress } from "@/components/ui/progress"
 import {
   Dialog,
   DialogContent,
@@ -19,6 +20,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { SpotlightCard } from "@/components/ui/spotlight-card"
 import { useState } from "react"
+import { useCoreUpdateStream } from "@/hooks/use-core-update-stream"
 import {
   ACTIONS_BY_STATE,
   type CoreState,
@@ -195,7 +197,8 @@ async function updateCore(): Promise<void> {
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
-    throw new Error((data as { error?: string }).error || "更新失败")
+    const payload = data as { message?: string; error?: string }
+    throw new Error(payload.message || payload.error || "更新失败")
   }
 }
 
@@ -212,6 +215,7 @@ async function rollbackCore(): Promise<void> {
 
 export function Core() {
   const queryClient = useQueryClient()
+  const updateStream = useCoreUpdateStream()
   const [errorModalOpen, setErrorModalOpen] = useState(false)
   const [errorDetail, setErrorDetail] = useState("")
   const [updateConfirmOpen, setUpdateConfirmOpen] = useState(false)
@@ -431,11 +435,11 @@ export function Core() {
     mutationFn: updateCore,
     onSuccess: () => {
       setUpdateConfirmOpen(false)
-      queryClient.invalidateQueries({ queryKey: ["core", "status"] })
-      queryClient.invalidateQueries({ queryKey: ["core", "versions"] })
-      toast.success("更新成功")
+      void queryClient.invalidateQueries({ queryKey: ["core", "status"] })
+      void queryClient.invalidateQueries({ queryKey: ["core", "versions"] })
     },
     onError: (err: Error) => {
+      setUpdateConfirmOpen(false)
       const msg = err.message
       toast.error(msg)
       if (msg.includes("请设置") || msg.includes("SINGBOX_BINARY_PATH")) {
@@ -466,6 +470,10 @@ export function Core() {
       setLogsError(err.message)
     },
   })
+
+  const showUpdateProgress = updateMutation.isPending || updateStream.isUpdating
+  const updatePercent = updateStream.isUpdating ? updateStream.percent : 0
+  const updateActionDisabled = updateMutation.isPending || updateStream.isUpdating
 
   return (
     <div className="p-6 space-y-6">
@@ -533,6 +541,12 @@ export function Core() {
                   )}
                 </div>
               )}
+              {showUpdateProgress && (
+                <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                  <p className="text-sm font-medium">更新中 {updatePercent}%</p>
+                  <Progress value={updatePercent} />
+                </div>
+              )}
               <div className="grid gap-2 sm:grid-cols-2 text-sm">
                 {status.version && (
                   <div>
@@ -573,13 +587,15 @@ export function Core() {
                   size="sm"
                   variant="secondary"
                   onClick={() => setUpdateConfirmOpen(true)}
-                  disabled={updateMutation.isPending}
+                  disabled={updateActionDisabled}
                 >
                   {updateMutation.isPending ? (
                     <>
                       <Loader2 className="size-4 animate-spin" />
                       更新中...
                     </>
+                  ) : updateStream.isUpdating ? (
+                    "更新中..."
                   ) : (
                     "更新"
                   )}
@@ -651,13 +667,15 @@ export function Core() {
             </Button>
             <Button
               onClick={() => updateMutation.mutate()}
-              disabled={updateMutation.isPending}
+              disabled={updateActionDisabled}
             >
               {updateMutation.isPending ? (
                 <>
                   <Loader2 className="size-4 animate-spin" />
                   更新中...
                 </>
+              ) : updateStream.isUpdating ? (
+                "更新中..."
               ) : (
                 "确定"
               )}
