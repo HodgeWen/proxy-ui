@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 MVP** — Phases 1-10 (shipped 2026-02-19) → [archive](milestones/v1.0-ROADMAP.md)
-- 🚧 **v1.1 UI与核心优化** — Phases 11-14 (in progress)
+- 🚧 **v1.1 UI与核心优化** — Phases 11-15 (in progress)
 
 ## Phases
 
@@ -31,6 +31,7 @@
 - [x] **Phase 12: Core Process Control** - Explicit start/stop/restart with 4-state status API and context-aware UI (completed 2026-02-26)
 - [x] **Phase 13: Core Update Progress** - SSE real-time download progress with concurrent update protection (completed 2026-02-26)
 - [x] **Phase 14: UI Polish & Consistency** - Global spacing/color audit and animated status indicators (completed 2026-02-26)
+- [ ] **Phase 15: Auth Surface Animation Completion** - Close audit gaps by applying animation and hover consistency to Login/Setup pages
 
 ## Phase Details
 
@@ -79,6 +80,18 @@ Plans:
   3. Core status indicator is animated: running = green pulse, stopped = gray, not installed = yellow, error = red blink — each state immediately distinguishable
 **Plans**: TBD
 
+### Phase 15: Auth Surface Animation Completion
+**Goal**: Ensure Login and Setup pages fully inherit Phase 11 animation/interaction baseline to satisfy all-pages consistency
+**Depends on**: Phase 11, 14
+**Requirements**: UIANM-02, UIANM-04
+**Gap Closure**: Closes v1.1 audit requirement gaps and integration gap (Phase 11 baseline -> Phase 14 Login/Setup)
+**Success Criteria** (what must be TRUE):
+  1. Login and Setup cards use AnimatedContent entrance animations without layout shift
+  2. Login and Setup action controls use the shared hover transition system used by Button/Card/TableRow
+  3. UI consistency巡检主路径 confirms no animation/hover parity gaps across login/setup/subscriptions/traffic/core
+  4. UIANM-02 and UIANM-04 move back to Complete after verification
+**Plans**: TBD
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -97,3 +110,4 @@ Plans:
 | 12. Core Process Control | v1.1 | 2/2 | ✓ Complete | 2026-02-26 |
 | 13. Core Update Progress | v1.1 | Complete    | 2026-02-26 | 2026-02-26 |
 | 14. UI Polish & Consistency | v1.1 | Complete    | 2026-02-26 | 2026-02-26 |
+| 15. Auth Surface Animation Completion | v1.1 | 0/0 | 📝 Planned | - |

@@ -10,9 +10,9 @@ Requirements for v1.1 UI与核心优化。Each maps to roadmap phases.
 ### UI 动效
 
 - [x] **UIANM-01**: 仪表盘统计数字使用 CountUp 动画展示（react-bits CountUp 组件）
-- [x] **UIANM-02**: 所有页面卡片使用 AnimatedContent 入场动效（react-bits AnimatedContent + tw-animate-css）
+- [ ] **UIANM-02**: 所有页面卡片使用 AnimatedContent 入场动效（react-bits AnimatedContent + tw-animate-css）
 - [x] **UIANM-03**: 核心状态卡片使用 SpotlightCard 聚光悬停效果（react-bits SpotlightCard）
-- [x] **UIANM-04**: 全局统一组件悬停交互效果（按钮、卡片、表格行等一致的 hover 过渡）
+- [ ] **UIANM-04**: 全局统一组件悬停交互效果（按钮、卡片、表格行等一致的 hover 过渡）
 
 ### UI 一致性
 
@@ -78,9 +78,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | UIANM-01 | Phase 11 | Complete |
-| UIANM-02 | Phase 11 | Complete |
+| UIANM-02 | Phase 15 | Pending |
 | UIANM-03 | Phase 11 | Complete |
-| UIANM-04 | Phase 11 | Complete |
+| UIANM-04 | Phase 15 | Pending |
 | CORE-01 | Phase 12 | Complete |
 | CORE-02 | Phase 12 | Complete |
 | CORE-03 | Phase 12 | Complete |
@@ -92,9 +92,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 **Coverage:**
 - v1.1 requirements: 12 total
+- Completed: 10
+- Pending gap closure: 2 (UIANM-02, UIANM-04)
 - Mapped to phases: 12 ✓
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-19*
-*Last updated: 2026-02-19 after roadmap creation*
+*Last updated: 2026-02-26 after milestone gap planning*
