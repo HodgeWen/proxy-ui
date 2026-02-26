@@ -126,18 +126,11 @@ func (s *UpdateProgressState) Subscribe() (int, <-chan UpdateProgressSnapshot) {
 	return id, ch
 }
 
-// Unsubscribe removes and closes a subscriber channel.
+// Unsubscribe removes a subscriber channel from active broadcasts.
 func (s *UpdateProgressState) Unsubscribe(id int) {
 	s.mu.Lock()
-	ch, ok := s.subscribers[id]
-	if ok {
-		delete(s.subscribers, id)
-	}
+	delete(s.subscribers, id)
 	s.mu.Unlock()
-
-	if ok {
-		close(ch)
-	}
 }
 
 func (s *UpdateProgressState) collectSubscribersLocked() []chan UpdateProgressSnapshot {

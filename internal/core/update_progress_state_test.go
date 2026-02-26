@@ -17,6 +17,15 @@ func readUpdateSnapshot(t *testing.T, ch <-chan UpdateProgressSnapshot) UpdatePr
 	}
 }
 
+func assertNoUpdateSnapshot(t *testing.T, ch <-chan UpdateProgressSnapshot, wait time.Duration) {
+	t.Helper()
+	select {
+	case snap := <-ch:
+		t.Fatalf("expected no snapshot, got %+v", snap)
+	case <-time.After(wait):
+	}
+}
+
 func TestUpdateProgressTryLockRejectsConcurrentBegin(t *testing.T) {
 	state := NewUpdateProgressState()
 
@@ -124,4 +133,19 @@ func TestUpdateProgressFinishConvergesState(t *testing.T) {
 	if success.Version != "2.0.1" {
 		t.Fatalf("success snapshot version = %q, want %q", success.Version, "2.0.1")
 	}
+}
+
+func TestUpdateProgressUnsubscribeStopsBroadcasts(t *testing.T) {
+	state := NewUpdateProgressState()
+	if ok := state.Begin("3.0.0"); !ok {
+		t.Fatal("Begin should acquire lock")
+	}
+
+	id, sub := state.Subscribe()
+	_ = readUpdateSnapshot(t, sub)
+	state.Unsubscribe(id)
+
+	state.Publish(45)
+	assertNoUpdateSnapshot(t, sub, 100*time.Millisecond)
+	state.Finish(nil)
 }
