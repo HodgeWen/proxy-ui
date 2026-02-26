@@ -15,11 +15,12 @@ import (
 	"github.com/s-ui/s-ui/internal/core"
 )
 
-var updateProgressStateProvider = core.GlobalUpdateProgressState
+type coreUpdater interface {
+	UpdateWithProgress(func(percent int)) error
+}
 
-var coreUpdateRunner = func(cfg *config.Config, onProgress func(percent int)) error {
-	u := core.NewCoreUpdater(configPath(cfg), binaryPath(cfg))
-	return u.UpdateWithProgress(onProgress)
+var newCoreUpdaterForRequest = func(cfg *config.Config) coreUpdater {
+	return core.NewCoreUpdater(configPath(cfg), binaryPath(cfg))
 }
 
 // RequireAuth returns 401 if user is not logged in.
@@ -292,23 +293,27 @@ func UpdateHandler(sm *scs.SessionManager, cfg *config.Config) http.HandlerFunc 
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-
-		state := updateProgressStateProvider()
-		if ok := state.Begin("latest"); !ok {
+		progress := core.GlobalUpdateProgressState()
+		if ok := progress.Begin("latest"); !ok {
 			writeCoreError(w, http.StatusConflict, "CORE_UPDATE_CONFLICT", "core update already in progress", "")
 			return
 		}
 
+		u := newCoreUpdaterForRequest(cfg)
 		go func() {
+			var updateErr error
 			defer func() {
-				if recovered := recover(); recovered != nil {
-					state.Finish(fmt.Errorf("unexpected update panic: %v", recovered))
+				if recoverErr := recover(); recoverErr != nil {
+					updateErr = fmt.Errorf("update panic: %v", recoverErr)
 				}
+				progress.Finish(updateErr)
 			}()
-			state.Finish(coreUpdateRunner(cfg, state.Publish))
+			updateErr = u.UpdateWithProgress(func(percent int) {
+				progress.Publish(percent)
+			})
 		}()
 
-		writeJSON(w, http.StatusAccepted, map[string]bool{"accepted": true})
+		writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 	}
 }
 
@@ -319,10 +324,9 @@ func UpdateStreamHandler(sm *scs.SessionManager, cfg *config.Config) http.Handle
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			writeCoreError(w, http.StatusInternalServerError, "CORE_STREAM_UNSUPPORTED", "streaming unsupported", "")
+			http.Error(w, "stream unsupported", http.StatusInternalServerError)
 			return
 		}
 
@@ -330,35 +334,34 @@ func UpdateStreamHandler(sm *scs.SessionManager, cfg *config.Config) http.Handle
 		w.Header().Set("Cache-Control", "no-cache, no-transform")
 		w.Header().Set("X-Accel-Buffering", "no")
 
-		state := updateProgressStateProvider()
-		subID, snapshots := state.Subscribe()
-		defer state.Unsubscribe(subID)
+		progress := core.GlobalUpdateProgressState()
+		subID, ch := progress.Subscribe()
+		defer progress.Unsubscribe(subID)
 
 		for {
 			select {
 			case <-r.Context().Done():
 				return
-			case snapshot, ok := <-snapshots:
+			case snapshot, ok := <-ch:
 				if !ok {
 					return
 				}
-				payload, err := json.Marshal(snapshot)
-				if err != nil {
-					return
-				}
-				if _, err := w.Write([]byte("data: ")); err != nil {
-					return
-				}
-				if _, err := w.Write(payload); err != nil {
-					return
-				}
-				if _, err := w.Write([]byte("\n\n")); err != nil {
+				if err := writeUpdateSSE(w, snapshot); err != nil {
 					return
 				}
 				flusher.Flush()
 			}
 		}
 	}
+}
+
+func writeUpdateSSE(w http.ResponseWriter, snapshot core.UpdateProgressSnapshot) error {
+	body, err := json.Marshal(snapshot)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "data: %s\n\n", body)
+	return err
 }
 
 // RollbackHandler restores sing-box from backup.

@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,6 +32,17 @@ type coreLogsPayload struct {
 	Path    string   `json:"path"`
 	Count   int      `json:"count"`
 	Entries []string `json:"entries"`
+}
+
+type fakeCoreUpdater struct {
+	run func(func(int)) error
+}
+
+func (f fakeCoreUpdater) UpdateWithProgress(onProgress func(int)) error {
+	if f.run == nil {
+		return nil
+	}
+	return f.run(onProgress)
 }
 
 func decodeJSON(t *testing.T, rec *httptest.ResponseRecorder, v interface{}) {
@@ -67,18 +76,6 @@ func testCoreConfig(t *testing.T, binaryPath string) *config.Config {
 		SingboxConfigPath: configPath,
 		SingboxBinaryPath: binaryPath,
 	}
-}
-
-func overrideUpdateDependencies(t *testing.T, state *core.UpdateProgressState, runner func(cfg *config.Config, onProgress func(percent int)) error) {
-	t.Helper()
-	oldStateProvider := updateProgressStateProvider
-	oldRunner := coreUpdateRunner
-	updateProgressStateProvider = func() *core.UpdateProgressState { return state }
-	coreUpdateRunner = runner
-	t.Cleanup(func() {
-		updateProgressStateProvider = oldStateProvider
-		coreUpdateRunner = oldRunner
-	})
 }
 
 func TestStatusHandlerReturnsNotInstalledState(t *testing.T) {
@@ -249,75 +246,109 @@ func TestLogsHandlerReturnsNotFoundWhenMissing(t *testing.T) {
 	}
 }
 
-func TestUpdateHandlerReturnsConflictWhenUpdateAlreadyInProgress(t *testing.T) {
-	cfg := testCoreConfig(t, filepath.Join(t.TempDir(), "missing-sing-box"))
-	state := core.NewUpdateProgressState()
+func resetUpdateProgressState(t *testing.T) {
+	t.Helper()
+	state := core.GlobalUpdateProgressState()
+	if ok := state.Begin("reset"); ok {
+		state.Finish(nil)
+		return
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if ok := state.Begin("reset"); ok {
+			state.Finish(nil)
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("update progress lock still held")
+}
+
+func waitUpdateIdle(t *testing.T) {
+	t.Helper()
+	state := core.GlobalUpdateProgressState()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if !state.Snapshot().InProgress {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("update progress still in progress after timeout")
+}
+
+func TestUpdateHandlerAcceptedThenConflict(t *testing.T) {
+	resetUpdateProgressState(t)
+	cfg := testCoreConfig(t, filepath.Join(t.TempDir(), "fake-sing-box"))
+
 	started := make(chan struct{})
 	release := make(chan struct{})
-	var startedOnce sync.Once
-	var callCount atomic.Int32
 
-	overrideUpdateDependencies(t, state, func(cfg *config.Config, onProgress func(percent int)) error {
-		callCount.Add(1)
-		startedOnce.Do(func() { close(started) })
-		<-release
-		if onProgress != nil {
-			onProgress(100)
+	previousFactory := newCoreUpdaterForRequest
+	newCoreUpdaterForRequest = func(cfg *config.Config) coreUpdater {
+		return fakeCoreUpdater{
+			run: func(onProgress func(int)) error {
+				close(started)
+				if onProgress != nil {
+					onProgress(25)
+				}
+				<-release
+				if onProgress != nil {
+					onProgress(100)
+				}
+				return nil
+			},
 		}
-		return nil
-	})
+	}
+	defer func() {
+		newCoreUpdaterForRequest = previousFactory
+	}()
 
-	req1 := httptest.NewRequest(http.MethodPost, "/api/core/update", nil)
-	rec1 := httptest.NewRecorder()
-	UpdateHandler(nil, cfg).ServeHTTP(rec1, req1)
-	if rec1.Code != http.StatusAccepted {
-		t.Fatalf("first UpdateHandler status = %d, want %d", rec1.Code, http.StatusAccepted)
+	firstReq := httptest.NewRequest(http.MethodPost, "/api/core/update", nil)
+	firstRec := httptest.NewRecorder()
+	UpdateHandler(nil, cfg).ServeHTTP(firstRec, firstReq)
+	if firstRec.Code != http.StatusAccepted {
+		t.Fatalf("first update status = %d, want %d", firstRec.Code, http.StatusAccepted)
 	}
 
 	select {
 	case <-started:
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for first update runner to start")
+		t.Fatal("first update did not start async updater")
 	}
 
-	req2 := httptest.NewRequest(http.MethodPost, "/api/core/update", nil)
-	rec2 := httptest.NewRecorder()
-	UpdateHandler(nil, cfg).ServeHTTP(rec2, req2)
-	if rec2.Code != http.StatusConflict {
-		t.Fatalf("second UpdateHandler status = %d, want %d", rec2.Code, http.StatusConflict)
+	secondReq := httptest.NewRequest(http.MethodPost, "/api/core/update", nil)
+	secondRec := httptest.NewRecorder()
+	UpdateHandler(nil, cfg).ServeHTTP(secondRec, secondReq)
+	if secondRec.Code != http.StatusConflict {
+		t.Fatalf("second update status = %d, want %d", secondRec.Code, http.StatusConflict)
 	}
-	var conflictBody coreErrorPayload
-	decodeJSON(t, rec2, &conflictBody)
-	if conflictBody.Code != "CORE_UPDATE_CONFLICT" {
-		t.Fatalf("conflict code = %q, want %q", conflictBody.Code, "CORE_UPDATE_CONFLICT")
-	}
-	if got := callCount.Load(); got != 1 {
-		t.Fatalf("update runner called %d times, want 1", got)
+
+	var conflict coreErrorPayload
+	decodeJSON(t, secondRec, &conflict)
+	if conflict.Code != "CORE_UPDATE_CONFLICT" {
+		t.Fatalf("conflict code = %q, want %q", conflict.Code, "CORE_UPDATE_CONFLICT")
 	}
 
 	close(release)
-	deadline := time.Now().Add(time.Second)
-	for state.Snapshot().InProgress {
-		if time.Now().After(deadline) {
-			t.Fatal("timed out waiting for update state to finish")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitUpdateIdle(t)
 }
 
-func TestUpdateStreamHandlerSendsSnapshotWithRequiredHeaders(t *testing.T) {
-	cfg := testCoreConfig(t, filepath.Join(t.TempDir(), "missing-sing-box"))
-	state := core.NewUpdateProgressState()
-	if ok := state.Begin("1.2.3"); !ok {
-		t.Fatal("Begin should acquire lock")
+func TestUpdateStreamHandlerSendsSnapshotAndHeaders(t *testing.T) {
+	resetUpdateProgressState(t)
+	state := core.GlobalUpdateProgressState()
+	if ok := state.Begin("v-test"); !ok {
+		t.Fatal("failed to begin update for stream test")
 	}
+	defer func() {
+		if state.Snapshot().InProgress {
+			state.Finish(nil)
+		}
+	}()
 	state.Publish(42)
-	defer state.Finish(nil)
 
-	overrideUpdateDependencies(t, state, func(cfg *config.Config, onProgress func(percent int)) error {
-		return nil
-	})
-
+	cfg := testCoreConfig(t, filepath.Join(t.TempDir(), "fake-sing-box"))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	req := httptest.NewRequest(http.MethodGet, "/api/core/update/stream", nil).WithContext(ctx)
@@ -329,32 +360,44 @@ func TestUpdateStreamHandlerSendsSnapshotWithRequiredHeaders(t *testing.T) {
 		close(done)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("stream handler did not exit after context cancellation")
-	}
-
-	if got := rec.Header().Get("Content-Type"); got != "text/event-stream" {
-		t.Fatalf("Content-Type = %q, want %q", got, "text/event-stream")
-	}
-	if got := rec.Header().Get("Cache-Control"); got != "no-cache, no-transform" {
-		t.Fatalf("Cache-Control = %q, want %q", got, "no-cache, no-transform")
-	}
-	if got := rec.Header().Get("X-Accel-Buffering"); got != "no" {
-		t.Fatalf("X-Accel-Buffering = %q, want %q", got, "no")
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(rec.Body.String(), "data: ") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	body := rec.Body.String()
 	if !strings.Contains(body, "data: ") {
-		t.Fatalf("stream body missing SSE event prefix: %s", body)
+		t.Fatalf("expected SSE data event, got body: %q", body)
 	}
-	if !strings.Contains(body, "\"inProgress\":true") {
-		t.Fatalf("stream body missing inProgress snapshot: %s", body)
+	if got := rec.Header().Get("Content-Type"); got != "text/event-stream" {
+		t.Fatalf("content-type = %q, want %q", got, "text/event-stream")
 	}
-	if !strings.Contains(body, "\"percent\":42") {
-		t.Fatalf("stream body missing percent snapshot: %s", body)
+	if got := rec.Header().Get("Cache-Control"); got != "no-cache, no-transform" {
+		t.Fatalf("cache-control = %q, want %q", got, "no-cache, no-transform")
+	}
+	if got := rec.Header().Get("X-Accel-Buffering"); got != "no" {
+		t.Fatalf("x-accel-buffering = %q, want %q", got, "no")
+	}
+
+	firstLine := strings.Split(strings.TrimSpace(body), "\n")[0]
+	if !strings.HasPrefix(firstLine, "data: ") {
+		t.Fatalf("first line = %q, want SSE data line", firstLine)
+	}
+	var snapshot core.UpdateProgressSnapshot
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(firstLine, "data: ")), &snapshot); err != nil {
+		t.Fatalf("unmarshal first SSE snapshot: %v", err)
+	}
+	if !snapshot.InProgress || snapshot.Percent != 42 {
+		t.Fatalf("first SSE snapshot = %+v, want in-progress percent=42", snapshot)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("stream handler did not exit after context cancel")
 	}
 }
