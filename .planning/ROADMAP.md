@@ -90,7 +90,11 @@ Plans:
   2. Login and Setup action controls use the shared hover transition system used by Button/Card/TableRow
   3. UI consistency巡检主路径 confirms no animation/hover parity gaps across login/setup/subscriptions/traffic/core
   4. UIANM-02 and UIANM-04 move back to Complete after verification
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 15-01-PLAN.md — Login 页面接入共享组件与入场动效基线
+- [ ] 15-02-PLAN.md — Setup 页面接入共享组件与入场动效基线
+- [ ] 15-03-PLAN.md — Auth 基线收口、跨页一致性巡检与 UIANM 状态回填
 
 ## Progress
 
@@ -110,4 +114,4 @@ Plans:
 | 12. Core Process Control | v1.1 | 2/2 | ✓ Complete | 2026-02-26 |
 | 13. Core Update Progress | v1.1 | Complete    | 2026-02-26 | 2026-02-26 |
 | 14. UI Polish & Consistency | v1.1 | Complete    | 2026-02-26 | 2026-02-26 |
-| 15. Auth Surface Animation Completion | v1.1 | 0/0 | 📝 Planned | - |
+| 15. Auth Surface Animation Completion | v1.1 | 0/3 | 📝 Planned | - |
