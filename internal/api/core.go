@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +14,13 @@ import (
 	"github.com/s-ui/s-ui/internal/config"
 	"github.com/s-ui/s-ui/internal/core"
 )
+
+var updateProgressStateProvider = core.GlobalUpdateProgressState
+
+var coreUpdateRunner = func(cfg *config.Config, onProgress func(percent int)) error {
+	u := core.NewCoreUpdater(configPath(cfg), binaryPath(cfg))
+	return u.UpdateWithProgress(onProgress)
+}
 
 // RequireAuth returns 401 if user is not logged in.
 func RequireAuth(sm *scs.SessionManager) func(http.Handler) http.Handler {
@@ -284,19 +292,72 @@ func UpdateHandler(sm *scs.SessionManager, cfg *config.Config) http.HandlerFunc 
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		u := core.NewCoreUpdater(configPath(cfg), binaryPath(cfg))
-		if err := u.Update(); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			if err.Error() == "请设置 SINGBOX_BINARY_PATH 以启用核心更新" {
-				w.WriteHeader(http.StatusBadRequest)
-			} else {
-				w.WriteHeader(http.StatusInternalServerError)
-			}
-			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+
+		state := updateProgressStateProvider()
+		if ok := state.Begin("latest"); !ok {
+			writeCoreError(w, http.StatusConflict, "CORE_UPDATE_CONFLICT", "core update already in progress", "")
 			return
 		}
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+
+		go func() {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					state.Finish(fmt.Errorf("unexpected update panic: %v", recovered))
+				}
+			}()
+			state.Finish(coreUpdateRunner(cfg, state.Publish))
+		}()
+
+		writeJSON(w, http.StatusAccepted, map[string]bool{"accepted": true})
+	}
+}
+
+// UpdateStreamHandler streams update progress snapshots over SSE.
+func UpdateStreamHandler(sm *scs.SessionManager, cfg *config.Config) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			writeCoreError(w, http.StatusInternalServerError, "CORE_STREAM_UNSUPPORTED", "streaming unsupported", "")
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache, no-transform")
+		w.Header().Set("X-Accel-Buffering", "no")
+
+		state := updateProgressStateProvider()
+		subID, snapshots := state.Subscribe()
+		defer state.Unsubscribe(subID)
+
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case snapshot, ok := <-snapshots:
+				if !ok {
+					return
+				}
+				payload, err := json.Marshal(snapshot)
+				if err != nil {
+					return
+				}
+				if _, err := w.Write([]byte("data: ")); err != nil {
+					return
+				}
+				if _, err := w.Write(payload); err != nil {
+					return
+				}
+				if _, err := w.Write([]byte("\n\n")); err != nil {
+					return
+				}
+				flusher.Flush()
+			}
+		}
 	}
 }
 
