@@ -21,10 +21,10 @@ Requirements for v1.1 UI与核心优化。Each maps to roadmap phases.
 
 ### 核心进程管理
 
-- [ ] **CORE-01**: 拆分现有"重启"为独立的启动/停止/重启按钮，根据当前状态显示可用操作
-- [ ] **CORE-02**: 核心二进制不存在时面板启动不自动启动核心，UI 提示用户下载安装
-- [ ] **CORE-03**: 启动失败时不显示语义错误的"重启"按钮，改为显示上下文正确的操作（如"重试启动"或"查看日志"）
-- [ ] **CORE-04**: 增强状态 API，区分未安装/已停止/运行中/异常四种状态，前端根据状态渲染不同 UI
+- [x] **CORE-01**: 拆分现有"重启"为独立的启动/停止/重启按钮，根据当前状态显示可用操作
+- [x] **CORE-02**: 核心二进制不存在时面板启动不自动启动核心，UI 提示用户下载安装
+- [x] **CORE-03**: 启动失败时不显示语义错误的"重启"按钮，改为显示上下文正确的操作（如"重试启动"或"查看日志"）
+- [x] **CORE-04**: 增强状态 API，区分未安装/已停止/运行中/异常四种状态，前端根据状态渲染不同 UI
 
 ### 核心更新
 
@@ -81,10 +81,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | UIANM-02 | Phase 11 | Complete |
 | UIANM-03 | Phase 11 | Complete |
 | UIANM-04 | Phase 11 | Complete |
-| CORE-01 | Phase 12 | Pending |
-| CORE-02 | Phase 12 | Pending |
-| CORE-03 | Phase 12 | Pending |
-| CORE-04 | Phase 12 | Pending |
+| CORE-01 | Phase 12 | Complete |
+| CORE-02 | Phase 12 | Complete |
+| CORE-03 | Phase 12 | Complete |
+| CORE-04 | Phase 12 | Complete |
 | UPDT-01 | Phase 13 | Pending |
 | UPDT-02 | Phase 13 | Pending |
 | UICON-01 | Phase 14 | Pending |
