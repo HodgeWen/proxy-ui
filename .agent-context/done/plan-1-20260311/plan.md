@@ -1,6 +1,6 @@
 # 后端文档生成
 
-> 状态: 未执行
+> 状态: 已执行
 
 ## 目标
 
@@ -42,5 +42,9 @@
 - 确认所有数据库模型字段与 `internal/db/` 定义一致
 
 ## 影响范围
+
+- 新增文件: `/home/whj/codes/s-ui/docs/modules.md`
+- 新增文件: `/home/whj/codes/s-ui/docs/api.md`
+- 修改文件: `/home/whj/codes/s-ui/.agent-context/plan-1/plan.md`
 
 ## 历史补丁
