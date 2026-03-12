@@ -14,7 +14,7 @@ export function FieldLabel({ label, tooltip, htmlFor }: FieldLabelProps) {
       {tooltip ? (
         <Tooltip.Root>
           <Tooltip.Trigger>
-            <Info className="size-4 cursor-help text-[color:var(--muted)]" />
+            <Info className="size-4 cursor-help text-foreground-500" />
           </Tooltip.Trigger>
           <Tooltip.Content className="max-w-xs">
             <p className="text-xs">{tooltip}</p>

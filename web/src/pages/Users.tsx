@@ -112,11 +112,10 @@ export function Users() {
           actions={
             <>
               <Input
-                startContent={<Search className="size-4 text-[color:var(--muted)]" />}
+                startContent={<Search className="size-4 text-foreground-500" />}
                 placeholder="搜索用户（名称 / 备注 / UUID）"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                variant="secondary"
                 className="w-full sm:w-80"
               />
               <Button variant="primary" onPress={handleAddUser}>
@@ -127,13 +126,13 @@ export function Users() {
           }
         >
           <div className="space-y-2">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--muted)]">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-foreground-500">
               Query State
             </p>
             <p className="text-sm font-medium">
               {isFetching ? "正在刷新用户列表" : "用户列表已同步"}
             </p>
-            <p className="text-sm text-[color:var(--muted)]">
+            <p className="text-sm text-foreground-500">
               当前搜索：{searchQ || "全部用户"}
             </p>
           </div>
@@ -151,7 +150,7 @@ export function Users() {
       )}
 
       {isError ? (
-          <p className="text-[color:var(--danger)]">{error?.message ?? "加载失败"}</p>
+          <p className="text-danger">{error?.message ?? "加载失败"}</p>
         ) : (
           <UserTable
             users={data?.data ?? []}

@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { ArrowRight } from "lucide-react"
 import {
+  Alert,
   Button,
   Card,
   Description,
@@ -46,15 +47,15 @@ export function Login() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[color:var(--background)] px-4">
-      <Card className="w-full max-w-md border border-[color:var(--border)] bg-[color:var(--surface)] shadow-[var(--overlay-shadow)]">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <Card className="w-full max-w-md shadow-large">
         <Card.Header className="flex-col items-center gap-4 px-6 pt-8 text-center sm:px-8">
-          <div className="flex size-16 items-center justify-center rounded-2xl bg-[color:var(--accent)]/12 text-[color:var(--accent)]">
+          <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             <span className="text-2xl font-bold">S</span>
           </div>
           <div className="space-y-1">
             <Card.Title className="text-2xl font-semibold">S-UI</Card.Title>
-            <Card.Description className="text-sm text-[color:var(--muted)]">
+            <Card.Description className="text-sm text-foreground-500">
               sing-box 管理面板
             </Card.Description>
           </div>
@@ -80,8 +81,6 @@ export function Login() {
                 placeholder="输入管理员用户名"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                variant="secondary"
-                className="h-12"
               />
               <Description>管理员账户名</Description>
             </TextField>
@@ -100,19 +99,12 @@ export function Login() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                variant="secondary"
-                className="h-12"
               />
               <Description>输入后直接进入控制台</Description>
             </TextField>
 
             {error && (
-              <div
-                role="alert"
-                className="rounded-xl border border-[color:var(--danger)]/30 bg-[color:var(--danger)]/10 px-4 py-3 text-sm text-[color:var(--danger)]"
-              >
-                {error}
-              </div>
+              <Alert color="danger">{error}</Alert>
             )}
 
             <div className="space-y-3">
@@ -121,14 +113,14 @@ export function Login() {
                 isDisabled={loading}
                 type="submit"
                 variant="primary"
-                className="h-12 text-base font-semibold shadow-[var(--surface-shadow)]"
+                size="lg"
               >
                 {loading ? "登录中..." : "登录"}
               </Button>
 
               <a
                 href="/setup"
-                className="flex items-center justify-center gap-2 py-3 text-sm text-[color:var(--muted)] transition-colors hover:text-[color:var(--accent)]"
+                className="flex items-center justify-center gap-2 py-3 text-sm text-foreground-500 transition-colors hover:text-primary"
               >
                 <span>首次部署时前往初始化管理员账户</span>
                 <ArrowRight className="size-4 shrink-0" />

@@ -59,27 +59,27 @@ export function UserSubscriptionCard({ user, onReset }: UserSubscriptionCardProp
 
   return (
     <div className="space-y-4">
-      <Card className="border border-[color:var(--border)] bg-[color:var(--surface-secondary)]/72 shadow-none">
+      <Card className="shadow-none">
         <Card.Content className="grid gap-3 p-4 text-sm sm:grid-cols-2">
           <div>
-            <span className="text-[color:var(--muted)]">用户名：</span>
+            <span className="text-foreground-500">用户名：</span>
             <span>{user.name}</span>
           </div>
           <div>
-            <span className="text-[color:var(--muted)]">剩余流量：</span>
+            <span className="text-foreground-500">剩余流量：</span>
             <span>{trafficText}</span>
           </div>
           <div>
-            <span className="text-[color:var(--muted)]">到期时间：</span>
+            <span className="text-foreground-500">到期时间：</span>
             <span>{expireText}</span>
           </div>
         </Card.Content>
       </Card>
 
-      <Card className="border border-[color:var(--border)] bg-[color:var(--surface)] shadow-none">
+      <Card className="shadow-none">
         <Card.Content className="space-y-3 p-4">
           <div className="flex flex-wrap items-center gap-2">
-            <Chip variant="secondary" className="border-[color:var(--border)] bg-[color:var(--surface-secondary)]/74">
+            <Chip color="default">
               订阅链接
             </Chip>
             <Button
@@ -93,21 +93,21 @@ export function UserSubscriptionCard({ user, onReset }: UserSubscriptionCardProp
               复制
             </Button>
           </div>
-          <code className="block rounded-lg bg-[color:var(--surface-secondary)] px-3 py-2 text-xs font-mono">
+          <code className="block rounded-lg bg-content2 px-3 py-2 text-xs font-mono">
             {fullSubscriptionUrl}
           </code>
         </Card.Content>
       </Card>
 
       {user.subscription_nodes && user.subscription_nodes.length > 0 && (
-        <Card className="border border-[color:var(--border)] bg-[color:var(--surface)] shadow-none">
+        <Card className="shadow-none">
           <Card.Content className="space-y-3 p-4">
-            <p className="text-sm text-[color:var(--muted)]">节点列表</p>
+            <p className="text-sm text-foreground-500">节点列表</p>
             <div className="space-y-2">
               {user.subscription_nodes.map((node) => (
                 <div
                   key={node.name}
-                  className="flex items-center gap-2 rounded-lg bg-[color:var(--surface-secondary)] px-3 py-2"
+                  className="flex items-center gap-2 rounded-lg bg-content2 px-3 py-2"
                 >
                   <span className="flex-1 truncate text-sm">{node.name}</span>
                   <Button
@@ -148,7 +148,7 @@ export function UserSubscriptionCard({ user, onReset }: UserSubscriptionCardProp
             )}
           </Button>
           {showQR && (
-            <div className="flex justify-center rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+            <div className="flex justify-center rounded-lg border border-divider bg-content1 p-4">
               <QRCodeSVG value={fullSubscriptionUrl} size={200} />
             </div>
           )}
@@ -159,14 +159,14 @@ export function UserSubscriptionCard({ user, onReset }: UserSubscriptionCardProp
             type="button"
             variant="outline"
             size="sm"
+            className="border-danger/30 text-danger hover:bg-danger/10"
             onPress={handleReset}
             isDisabled={resetting}
-            className="border-[color:var(--danger)]/30 text-[color:var(--danger)] hover:bg-[color:var(--danger)]/10 hover:text-[color:var(--danger)]"
           >
             <RotateCcw className="size-4" />
             {resetting ? "重置中..." : "重置订阅"}
           </Button>
-          <p className="mt-1 text-xs text-[color:var(--muted)]">
+          <p className="mt-1 text-xs text-foreground-500">
             重置后旧订阅链接将立即失效
           </p>
       </div>

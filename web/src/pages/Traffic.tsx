@@ -24,26 +24,11 @@ type UserTraffic = {
   enabled: boolean
 }
 
-function getUserStatus(u: UserTraffic): { label: string; variant: "default" | "secondary" | "destructive" | "outline" } {
-  if (!u.enabled) return { label: "禁用", variant: "secondary" }
-  if (u.expire_at && new Date(u.expire_at) <= new Date()) return { label: "过期", variant: "destructive" }
-  if (u.traffic_limit > 0 && u.traffic_used >= u.traffic_limit) return { label: "超限", variant: "destructive" }
-  return { label: "活跃", variant: "default" }
-}
-
-function renderStatusChip(status: ReturnType<typeof getUserStatus>) {
-  const className =
-    status.variant === "destructive"
-      ? "border-[color:var(--danger)]/30 bg-[color:var(--danger)]/10 text-[color:var(--danger)]"
-      : status.variant === "secondary"
-        ? "border-[color:var(--border)] bg-[color:var(--surface-secondary)] text-[color:var(--muted)]"
-        : "border-[color:var(--success)]/30 bg-[color:var(--success)]/12 text-[color:var(--success)]"
-
-  return (
-    <Chip variant="secondary" className={className}>
-      {status.label}
-    </Chip>
-  )
+function getUserStatus(u: UserTraffic): { label: string; color: "danger" | "default" | "success" } {
+  if (!u.enabled) return { label: "禁用", color: "default" }
+  if (u.expire_at && new Date(u.expire_at) <= new Date()) return { label: "过期", color: "danger" }
+  if (u.traffic_limit > 0 && u.traffic_used >= u.traffic_limit) return { label: "超限", color: "danger" }
+  return { label: "活跃", color: "success" }
 }
 
 export function Traffic() {
@@ -135,17 +120,17 @@ export function Traffic() {
 
       <div className="grid gap-6 md:grid-cols-3">
         {statCards.map((card) => (
-          <Card key={card.title} className="border border-[color:var(--border)] bg-[color:var(--surface)]">
+          <Card key={card.title}>
             <Card.Content className="space-y-4 p-5">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-medium text-[color:var(--muted)]">{card.title}</h2>
-                <card.icon className="size-4 text-[color:var(--accent)]" />
+                <h2 className="text-sm font-medium text-foreground-500">{card.title}</h2>
+                <card.icon className="size-4 text-primary" />
               </div>
               <div className={card.smallValue ? "text-xl font-bold" : "text-2xl font-bold"}>
                 {card.value}
               </div>
               {card.sub && (
-                <p className="text-sm text-[color:var(--muted)]">{card.sub}</p>
+                <p className="text-sm text-foreground-500">{card.sub}</p>
               )}
             </Card.Content>
           </Card>
@@ -161,7 +146,7 @@ export function Traffic() {
         </Tabs.ListContainer>
 
         <Tabs.Panel id="inbounds">
-          <Table.Root aria-label="入站流量表" className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] shadow-[var(--surface-shadow)]">
+          <Table.Root aria-label="入站流量表">
             <Table.ScrollContainer>
               <Table.Content>
                 <Table.Header>
@@ -173,13 +158,13 @@ export function Traffic() {
                 <Table.Body>
                   {inboundsLoading ? (
                     <Table.Row>
-                      <Table.Cell colSpan={4} className="py-8 text-center text-[color:var(--muted)]">
+                      <Table.Cell colSpan={4} className="py-8 text-center text-foreground-500">
                         加载中...
                       </Table.Cell>
                     </Table.Row>
                   ) : inbounds.length === 0 ? (
                     <Table.Row>
-                      <Table.Cell colSpan={4} className="py-8 text-center text-[color:var(--muted)]">
+                      <Table.Cell colSpan={4} className="py-8 text-center text-foreground-500">
                         暂无入站
                       </Table.Cell>
                     </Table.Row>
@@ -200,7 +185,7 @@ export function Traffic() {
         </Tabs.Panel>
 
         <Tabs.Panel id="users">
-          <Table.Root aria-label="用户流量表" className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] shadow-[var(--surface-shadow)]">
+          <Table.Root aria-label="用户流量表">
             <Table.ScrollContainer>
               <Table.Content>
                 <Table.Header>
@@ -212,13 +197,13 @@ export function Traffic() {
                 <Table.Body>
                   {usersLoading ? (
                     <Table.Row>
-                      <Table.Cell colSpan={4} className="py-8 text-center text-[color:var(--muted)]">
+                      <Table.Cell colSpan={4} className="py-8 text-center text-foreground-500">
                         加载中...
                       </Table.Cell>
                     </Table.Row>
                   ) : users.length === 0 ? (
                     <Table.Row>
-                      <Table.Cell colSpan={4} className="py-8 text-center text-[color:var(--muted)]">
+                      <Table.Cell colSpan={4} className="py-8 text-center text-foreground-500">
                         暂无用户
                       </Table.Cell>
                     </Table.Row>
@@ -230,7 +215,9 @@ export function Traffic() {
                           <Table.Cell className="font-medium">{u.name}</Table.Cell>
                           <Table.Cell>{formatBytes(u.traffic_uplink ?? 0)}</Table.Cell>
                           <Table.Cell>{formatBytes(u.traffic_downlink ?? 0)}</Table.Cell>
-                          <Table.Cell>{renderStatusChip(status)}</Table.Cell>
+                          <Table.Cell>
+                            <Chip color={status.color}>{status.label}</Chip>
+                          </Table.Cell>
                         </Table.Row>
                       )
                     })

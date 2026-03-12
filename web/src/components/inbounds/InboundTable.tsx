@@ -28,7 +28,7 @@ export function InboundTable({
   onDelete,
 }: InboundTableProps) {
   return (
-    <Table.Root aria-label="入站列表" className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] shadow-[var(--surface-shadow)]">
+    <Table.Root aria-label="入站列表">
       <Table.ScrollContainer>
         <Table.Content>
       <Table.Header>
@@ -81,7 +81,7 @@ export function InboundTable({
                     <Dropdown.Menu>
                     <Dropdown.Item
                       onAction={() => onDelete?.(ib.id)}
-                      className="text-[color:var(--danger)]"
+                      className="text-danger"
                     >
                       <Trash2 className="mr-2 inline size-4" />
                       删除

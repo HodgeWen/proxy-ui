@@ -74,7 +74,7 @@ export function Certificates() {
     return (
       <div className="p-6 space-y-6">
         <h1 className="text-2xl font-bold">证书管理</h1>
-        <p className="text-[color:var(--muted)]">加载中...</p>
+        <p className="text-foreground-500">加载中...</p>
       </div>
     )
   }
@@ -83,7 +83,7 @@ export function Certificates() {
     return (
       <div className="p-6 space-y-6">
         <h1 className="text-2xl font-bold">证书管理</h1>
-        <p className="text-[color:var(--danger)]">{error?.message ?? "加载失败"}</p>
+        <p className="text-danger">{error?.message ?? "加载失败"}</p>
       </div>
     )
   }

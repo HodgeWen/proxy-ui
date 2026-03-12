@@ -16,26 +16,11 @@ type UserSub = {
   enabled: boolean
 }
 
-function getStatus(u: UserSub): { label: string; variant: "default" | "secondary" | "destructive" | "outline" } {
-  if (!u.enabled) return { label: "禁用", variant: "secondary" }
-  if (u.expire_at && new Date(u.expire_at) <= new Date()) return { label: "过期", variant: "destructive" }
-  if (u.traffic_limit > 0 && u.traffic_used >= u.traffic_limit) return { label: "超限", variant: "destructive" }
-  return { label: "活跃", variant: "default" }
-}
-
-function renderStatusChip(status: ReturnType<typeof getStatus>) {
-  const className =
-    status.variant === "destructive"
-      ? "border-[color:var(--danger)]/30 bg-[color:var(--danger)]/10 text-[color:var(--danger)]"
-      : status.variant === "secondary"
-        ? "border-[color:var(--border)] bg-[color:var(--surface-secondary)] text-[color:var(--muted)]"
-        : "border-[color:var(--success)]/30 bg-[color:var(--success)]/12 text-[color:var(--success)]"
-
-  return (
-    <Chip variant="secondary" className={className}>
-      {status.label}
-    </Chip>
-  )
+function getStatus(u: UserSub): { label: string; color: "danger" | "default" | "success" } {
+  if (!u.enabled) return { label: "禁用", color: "default" }
+  if (u.expire_at && new Date(u.expire_at) <= new Date()) return { label: "过期", color: "danger" }
+  if (u.traffic_limit > 0 && u.traffic_used >= u.traffic_limit) return { label: "超限", color: "danger" }
+  return { label: "活跃", color: "success" }
 }
 
 function fullUrl(path: string): string {
@@ -82,7 +67,7 @@ export function Subscriptions() {
         ]}
       />
 
-      <Table.Root aria-label="订阅列表" className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] shadow-[var(--surface-shadow)]">
+      <Table.Root aria-label="订阅列表">
         <Table.ScrollContainer>
           <Table.Content>
             <Table.Header>
@@ -94,13 +79,13 @@ export function Subscriptions() {
             <Table.Body>
               {isLoading ? (
                 <Table.Row>
-                  <Table.Cell className="py-8 text-center text-[color:var(--muted)]" colSpan={4}>
+                  <Table.Cell className="py-8 text-center text-foreground-500" colSpan={4}>
                     加载中...
                   </Table.Cell>
                 </Table.Row>
               ) : users.length === 0 ? (
                 <Table.Row>
-                  <Table.Cell className="py-8 text-center text-[color:var(--muted)]" colSpan={4}>
+                  <Table.Cell className="py-8 text-center text-foreground-500" colSpan={4}>
                     暂无用户
                   </Table.Cell>
                 </Table.Row>
@@ -113,14 +98,16 @@ export function Subscriptions() {
                       <Table.Cell className="font-medium">{u.name}</Table.Cell>
                       <Table.Cell className="max-w-xs">
                         {url ? (
-                          <code className="block truncate rounded-lg bg-[color:var(--surface-secondary)] px-2.5 py-1.5 text-xs font-mono">
+                          <code className="block truncate rounded-lg bg-content2 px-2.5 py-1.5 text-xs font-mono">
                             {url}
                           </code>
                         ) : (
-                          <span className="text-[color:var(--muted)]">—</span>
+                          <span className="text-foreground-500">—</span>
                         )}
                       </Table.Cell>
-                      <Table.Cell>{renderStatusChip(status)}</Table.Cell>
+                      <Table.Cell>
+                        <Chip color={status.color}>{status.label}</Chip>
+                      </Table.Cell>
                       <Table.Cell>
                         <div className="flex items-center gap-1">
                           <Button
@@ -162,10 +149,10 @@ export function Subscriptions() {
           {qrUser?.subscription_url && (
             <Modal.Body>
               <div className="flex flex-col items-center gap-4">
-                <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
+                <div className="rounded-lg border border-divider bg-content1 p-4">
                 <QRCodeSVG value={fullUrl(qrUser.subscription_url)} size={200} />
                 </div>
-                <code className="break-all px-4 text-center text-xs font-mono text-[color:var(--muted)]">
+                <code className="break-all px-4 text-center text-xs font-mono text-foreground-500">
                   {fullUrl(qrUser.subscription_url)}
                 </code>
               </div>

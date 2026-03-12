@@ -57,7 +57,7 @@ export function UserSubscriptionModal({
             </Modal.Header>
             <Modal.Body>
         {isLoading ? (
-          <div className="py-8 text-center text-[color:var(--muted)]">加载中...</div>
+          <div className="py-8 text-center text-foreground-500">加载中...</div>
         ) : user ? (
           <UserSubscriptionCard
             user={{
@@ -71,7 +71,7 @@ export function UserSubscriptionModal({
             onReset={handleReset}
           />
         ) : (
-          <div className="py-8 text-center text-[color:var(--muted)]">用户未找到</div>
+          <div className="py-8 text-center text-foreground-500">用户未找到</div>
         )}
             </Modal.Body>
           </Modal.Dialog>

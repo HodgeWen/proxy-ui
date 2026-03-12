@@ -7,6 +7,7 @@ import { z } from "zod"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import {
+  Alert,
   Button,
   Input,
   Modal,
@@ -112,9 +113,9 @@ export function CertificateFormModal({
             <Modal.Body>
 
         {checkError && (
-          <div className="rounded-lg bg-[color:var(--danger)]/10 text-[color:var(--danger)] p-3 text-sm">
+          <Alert color="danger">
             <pre className="whitespace-pre-wrap">{checkError}</pre>
-          </div>
+          </Alert>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -131,7 +132,7 @@ export function CertificateFormModal({
                 placeholder="example.com"
               />
               {form.formState.errors.name && (
-                <p className="text-sm text-[color:var(--danger)]">
+                <p className="text-sm text-danger">
                   {form.formState.errors.name.message}
                 </p>
               )}
@@ -148,7 +149,7 @@ export function CertificateFormModal({
                 placeholder="/etc/certs/fullchain.pem"
               />
               {form.formState.errors.fullchain_path && (
-                <p className="text-sm text-[color:var(--danger)]">
+                <p className="text-sm text-danger">
                   {form.formState.errors.fullchain_path.message}
                 </p>
               )}
@@ -165,7 +166,7 @@ export function CertificateFormModal({
                 placeholder="/etc/certs/privkey.pem"
               />
               {form.formState.errors.privkey_path && (
-                <p className="text-sm text-[color:var(--danger)]">
+                <p className="text-sm text-danger">
               {form.formState.errors.privkey_path.message}
                 </p>
               )}

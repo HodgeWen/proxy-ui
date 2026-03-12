@@ -87,7 +87,7 @@ export function Inbounds() {
     return (
       <div className="p-6 space-y-6">
         <h1 className="text-2xl font-bold">入站管理</h1>
-        <p className="text-[color:var(--muted)]">加载中...</p>
+        <p className="text-foreground-500">加载中...</p>
       </div>
     )
   }
@@ -96,7 +96,7 @@ export function Inbounds() {
     return (
       <div className="p-6 space-y-6">
         <h1 className="text-2xl font-bold">入站管理</h1>
-        <p className="text-[color:var(--danger)]">{error?.message ?? "加载失败"}</p>
+        <p className="text-danger">{error?.message ?? "加载失败"}</p>
       </div>
     )
   }
@@ -149,10 +149,10 @@ export function Inbounds() {
           }
         >
           <div className="space-y-2">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--muted)]">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-foreground-500">
               Sort Preset
             </p>
-            <Chip variant="secondary" className="border-[color:var(--border)] bg-[color:var(--surface-secondary)]/74">
+            <Chip color="default">
               {sort === "created" ? "按创建时间" : sort === "traffic_asc" ? "按低流量优先" : "按高流量优先"}
             </Chip>
           </div>

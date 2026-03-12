@@ -27,7 +27,7 @@ export function BatchActionBar({
 
   return (
     <>
-      <Card className="border border-[color:var(--border)] bg-[color:var(--surface-secondary)]/72 shadow-none">
+      <Card className="shadow-none">
         <Card.Content className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <span className="text-sm font-medium">已选 {selectedCount} 个用户</span>
@@ -60,7 +60,7 @@ export function BatchActionBar({
                 <Modal.Heading>确认删除</Modal.Heading>
               </Modal.Header>
               <Modal.Body>
-                <p className="text-sm text-[color:var(--muted)]">
+                <p className="text-sm text-foreground-500">
                   确定删除 {selectedCount} 个用户吗？此操作无法撤销。
                 </p>
               </Modal.Body>

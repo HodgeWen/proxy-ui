@@ -42,15 +42,15 @@ function formatExpire(expireAt: string | null): string {
   return d.toISOString().slice(0, 10)
 }
 
-function getStatusBadge(user: User): { label: string; variant: "default" | "secondary" | "destructive" | "outline" } {
+function getStatusBadge(user: User): { label: string; color: "danger" | "default" | "success" } {
   const now = new Date()
   const expired = user.expire_at && new Date(user.expire_at) <= now
   const overLimit = user.traffic_limit > 0 && user.traffic_used >= user.traffic_limit
 
-  if (!user.enabled) return { label: "禁用", variant: "secondary" }
-  if (expired) return { label: "过期", variant: "destructive" }
-  if (overLimit) return { label: "超限", variant: "destructive" }
-  return { label: "启用", variant: "default" }
+  if (!user.enabled) return { label: "禁用", color: "default" }
+  if (expired) return { label: "过期", color: "danger" }
+  if (overLimit) return { label: "超限", color: "danger" }
+  return { label: "启用", color: "success" }
 }
 
 export function UserTable({
@@ -81,23 +81,8 @@ export function UserTable({
     }
   }
 
-  const renderStatusChip = (label: string, variant: "default" | "secondary" | "destructive" | "outline") => {
-    const className =
-      variant === "destructive"
-        ? "border-[color:var(--danger)]/30 bg-[color:var(--danger)]/10 text-[color:var(--danger)]"
-        : variant === "secondary"
-          ? "border-[color:var(--border)] bg-[color:var(--surface-secondary)] text-[color:var(--muted)]"
-          : "border-[color:var(--success)]/30 bg-[color:var(--success)]/12 text-[color:var(--success)]"
-
-    return (
-      <Chip variant="secondary" className={className}>
-        {label}
-      </Chip>
-    )
-  }
-
   return (
-    <Table.Root aria-label="用户列表" className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] shadow-[var(--surface-shadow)]">
+    <Table.Root aria-label="用户列表">
       <Table.ScrollContainer>
         <Table.Content>
       <Table.Header>
@@ -126,13 +111,13 @@ export function UserTable({
       <Table.Body>
         {isLoading ? (
           <Table.Row>
-            <Table.Cell colSpan={9} className="text-center text-[color:var(--muted)] py-8">
+            <Table.Cell colSpan={9} className="text-center text-foreground-500 py-8">
               加载中...
             </Table.Cell>
           </Table.Row>
         ) : users.length === 0 ? (
           <Table.Row>
-            <Table.Cell colSpan={9} className="text-center text-[color:var(--muted)] py-8">
+            <Table.Cell colSpan={9} className="text-center text-foreground-500 py-8">
               暂无用户
             </Table.Cell>
           </Table.Row>
@@ -155,7 +140,9 @@ export function UserTable({
                 </Table.Cell>
                 <Table.Cell>{user.name}</Table.Cell>
                 <Table.Cell>{user.remark || "—"}</Table.Cell>
-                <Table.Cell>{renderStatusChip(status.label, status.variant)}</Table.Cell>
+                <Table.Cell>
+                  <Chip color={status.color}>{status.label}</Chip>
+                </Table.Cell>
                 <Table.Cell>{formatBytes(user.traffic_uplink ?? 0)}</Table.Cell>
                 <Table.Cell>{formatBytes(user.traffic_downlink ?? 0)}</Table.Cell>
                 <Table.Cell>{formatExpire(user.expire_at)}</Table.Cell>
@@ -192,7 +179,7 @@ export function UserTable({
                         <Dropdown.Menu>
                         <Dropdown.Item
                           onAction={() => onDelete?.(user.id)}
-                          className="text-[color:var(--danger)]"
+                          className="text-danger"
                         >
                           <Trash2 className="mr-2 inline size-4" />
                           删除

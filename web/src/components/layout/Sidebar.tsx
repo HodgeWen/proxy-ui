@@ -57,19 +57,19 @@ export function Sidebar({
   return (
     <aside
       className={cn(
-        "flex h-full w-full max-w-72 flex-col rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)]/92 p-4 shadow-[var(--surface-shadow)] backdrop-blur-xl",
+        "flex h-full w-full max-w-72 flex-col rounded-2xl border border-divider bg-content1 p-4 shadow-medium",
         mobile &&
-          "rounded-none border-0 bg-[color:var(--surface)] px-5 pb-5 pt-4 shadow-none"
+          "rounded-none border-0 bg-content1 px-5 pb-5 pt-4 shadow-none"
       )}
       data-open={open}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="flex size-12 items-center justify-center rounded-[1.4rem] bg-[color:var(--accent)]/12 text-lg font-semibold text-[color:var(--accent)]">
+          <div className="flex size-12 items-center justify-center rounded-[1.4rem] bg-primary/10 text-lg font-semibold text-primary">
             S
           </div>
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-[color:var(--muted)]">
+            <p className="text-xs uppercase tracking-[0.24em] text-foreground-500">
               sing-box panel
             </p>
             <h1 className="text-2xl font-semibold tracking-tight">s-ui</h1>
@@ -97,8 +97,8 @@ export function Sidebar({
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-all duration-200",
                 isActive
-                  ? "bg-[color:var(--accent)]/10 text-[color:var(--accent)]"
-                  : "text-[color:var(--muted)] hover:bg-[color:var(--surface-secondary)] hover:text-[color:var(--foreground)]"
+                  ? "bg-primary/10 text-primary"
+                  : "text-foreground-500 hover:bg-content2 hover:text-foreground"
               )}
             >
               <item.icon className="size-4" />

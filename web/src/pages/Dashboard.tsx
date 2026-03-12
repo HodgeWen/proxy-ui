@@ -73,17 +73,17 @@ export function Dashboard() {
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         {cards.map((card) => (
-          <Card key={card.title} className="border border-[color:var(--border)] bg-[color:var(--surface)]">
+          <Card key={card.title}>
             <Card.Content className="space-y-4 p-5">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-medium text-[color:var(--muted)]">{card.title}</h2>
-                <card.icon className="size-4 text-[color:var(--accent)]" />
+                <h2 className="text-sm font-medium text-foreground-500">{card.title}</h2>
+                <card.icon className="size-4 text-primary" />
               </div>
               <div>
                 <div className={card.smallValue ? "text-xl font-bold" : "text-3xl font-semibold"}>
                   {card.value}
                 </div>
-                <p className="mt-1 text-sm text-[color:var(--muted)]">{card.sub}</p>
+                <p className="mt-1 text-sm text-foreground-500">{card.sub}</p>
               </div>
             </Card.Content>
           </Card>

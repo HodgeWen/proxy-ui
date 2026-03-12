@@ -169,7 +169,6 @@ export function UserFormModal({
                     readOnly
                     value={user.uuid}
                     className="font-mono text-sm"
-                    variant="secondary"
                   />
                   <Button
                     type="button"
@@ -189,7 +188,6 @@ export function UserFormModal({
                     readOnly
                     value={user.password}
                     className="font-mono text-sm"
-                    variant="secondary"
                   />
                   <Button
                     type="button"
@@ -212,10 +210,9 @@ export function UserFormModal({
                 id="name"
                 {...form.register("name")}
                 placeholder="用户名"
-                variant="secondary"
               />
               {form.formState.errors.name && (
-                <p className="text-sm text-[color:var(--danger)]">
+                <p className="text-sm text-danger">
                   {form.formState.errors.name.message}
                 </p>
               )}
@@ -226,7 +223,6 @@ export function UserFormModal({
                 id="remark"
                 {...form.register("remark")}
                 placeholder="可选"
-                variant="secondary"
               />
             </div>
           </div>
@@ -247,7 +243,7 @@ export function UserFormModal({
                 <Popover.Dialog>
                 <div className="max-h-60 overflow-y-auto space-y-2">
                   {inbounds.length === 0 ? (
-                    <p className="text-sm text-[color:var(--muted)] py-2">暂无入站</p>
+                    <p className="text-sm text-foreground-500 py-2">暂无入站</p>
                   ) : (
                     inbounds.map((ib) => (
                       <div
@@ -284,7 +280,6 @@ export function UserFormModal({
                 min={0}
                 {...form.register("traffic_limit")}
                 placeholder="0 表示无限制"
-                variant="secondary"
               />
             </div>
             <div className="space-y-2">
@@ -293,9 +288,8 @@ export function UserFormModal({
                 id="expire_at"
                 type="date"
                 {...form.register("expire_at")}
-                variant="secondary"
               />
-              <p className="text-xs text-[color:var(--muted)]">留空表示永不过期</p>
+              <p className="text-xs text-foreground-500">留空表示永不过期</p>
             </div>
           </div>
 

@@ -7,6 +7,7 @@ import { z } from "zod"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import {
+  Alert,
   Button,
   Input,
   ListBox,
@@ -422,9 +423,9 @@ export function InboundFormModal({
             <Modal.Body>
 
         {checkError && (
-          <div className="rounded-lg bg-[color:var(--danger)]/10 text-[color:var(--danger)] p-3 text-sm">
+          <Alert color="danger">
             <pre className="whitespace-pre-wrap">{checkError}</pre>
-          </div>
+          </Alert>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -462,10 +463,10 @@ export function InboundFormModal({
                   id="tag"
                   {...form.register("tag")}
                   placeholder={protocol === "vless" ? "vless-in-1" : "hy2-in-1"}
-                  variant="secondary"
+                  
                 />
                 {form.formState.errors.tag && (
-                  <p className="text-sm text-[color:var(--danger)]">
+                  <p className="text-sm text-danger">
                     {form.formState.errors.tag.message}
                   </p>
                 )}
@@ -480,7 +481,7 @@ export function InboundFormModal({
                   id="listen"
                   {...form.register("listen")}
                   placeholder="::"
-                  variant="secondary"
+                  
                 />
               </div>
               <div className="space-y-2">
@@ -494,10 +495,10 @@ export function InboundFormModal({
                   type="number"
                   {...form.register("listen_port")}
                   placeholder="443"
-                  variant="secondary"
+                  
                 />
                 {form.formState.errors.listen_port && (
-                  <p className="text-sm text-[color:var(--danger)]">
+                  <p className="text-sm text-danger">
                     {form.formState.errors.listen_port.message}
                   </p>
                 )}
@@ -514,7 +515,7 @@ export function InboundFormModal({
                       type="number"
                       {...form.register("up_mbps")}
                       placeholder="100"
-                      variant="secondary"
+                      
                     />
                   </div>
                   <div className="space-y-2">
@@ -527,7 +528,7 @@ export function InboundFormModal({
                       type="number"
                       {...form.register("down_mbps")}
                       placeholder="100"
-                      variant="secondary"
+                      
                     />
                   </div>
                   <div className="space-y-2 sm:col-span-2">
@@ -540,7 +541,7 @@ export function InboundFormModal({
                       type="password"
                       {...form.register("obfs_password")}
                       placeholder="留空则不使用混淆"
-                      variant="secondary"
+                      
                     />
                   </div>
                 </>
@@ -586,7 +587,7 @@ export function InboundFormModal({
                         id="tls_server_name"
                         {...form.register("tls_server_name")}
                         placeholder="example.com"
-                        variant="secondary"
+                        
                       />
                     </div>
                     <div className="space-y-2">
@@ -643,7 +644,7 @@ export function InboundFormModal({
                             id="tls_certificate_path"
                             {...form.register("tls_certificate_path")}
                             placeholder="/etc/certs/fullchain.pem"
-                            variant="secondary"
+                            
                           />
                         </div>
                         <div className="space-y-2 sm:col-span-2">
@@ -655,7 +656,7 @@ export function InboundFormModal({
                             id="tls_key_path"
                             {...form.register("tls_key_path")}
                             placeholder="/etc/certs/privkey.pem"
-                            variant="secondary"
+                            
                           />
                         </div>
                       </>
@@ -673,7 +674,7 @@ export function InboundFormModal({
                         id="reality_server"
                         {...form.register("reality_server")}
                         placeholder="google.com"
-                        variant="secondary"
+                        
                       />
                     </div>
                     <div className="space-y-2">
@@ -686,7 +687,7 @@ export function InboundFormModal({
                         type="number"
                         {...form.register("reality_server_port")}
                         placeholder="443"
-                        variant="secondary"
+                        
                       />
                     </div>
                     <div className="space-y-2 sm:col-span-2">
@@ -698,7 +699,7 @@ export function InboundFormModal({
                         id="reality_private_key"
                         {...form.register("reality_private_key")}
                         placeholder="Reality 私钥"
-                        variant="secondary"
+                        
                       />
                     </div>
                     <div className="space-y-2">
@@ -710,7 +711,7 @@ export function InboundFormModal({
                         id="reality_short_id"
                         {...form.register("reality_short_id")}
                         placeholder="0123456789abcdef"
-                        variant="secondary"
+                        
                       />
                     </div>
                   </div>
@@ -727,7 +728,7 @@ export function InboundFormModal({
                     id="tls_server_name"
                     {...form.register("tls_server_name")}
                     placeholder="example.com"
-                    variant="secondary"
+                    
                   />
                 </div>
                 <div className="space-y-2">
@@ -784,7 +785,7 @@ export function InboundFormModal({
                         id="tls_certificate_path"
                         {...form.register("tls_certificate_path")}
                         placeholder="/etc/certs/fullchain.pem"
-                        variant="secondary"
+                        
                       />
                     </div>
                     <div className="space-y-2 sm:col-span-2">
@@ -796,7 +797,7 @@ export function InboundFormModal({
                         id="tls_key_path"
                         {...form.register("tls_key_path")}
                         placeholder="/etc/certs/privkey.pem"
-                        variant="secondary"
+                        
                       />
                     </div>
                   </>
@@ -839,7 +840,7 @@ export function InboundFormModal({
                     id="transport_path"
                     {...form.register("transport_path")}
                     placeholder="/vless"
-                    variant="secondary"
+                    
                   />
                 </div>
               )}
@@ -853,7 +854,7 @@ export function InboundFormModal({
                     id="transport_service_name"
                     {...form.register("transport_service_name")}
                     placeholder="TunService"
-                    variant="secondary"
+                    
                   />
                 </div>
               )}
@@ -868,7 +869,7 @@ export function InboundFormModal({
                       id="transport_http_host"
                       {...form.register("transport_http_host")}
                       placeholder=""
-                      variant="secondary"
+                      
                     />
                   </div>
                   <div className="space-y-2">
@@ -880,7 +881,7 @@ export function InboundFormModal({
                       id="transport_http_path"
                       {...form.register("transport_http_path")}
                       placeholder=""
-                      variant="secondary"
+                      
                     />
                   </div>
                 </div>

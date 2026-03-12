@@ -21,7 +21,7 @@ export function CertificateTable({
   onDelete,
 }: CertificateTableProps) {
   return (
-    <Table.Root aria-label="证书列表" className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] shadow-[var(--surface-shadow)]">
+    <Table.Root aria-label="证书列表">
       <Table.ScrollContainer>
         <Table.Content>
       <Table.Header>
@@ -62,7 +62,7 @@ export function CertificateTable({
                     <Dropdown.Menu>
                     <Dropdown.Item
                       onAction={() => onDelete?.(cert.id)}
-                      className="text-[color:var(--danger)]"
+                      className="text-danger"
                     >
                       <Trash2 className="mr-2 inline size-4" />
                       删除

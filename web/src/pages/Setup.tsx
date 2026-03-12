@@ -1,5 +1,6 @@
 import { useState } from "react"
 import {
+  Alert,
   Button,
   Card,
   Description,
@@ -62,14 +63,14 @@ export function Setup() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[color:var(--background)] px-4">
-      <Card className="w-full max-w-md border border-[color:var(--border)] bg-[color:var(--surface)] shadow-[var(--overlay-shadow)]">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      <Card className="w-full max-w-md shadow-large">
         <Card.Header className="px-6 pt-8 sm:px-8">
           <div className="space-y-1">
             <Card.Title className="text-2xl font-semibold">
               创建管理员账户
             </Card.Title>
-            <Card.Description className="text-sm text-[color:var(--muted)]">
+            <Card.Description className="text-sm text-foreground-500">
               首次启动需创建管理员账户，完成后自动进入面板。
             </Card.Description>
           </div>
@@ -89,8 +90,6 @@ export function Setup() {
                 placeholder="输入管理员用户名"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                variant="secondary"
-                className="h-12"
               />
               <Description>长度 3-50 个字符</Description>
             </TextField>
@@ -104,8 +103,6 @@ export function Setup() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  variant="secondary"
-                  className="h-12"
                 />
                 <Description>建议使用高强度密码</Description>
               </TextField>
@@ -118,17 +115,13 @@ export function Setup() {
                   type="password"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
-                  variant="secondary"
-                  className="h-12"
                 />
                 <Description>需与上方密码一致</Description>
               </TextField>
             </div>
 
             {error && (
-              <div className="rounded-xl border border-[color:var(--danger)]/30 bg-[color:var(--danger)]/10 px-4 py-3 text-sm text-[color:var(--danger)]">
-                {error}
-              </div>
+              <Alert color="danger">{error}</Alert>
             )}
 
             <div className="space-y-3">
@@ -137,12 +130,12 @@ export function Setup() {
                 isDisabled={loading}
                 type="submit"
                 variant="primary"
-                className="h-12 text-base font-semibold shadow-[var(--surface-shadow)]"
+                size="lg"
               >
                 {loading ? "设置中..." : "完成设置"}
               </Button>
 
-              <p className="text-center text-sm text-[color:var(--muted)]">
+              <p className="text-center text-sm text-foreground-500">
                 提交成功后自动登录当前浏览器
               </p>
             </div>
