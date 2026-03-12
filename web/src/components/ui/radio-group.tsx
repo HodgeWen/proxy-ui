@@ -1,44 +1,37 @@
-"use client"
-
 import * as React from "react"
-import * as RadioGroupPrimitive from "@radix-ui/react-radio-group"
-import { Circle } from "lucide-react"
-
+import { Radio as HeroRadio, RadioGroup as HeroRadioGroup } from "@heroui/react"
 import { cn } from "@/lib/utils"
 
-const RadioGroup = React.forwardRef<
-  React.ElementRef<typeof RadioGroupPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof RadioGroupPrimitive.Root>
->(({ className, ...props }, ref) => {
+export type RadioGroupProps = Omit<
+  React.ComponentPropsWithoutRef<typeof HeroRadioGroup>,
+  "onChange"
+> & {
+  onValueChange?: (value: string) => void
+}
+export type RadioGroupItemProps = React.ComponentPropsWithoutRef<typeof HeroRadio>
+
+export function RadioGroup({
+  className,
+  onValueChange,
+  ...props
+}: RadioGroupProps) {
   return (
-    <RadioGroupPrimitive.Root
-      className={cn("grid gap-2", className)}
+    <HeroRadioGroup
       {...props}
-      ref={ref}
+      className={cn("gap-3", className)}
+      onChange={onValueChange as never}
     />
   )
-})
-RadioGroup.displayName = RadioGroupPrimitive.Root.displayName
+}
 
-const RadioGroupItem = React.forwardRef<
-  React.ElementRef<typeof RadioGroupPrimitive.Item>,
-  React.ComponentPropsWithoutRef<typeof RadioGroupPrimitive.Item>
->(({ className, ...props }, ref) => {
+export function RadioGroupItem({
+  className,
+  children,
+  ...props
+}: RadioGroupItemProps) {
   return (
-    <RadioGroupPrimitive.Item
-      ref={ref}
-      className={cn(
-        "border-primary text-primary focus:ring-ring aspect-square size-4 rounded-full border shadow-xs focus:outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50",
-        className
-      )}
-      {...props}
-    >
-      <RadioGroupPrimitive.Indicator className="flex items-center justify-center">
-        <Circle className="size-2.5 fill-current" />
-      </RadioGroupPrimitive.Indicator>
-    </RadioGroupPrimitive.Item>
+    <HeroRadio {...props} className={cn("mr-2", className)}>
+      {children}
+    </HeroRadio>
   )
-})
-RadioGroupItem.displayName = RadioGroupPrimitive.Item.displayName
-
-export { RadioGroup, RadioGroupItem }
+}

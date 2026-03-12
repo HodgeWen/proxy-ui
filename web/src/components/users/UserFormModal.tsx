@@ -71,7 +71,7 @@ export function UserFormModal({
 }: UserFormModalProps) {
   const queryClient = useQueryClient()
   const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
+    resolver: zodResolver(schema) as never,
     mode: "onBlur",
     defaultValues: {
       name: "",

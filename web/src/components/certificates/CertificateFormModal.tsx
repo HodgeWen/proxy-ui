@@ -92,7 +92,6 @@ export function CertificateFormModal({
   })
 
   useEffect(() => {
-    setCheckError(null)
     if (certificate) {
       form.reset({
         name: certificate.name,

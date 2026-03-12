@@ -110,7 +110,14 @@ export function Traffic() {
       sub: null,
       loading: inboundsLoading,
     },
-  ] as const
+  ] satisfies Array<{
+    title: string
+    icon: typeof Radio
+    value: string
+    sub: string | null
+    loading: boolean
+    smallValue?: boolean
+  }>
 
   return (
     <div className="p-6 space-y-6">

@@ -56,7 +56,13 @@ export function Dashboard() {
       sub: `↓ ${formatBytes(downlinkBytes.value)}`,
       smallValue: true,
     },
-  ] as const
+  ] satisfies Array<{
+    title: string
+    icon: typeof Radio
+    value: string
+    sub: string | null
+    smallValue?: boolean
+  }>
 
   return (
     <div className="p-6 space-y-6">

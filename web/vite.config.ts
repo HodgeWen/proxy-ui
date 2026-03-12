@@ -18,6 +18,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      'sonner': path.resolve(__dirname, './src/shims/sonner.ts'),
     },
   },
 })

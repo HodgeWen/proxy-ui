@@ -1,6 +1,6 @@
 # 前端重构 — 基础设施迁移
 
-> 状态: 未执行
+> 状态: 已执行
 
 ## 目标
 
@@ -77,5 +77,43 @@ badge, button, card, checkbox, dialog, dropdown-menu, input, label, popover, pro
 - 布局和主题切换正常工作
 
 ## 影响范围
+
+- `web/package.json`
+- `web/eslint.config.js`
+- `web/vite.config.ts`
+- `web/tsconfig.app.json`
+- `web/tsconfig.json`
+- `web/src/index.css`
+- `web/src/main.tsx`
+- `web/src/shims/sonner.ts`
+- `web/src/components/theme-provider.tsx`
+- `web/src/components/layout/AppLayout.tsx`
+- `web/src/components/layout/Sidebar.tsx`
+- `web/src/components/ui/badge.tsx`
+- `web/src/components/ui/button.tsx`
+- `web/src/components/ui/card.tsx`
+- `web/src/components/ui/checkbox.tsx`
+- `web/src/components/ui/dialog.tsx`
+- `web/src/components/ui/dropdown-menu.tsx`
+- `web/src/components/ui/input.tsx`
+- `web/src/components/ui/label.tsx`
+- `web/src/components/ui/popover.tsx`
+- `web/src/components/ui/progress.tsx`
+- `web/src/components/ui/radio-group.tsx`
+- `web/src/components/ui/select.tsx`
+- `web/src/components/ui/separator.tsx`
+- `web/src/components/ui/skeleton.tsx`
+- `web/src/components/ui/sheet.tsx`
+- `web/src/components/ui/sidebar.tsx`
+- `web/src/components/ui/sonner.tsx`
+- `web/src/components/ui/spotlight-card.tsx`
+- `web/src/components/ui/table.tsx`
+- `web/src/components/ui/tabs.tsx`
+- `web/src/components/ui/tooltip.tsx`
+- `web/src/components/certificates/CertificateFormModal.tsx`
+- `web/src/components/inbounds/InboundFormModal.tsx`
+- `web/src/components/users/UserFormModal.tsx`
+- `web/src/pages/Dashboard.tsx`
+- `web/src/pages/Traffic.tsx`
 
 ## 历史补丁

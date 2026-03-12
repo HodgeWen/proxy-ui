@@ -26,22 +26,22 @@ docker compose up --build
 
 ## 技术栈
 
-| 层 | 技术 | 版本 |
-|---|------|------|
-| 前端框架 | React | 19 |
-| 语言 | TypeScript | 5.9 |
-| 构建 | Vite | 7 |
-| 样式 | Tailwind CSS | 4 |
-| UI 库 | shadcn/ui (new-york, neutral, lucide) | — |
-| 表单 | react-hook-form + zod + @hookform/resolvers | — |
-| 数据请求 | @tanstack/react-query | 5 |
-| 路由 | react-router-dom | 7 |
-| 包管理 | bun | — |
-| 后端 | Go | 1.25 |
-| HTTP 路由 | chi/v5 | — |
-| ORM | GORM + SQLite | — |
-| 会话 | scs/v2 | — |
-| 协议 | gRPC + protobuf | — |
+| 层        | 技术                                        | 版本 |
+| --------- | ------------------------------------------- | ---- |
+| 前端框架  | React                                       | 19   |
+| 语言      | TypeScript                                  | 5.9  |
+| 构建      | Vite                                        | 7    |
+| 样式      | Tailwind CSS                                | 4    |
+| UI 库     | shadcn/ui (new-york, neutral, lucide)       | —    |
+| 表单      | react-hook-form + zod + @hookform/resolvers | —    |
+| 数据请求  | @tanstack/react-query                       | 5    |
+| 路由      | react-router-dom                            | 7    |
+| 包管理    | bun                                         | —    |
+| 后端      | Go                                          | 1.25 |
+| HTTP 路由 | chi/v5                                      | —    |
+| ORM       | GORM + SQLite                               | —    |
+| 会话      | scs/v2                                      | —    |
+| 协议      | gRPC + protobuf                             | —    |
 
 ## 目录结构
 
@@ -88,8 +88,7 @@ docker compose up --build
 - **状态管理**：服务端状态用 React Query；本地 UI 状态用 `useState`。
 - **表单**：react-hook-form + zod schema 验证。
 - **新增 UI 组件**：优先通过 `bunx shadcn@latest add <component>` 添加。`components/ui/` 下的文件由 shadcn 生成，避免手动修改。
-- **Lint**：ESLint flat config，无 Prettier。提交前执行 `bun run lint`。
-- **测试**：暂未配置。
+- **测试**：不需要。
 
 ### 后端 (Go)
 

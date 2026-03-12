@@ -1,55 +1,90 @@
 import * as React from "react"
-import { Tooltip as TooltipPrimitive } from "radix-ui"
-
 import { cn } from "@/lib/utils"
 
-function TooltipProvider({
-  delayDuration = 0,
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Provider>) {
+type TooltipContextValue = {
+  open: boolean
+  setOpen: (open: boolean) => void
+}
+
+const TooltipContext = React.createContext<TooltipContextValue | null>(null)
+
+function useTooltipContext() {
+  const context = React.useContext(TooltipContext)
+  if (!context) {
+    throw new Error("Tooltip components must be used within Tooltip")
+  }
+  return context
+}
+
+export function TooltipProvider({ children }: { children: React.ReactNode }) {
+  return <>{children}</>
+}
+
+export function Tooltip({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = React.useState(false)
+
   return (
-    <TooltipPrimitive.Provider
-      data-slot="tooltip-provider"
-      delayDuration={delayDuration}
-      {...props}
-    />
+    <TooltipContext.Provider value={{ open, setOpen }}>
+      <div className="relative inline-flex">{children}</div>
+    </TooltipContext.Provider>
   )
 }
 
-function Tooltip({
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Root>) {
-  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
-}
-
-function TooltipTrigger({
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
-}
-
-function TooltipContent({
-  className,
-  sideOffset = 0,
+export function TooltipTrigger({
+  asChild,
   children,
-  ...props
-}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
-  return (
-    <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Content
-        data-slot="tooltip-content"
-        sideOffset={sideOffset}
-        className={cn(
-          "bg-foreground text-background animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 w-fit origin-(--radix-tooltip-content-transform-origin) rounded-md px-3 py-1.5 text-xs text-balance",
-          className
-        )}
-        {...props}
-      >
-        {children}
-        <TooltipPrimitive.Arrow className="bg-foreground fill-foreground z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-[2px]" />
-      </TooltipPrimitive.Content>
-    </TooltipPrimitive.Portal>
-  )
+}: {
+  asChild?: boolean
+  children: React.ReactElement
+}) {
+  const { setOpen } = useTooltipContext()
+  const child = children as React.ReactElement<{
+    onMouseEnter?: (event: React.MouseEvent<HTMLElement>) => void
+    onMouseLeave?: (event: React.MouseEvent<HTMLElement>) => void
+    onFocus?: (event: React.FocusEvent<HTMLElement>) => void
+    onBlur?: (event: React.FocusEvent<HTMLElement>) => void
+  }>
+
+  if (asChild && React.isValidElement(children)) {
+    return React.cloneElement(child, {
+      onMouseEnter: (event: React.MouseEvent<HTMLElement>) => {
+        child.props.onMouseEnter?.(event)
+        setOpen(true)
+      },
+      onMouseLeave: (event: React.MouseEvent<HTMLElement>) => {
+        child.props.onMouseLeave?.(event)
+        setOpen(false)
+      },
+      onFocus: (event: React.FocusEvent<HTMLElement>) => {
+        child.props.onFocus?.(event)
+        setOpen(true)
+      },
+      onBlur: (event: React.FocusEvent<HTMLElement>) => {
+        child.props.onBlur?.(event)
+        setOpen(false)
+      },
+    })
+  }
+
+  return children
 }
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider }
+export function TooltipContent({
+  className,
+  children,
+}: React.HTMLAttributes<HTMLDivElement>) {
+  const { open } = useTooltipContext()
+
+  if (!open) return null
+
+  return (
+    <div
+      className={cn(
+        "absolute bottom-full left-1/2 z-50 mb-2 -translate-x-1/2 whitespace-nowrap rounded-xl bg-[color:var(--overlay)] px-3 py-1.5 text-xs text-[color:var(--overlay-foreground)] shadow-[var(--overlay-shadow)]",
+        className
+      )}
+    >
+      {children}
+    </div>
+  )
+}

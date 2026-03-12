@@ -1,94 +1,165 @@
-"use client"
-
 import * as React from "react"
-import * as SelectPrimitive from "@radix-ui/react-select"
-import { Check, ChevronDown, ChevronUp } from "lucide-react"
-
+import { ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-const Select = SelectPrimitive.Root
+type SelectItemData = {
+  value: string
+  label: string
+}
 
-const SelectGroup = SelectPrimitive.Group
+type SelectContextValue = {
+  value: string
+  setValue: (value: string) => void
+  options: SelectItemData[]
+  placeholder?: string
+  disabled?: boolean
+}
 
-const SelectValue = SelectPrimitive.Value
+const SelectContext = React.createContext<SelectContextValue | null>(null)
 
-const SelectTrigger = React.forwardRef<
-  React.ElementRef<typeof SelectPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Trigger>
->(({ className, children, ...props }, ref) => (
-  <SelectPrimitive.Trigger
-    ref={ref}
-    className={cn(
-      "border-input bg-background placeholder:text-muted-foreground focus:ring-ring flex h-9 w-full items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
-      className
-    )}
-    {...props}
-  >
-    {children}
-    <SelectPrimitive.Icon asChild>
-      <ChevronDown className="size-4 opacity-50" />
-    </SelectPrimitive.Icon>
-  </SelectPrimitive.Trigger>
-))
-SelectTrigger.displayName = SelectPrimitive.Trigger.displayName
+function useSelectContext() {
+  const context = React.useContext(SelectContext)
+  if (!context) {
+    throw new Error("Select components must be used within Select")
+  }
+  return context
+}
 
-const SelectContent = React.forwardRef<
-  React.ElementRef<typeof SelectPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = "popper", ...props }, ref) => (
-  <SelectPrimitive.Portal>
-    <SelectPrimitive.Content
-      ref={ref}
-      className={cn(
-        "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 relative z-50 max-h-96 min-w-[8rem] overflow-hidden rounded-md border shadow-md",
-        position === "popper" &&
-          "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
-        className
-      )}
-      position={position}
-      {...props}
+function extractText(node: React.ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") {
+    return String(node)
+  }
+  if (Array.isArray(node)) {
+    return node.map(extractText).join("")
+  }
+  if (React.isValidElement(node)) {
+    return extractText((node.props as { children?: React.ReactNode }).children)
+  }
+  return ""
+}
+
+function collectFromChildren(children: React.ReactNode): {
+  options: SelectItemData[]
+  placeholder?: string
+} {
+  const options: SelectItemData[] = []
+  let placeholder: string | undefined
+
+  const walk = (node: React.ReactNode) => {
+    React.Children.forEach(node, (child) => {
+      if (!React.isValidElement(child)) return
+      const props = child.props as {
+        value?: string
+        placeholder?: string
+        children?: React.ReactNode
+      }
+
+      if (child.type === SelectItem) {
+        options.push({
+          value: String(props.value),
+          label: extractText(props.children),
+        })
+      }
+
+      if (child.type === SelectValue && props.placeholder) {
+        placeholder = props.placeholder
+      }
+
+      if (props.children) {
+        walk(props.children)
+      }
+    })
+  }
+
+  walk(children)
+
+  return { options, placeholder }
+}
+
+export function Select({
+  value,
+  defaultValue,
+  onValueChange,
+  disabled,
+  children,
+}: {
+  value?: string
+  defaultValue?: string
+  onValueChange?: (value: string) => void
+  disabled?: boolean
+  children: React.ReactNode
+}) {
+  const [internalValue, setInternalValue] = React.useState(defaultValue ?? "")
+  const currentValue = value ?? internalValue
+  const { options, placeholder } = React.useMemo(
+    () => collectFromChildren(children),
+    [children]
+  )
+
+  const setValue = React.useCallback(
+    (nextValue: string) => {
+      if (value === undefined) {
+        setInternalValue(nextValue)
+      }
+      onValueChange?.(nextValue)
+    },
+    [onValueChange, value]
+  )
+
+  return (
+    <SelectContext.Provider
+      value={{
+        value: currentValue,
+        setValue,
+        options,
+        placeholder,
+        disabled,
+      }}
     >
-      <SelectPrimitive.Viewport
-        className={cn(
-          "p-1",
-          position === "popper" &&
-            "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]"
-        )}
+      {children}
+    </SelectContext.Provider>
+  )
+}
+
+export function SelectTrigger({
+  className,
+  children,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  const { value, setValue, options, placeholder, disabled } = useSelectContext()
+
+  return (
+    <div className={cn("relative", className)} {...props}>
+      <select
+        className="h-10 w-full appearance-none rounded-[calc(var(--field-radius))] border border-[color:var(--field-border)] bg-[color:var(--field-background)] px-3 pr-10 text-sm text-[color:var(--field-foreground)] shadow-[var(--field-shadow)] outline-none transition-colors"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => setValue(event.target.value)}
       >
-        {children}
-      </SelectPrimitive.Viewport>
-    </SelectPrimitive.Content>
-  </SelectPrimitive.Portal>
-))
-SelectContent.displayName = SelectPrimitive.Content.displayName
+        {placeholder && <option value="">{placeholder}</option>}
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[color:var(--muted)]" />
+      {children}
+    </div>
+  )
+}
 
-const SelectItem = React.forwardRef<
-  React.ElementRef<typeof SelectPrimitive.Item>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
->(({ className, children, ...props }, ref) => (
-  <SelectPrimitive.Item
-    ref={ref}
-    className={cn(
-      "focus:bg-accent focus:text-accent-foreground relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-8 text-sm outline-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-      className
-    )}
-    {...props}
-  >
-    <span className="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">
-      <SelectPrimitive.ItemIndicator>
-        <Check className="size-4" />
-      </SelectPrimitive.ItemIndicator>
-    </span>
-    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
-  </SelectPrimitive.Item>
-))
-SelectItem.displayName = SelectPrimitive.Item.displayName
+export function SelectValue(_valueProps: { placeholder?: string }) {
+  return null
+}
 
-export {
-  Select,
-  SelectGroup,
-  SelectValue,
-  SelectTrigger,
-  SelectContent,
-  SelectItem,
+export function SelectContent({ children }: { children: React.ReactNode }) {
+  return <>{children}</>
+}
+
+export function SelectItem(_itemProps: {
+  value: string
+  children: React.ReactNode
+}) {
+  return null
 }

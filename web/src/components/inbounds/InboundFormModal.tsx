@@ -289,7 +289,7 @@ export function InboundFormModal({
   const [checkError, setCheckError] = useState<string | null>(null)
 
   const vlessForm = useForm<VLESSFormValues>({
-    resolver: zodResolver(vlessSchema),
+    resolver: zodResolver(vlessSchema) as never,
     mode: "onBlur",
     defaultValues: {
       tag: "vless-in-1",
@@ -308,7 +308,7 @@ export function InboundFormModal({
   })
 
   const hy2Form = useForm<Hysteria2FormValues>({
-    resolver: zodResolver(hysteria2Schema),
+    resolver: zodResolver(hysteria2Schema) as never,
     mode: "onBlur",
     defaultValues: {
       tag: "hy2-in-1",
@@ -325,7 +325,7 @@ export function InboundFormModal({
     },
   })
 
-  const form = protocol === "vless" ? vlessForm : hy2Form
+  const form = (protocol === "vless" ? vlessForm : hy2Form) as typeof vlessForm & typeof hy2Form
 
   const showCertSelector =
     protocol === "hysteria2" ||
@@ -822,7 +822,7 @@ export function InboundFormModal({
               <h3 className="text-sm font-semibold">传输</h3>
               <RadioGroup
                 value={form.watch("transport_type")}
-                onValueChange={(v) =>
+                onValueChange={(v: string) =>
                   form.setValue("transport_type", v as "tcp" | "ws" | "grpc" | "http")
                 }
                 className="flex flex-wrap gap-4"

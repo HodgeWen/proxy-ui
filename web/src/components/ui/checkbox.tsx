@@ -1,30 +1,72 @@
 import * as React from "react"
-import { CheckIcon } from "lucide-react"
-import { Checkbox as CheckboxPrimitive } from "radix-ui"
-
+import { Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-function Checkbox({
-  className,
-  ...props
-}: React.ComponentProps<typeof CheckboxPrimitive.Root>) {
-  return (
-    <CheckboxPrimitive.Root
-      data-slot="checkbox"
-      className={cn(
-        "peer border-input dark:bg-input/30 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground dark:data-[state=checked]:bg-primary data-[state=checked]:border-primary focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive size-4 shrink-0 rounded-[4px] border shadow-xs transition-shadow outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50",
-        className
-      )}
-      {...props}
-    >
-      <CheckboxPrimitive.Indicator
-        data-slot="checkbox-indicator"
-        className="grid place-content-center text-current transition-none"
-      >
-        <CheckIcon className="size-3.5" />
-      </CheckboxPrimitive.Indicator>
-    </CheckboxPrimitive.Root>
-  )
+export type CheckedState = boolean | "indeterminate"
+
+export type CheckboxProps = Omit<
+  React.InputHTMLAttributes<HTMLInputElement>,
+  "checked" | "defaultChecked" | "onChange"
+> & {
+  checked?: CheckedState
+  defaultChecked?: CheckedState
+  onCheckedChange?: (checked: CheckedState) => void
 }
 
-export { Checkbox }
+export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
+  (
+    {
+      checked,
+      defaultChecked,
+      onCheckedChange,
+      className,
+      children,
+      disabled,
+      ...props
+    },
+    ref
+  ) => {
+    const innerRef = React.useRef<HTMLInputElement | null>(null)
+
+    React.useImperativeHandle(ref, () => innerRef.current as HTMLInputElement)
+
+    React.useEffect(() => {
+      if (!innerRef.current) return
+      innerRef.current.indeterminate = checked === "indeterminate"
+    }, [checked])
+
+    return (
+      <label
+        className={cn(
+          "inline-flex items-center gap-2 text-sm text-[color:var(--foreground)]",
+          disabled && "cursor-not-allowed opacity-50",
+          className
+        )}
+      >
+        <span className="relative inline-flex size-4 items-center justify-center overflow-hidden rounded-[4px] border border-[color:var(--field-border)] bg-[color:var(--field-background)]">
+          <input
+            {...props}
+            ref={innerRef}
+            type="checkbox"
+            disabled={disabled}
+            checked={checked === "indeterminate" ? false : checked}
+            defaultChecked={defaultChecked === true}
+            className="peer absolute inset-0 opacity-0"
+            onChange={(event) => onCheckedChange?.(event.target.checked)}
+          />
+          <span className="absolute inset-0 hidden items-center justify-center bg-[color:var(--accent)] text-[color:var(--accent-foreground)] peer-checked:flex">
+            <Check className="size-3" />
+          </span>
+          {checked === "indeterminate" && (
+            <span className="absolute inset-0 flex items-center justify-center bg-[color:var(--accent)] text-[color:var(--accent-foreground)]">
+              <span className="h-0.5 w-2 rounded-full bg-current" />
+            </span>
+          )}
+        </span>
+        {children ? <span>{children}</span> : null}
+      </label>
+    )
+  }
+)
+
+Checkbox.displayName = "Checkbox"
