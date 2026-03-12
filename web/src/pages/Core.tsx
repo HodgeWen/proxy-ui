@@ -1,24 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Play, Square, RefreshCw, Loader2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Badge } from "@/components/ui/badge"
-import { SpotlightCard } from "@/components/ui/spotlight-card"
+import { Activity, Loader2, Play, RefreshCw, Square } from "lucide-react"
+import { Button, Card, Chip, Modal } from "@heroui/react"
 import { useState } from "react"
 import { useCoreUpdateStream } from "@/hooks/use-core-update-stream"
 import {
@@ -27,6 +10,7 @@ import {
   getStateMeta,
   normalizeCoreState,
 } from "@/lib/core-status"
+import { PageHero } from "@/components/layout/PageHero"
 
 type CoreLastError = {
   message: string
@@ -289,8 +273,8 @@ export function Core() {
           <Button
             key={action}
             size="sm"
-            onClick={() => startMutation.mutate()}
-            disabled={startMutation.isPending}
+            onPress={() => startMutation.mutate()}
+            isDisabled={startMutation.isPending}
           >
             {startMutation.isPending ? (
               <>
@@ -310,8 +294,8 @@ export function Core() {
           <Button
             key={action}
             size="sm"
-            onClick={() => retryStartMutation.mutate()}
-            disabled={retryStartMutation.isPending}
+            onPress={() => retryStartMutation.mutate()}
+            isDisabled={retryStartMutation.isPending}
           >
             {retryStartMutation.isPending ? (
               <>
@@ -332,8 +316,8 @@ export function Core() {
             key={action}
             size="sm"
             variant="secondary"
-            onClick={() => stopMutation.mutate()}
-            disabled={stopMutation.isPending}
+            onPress={() => stopMutation.mutate()}
+            isDisabled={stopMutation.isPending}
           >
             {stopMutation.isPending ? (
               <>
@@ -353,8 +337,8 @@ export function Core() {
           <Button
             key={action}
             size="sm"
-            onClick={() => restartMutation.mutate()}
-            disabled={restartMutation.isPending}
+            onPress={() => restartMutation.mutate()}
+            isDisabled={restartMutation.isPending}
           >
             {restartMutation.isPending ? (
               <>
@@ -371,14 +355,14 @@ export function Core() {
         )
       case "install":
         return (
-          <Button key={action} size="sm" asChild>
-            <a
-              href="https://github.com/SagerNet/sing-box/releases"
-              target="_blank"
-              rel="noreferrer"
-            >
-              下载并安装 sing-box
-            </a>
+          <Button
+            key={action}
+            size="sm"
+            onPress={() =>
+              window.open("https://github.com/SagerNet/sing-box/releases", "_blank", "noopener,noreferrer")
+            }
+          >
+            下载并安装 sing-box
           </Button>
         )
       case "view_logs":
@@ -387,7 +371,7 @@ export function Core() {
             key={action}
             size="sm"
             variant="outline"
-            onClick={() => {
+            onPress={() => {
               setLogsOpen(true)
               setLogsError("")
               setLogsData(null)
@@ -496,27 +480,47 @@ export function Core() {
   const updatePercent = updateStream.isUpdating ? updateStream.percent : 0
   const updateActionDisabled = updateMutation.isPending || updateStream.isUpdating
 
+  const stateChipClassName =
+    status?.state === "error"
+      ? "border-[color:var(--danger)]/30 bg-[color:var(--danger)]/10 text-[color:var(--danger)]"
+      : status?.state === "running"
+        ? "border-[color:var(--success)]/30 bg-[color:var(--success)]/12 text-[color:var(--success)]"
+        : "border-[color:var(--border)] bg-[color:var(--surface-secondary)] text-[color:var(--muted)]"
+
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold">核心管理</h1>
+      <PageHero
+        title="sing-box 生命周期控制"
+        description="将状态、版本、更新和日志入口放到同一层级处理，首屏先判断核心是否稳定，再执行启动、回滚或升级操作。"
+        metrics={[
+          { label: "当前状态", value: stateMeta?.label || "未知" },
+          { label: "当前版本", value: status?.version || "未安装" },
+          { label: "最新版本", value: latestVersion || "—" },
+        ]}
+        actions={
+          <Chip variant="secondary" className={stateChipClassName}>
+            <span className="flex items-center gap-2">
+              <Activity className="size-3.5" />
+              {stateMeta?.description || "等待状态数据"}
+            </span>
+          </Chip>
+        }
+      />
 
-      {/* Status & Version */}
-      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none">
-      <SpotlightCard>
-      <Card>
-        <CardHeader>
+      <Card className="border border-[color:var(--border)] bg-[color:var(--surface)]/90 shadow-[var(--surface-shadow)] backdrop-blur-xl">
+        <Card.Header>
           <div className="flex items-center gap-2">
-            <CardTitle>sing-box 状态</CardTitle>
+            <Card.Title>sing-box 状态</Card.Title>
             {updateAvailable && (
-              <Badge variant="secondary" className="text-xs">
+              <Chip variant="secondary" className="border-[color:var(--border)] bg-[color:var(--surface-secondary)] text-xs">
                 有新版本
-              </Badge>
+              </Chip>
             )}
           </div>
-        </CardHeader>
-        <CardContent>
+        </Card.Header>
+        <Card.Content>
           {isLoading ? (
-            <div className="h-16 flex items-center text-muted-foreground">
+            <div className="h-16 flex items-center text-[color:var(--muted)]">
               加载中...
             </div>
           ) : status ? (
@@ -524,14 +528,14 @@ export function Core() {
               <div className="flex items-center gap-2">
                 <span
                   className={`inline-block size-2.5 rounded-full ${
-                    stateMeta?.dotClassName ?? "bg-muted-foreground"
+                    stateMeta?.dotClassName ?? "bg-[color:var(--muted)]"
                   }`}
                 />
                 <span className="text-lg font-medium">
                   {stateMeta?.label || "状态未知"}
                 </span>
               </div>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-[color:var(--muted)]">
                 {stateMeta?.description || "当前状态暂不可用。"}
               </p>
               {status.state === "running" && (
@@ -545,7 +549,7 @@ export function Core() {
                   <p className="font-medium text-amber-700 dark:text-amber-300">
                     检测到核心未安装，请先下载并安装 sing-box 二进制。
                   </p>
-                  <p className="text-muted-foreground">
+                  <p className="text-[color:var(--muted)]">
                     建议安装到当前路径：<span className="font-mono break-all">{status.binaryPath}</span>
                   </p>
                 </div>
@@ -556,49 +560,53 @@ export function Core() {
                     最近一次启动异常，可重试启动或查看日志定位问题。
                   </p>
                   {status.lastError?.message && (
-                    <p className="text-muted-foreground break-all">
+                    <p className="text-[color:var(--muted)] break-all">
                       错误信息：{status.lastError.message}
                     </p>
                   )}
                 </div>
               )}
               {showUpdateProgress && (
-                <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                <div className="space-y-2 rounded-lg border bg-[color:var(--default)]/20 p-3">
                   <p className="text-sm font-medium">更新中 {updatePercent}%</p>
-                  <Progress value={updatePercent} />
+                  <progress
+                    max={100}
+                    value={updatePercent}
+                    className="h-2 w-full overflow-hidden rounded-full [appearance:none] [&::-moz-progress-bar]:rounded-full [&::-moz-progress-bar]:bg-[color:var(--accent)] [&::-webkit-progress-bar]:bg-[color:var(--surface-secondary)] [&::-webkit-progress-value]:rounded-full [&::-webkit-progress-value]:bg-[color:var(--accent)]"
+                  />
                 </div>
               )}
               <div className="grid gap-2 sm:grid-cols-2 text-sm">
                 {status.version && (
                   <div>
-                    <span className="text-muted-foreground">当前版本：</span>
+                    <span className="text-[color:var(--muted)]">当前版本：</span>
                     <span className="font-mono">{status.version}</span>
                   </div>
                 )}
                 {latestVersion && (
                   <div>
-                    <span className="text-muted-foreground">最新版本：</span>
+                    <span className="text-[color:var(--muted)]">最新版本：</span>
                     <span className="font-mono">{latestVersion}</span>
                   </div>
                 )}
                 {status.binaryPath && (
                   <div>
-                    <span className="text-muted-foreground">二进制路径：</span>
+                    <span className="text-[color:var(--muted)]">二进制路径：</span>
                     <span className="font-mono text-xs break-all">{status.binaryPath}</span>
                   </div>
                 )}
                 {status.configPath && (
                   <div>
-                    <span className="text-muted-foreground">配置路径：</span>
+                    <span className="text-[color:var(--muted)]">配置路径：</span>
                     <span className="font-mono text-xs break-all">{status.configPath}</span>
                   </div>
                 )}
               </div>
-              <Button
-                variant="link"
-                size="sm"
-                className="h-auto p-0 text-muted-foreground"
-                onClick={() => setVersionsListOpen(true)}
+<Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto p-0 text-[color:var(--muted)]"
+                onPress={() => setVersionsListOpen(true)}
               >
                 查看所有版本
               </Button>
@@ -607,8 +615,8 @@ export function Core() {
                 <Button
                   size="sm"
                   variant="secondary"
-                  onClick={() => setUpdateConfirmOpen(true)}
-                  disabled={updateActionDisabled}
+                  onPress={() => setUpdateConfirmOpen(true)}
+                  isDisabled={updateActionDisabled}
                 >
                   {updateMutation.isPending ? (
                     <>
@@ -624,8 +632,8 @@ export function Core() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => setRollbackConfirmOpen(true)}
-                  disabled={rollbackMutation.isPending}
+                  onPress={() => setRollbackConfirmOpen(true)}
+                  isDisabled={rollbackMutation.isPending}
                 >
                   {rollbackMutation.isPending ? (
                     <>
@@ -639,154 +647,168 @@ export function Core() {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">无法获取状态</p>
+            <p className="text-sm text-[color:var(--muted)]">无法获取状态</p>
           )}
-        </CardContent>
+        </Card.Content>
       </Card>
-      </SpotlightCard>
-      </div>
 
-      {/* Config File Viewer */}
-      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none" style={{ animationDelay: '75ms' }}>
       <Card>
-        <CardHeader>
-          <CardTitle>sing-box 配置文件</CardTitle>
-          <CardDescription>当前生成的 sing-box 配置（只读）</CardDescription>
-        </CardHeader>
-        <CardContent>
+        <Card.Header>
+          <Card.Title>sing-box 配置文件</Card.Title>
+          <Card.Description>当前生成的 sing-box 配置（只读）</Card.Description>
+        </Card.Header>
+        <Card.Content>
           {configLoading ? (
-            <div className="text-muted-foreground text-sm">加载中...</div>
+            <div className="text-[color:var(--muted)] text-sm">加载中...</div>
           ) : configContent ? (
-            <pre className="bg-muted rounded-lg p-4 text-sm font-mono overflow-auto max-h-[60vh] whitespace-pre-wrap">
+            <pre className="bg-[color:var(--surface-secondary)] rounded-lg p-4 text-sm font-mono overflow-auto max-h-[60vh] whitespace-pre-wrap">
               {configContent}
             </pre>
           ) : (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-[color:var(--muted)]">
               暂无配置文件 — 添加入站后自动生成
             </p>
           )}
-        </CardContent>
+        </Card.Content>
       </Card>
-      </div>
 
-      {/* Update Confirm Dialog */}
-      <Dialog open={updateConfirmOpen} onOpenChange={setUpdateConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>确认更新</DialogTitle>
-            <DialogDescription>
+      <Modal.Root isOpen={updateConfirmOpen} onOpenChange={setUpdateConfirmOpen}>
+        <Modal.Backdrop>
+          <Modal.Container>
+            <Modal.Dialog>
+              <Modal.Header>
+                <Modal.Heading>确认更新</Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                <p className="text-sm text-[color:var(--muted)]">
               确定要将 sing-box 更新到最新版本吗？更新过程中服务将短暂停止。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2 mt-4">
-            <Button
-              variant="outline"
-              onClick={() => setUpdateConfirmOpen(false)}
-              disabled={updateMutation.isPending}
-            >
-              取消
-            </Button>
-            <Button
-              onClick={() => updateMutation.mutate()}
-              disabled={updateActionDisabled}
-            >
-              {updateMutation.isPending ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" />
-                  更新中...
-                </>
-              ) : updateStream.isUpdating ? (
-                "更新中..."
-              ) : (
-                "确定"
-              )}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Rollback Confirm Dialog */}
-      <Dialog open={rollbackConfirmOpen} onOpenChange={setRollbackConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>确认回滚</DialogTitle>
-            <DialogDescription>确定要回滚到上一版本吗？</DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-end gap-2 mt-4">
-            <Button
-              variant="outline"
-              onClick={() => setRollbackConfirmOpen(false)}
-              disabled={rollbackMutation.isPending}
-            >
-              取消
-            </Button>
-            <Button
-              onClick={() => rollbackMutation.mutate()}
-              disabled={rollbackMutation.isPending}
-            >
-              {rollbackMutation.isPending ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" />
-                  回滚中...
-                </>
-              ) : (
-                "确定"
-              )}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Versions List Dialog */}
-      <Dialog open={versionsListOpen} onOpenChange={setVersionsListOpen}>
-        <DialogContent className="max-w-md max-h-[80vh] flex flex-col">
-          <DialogHeader>
-            <DialogTitle>所有版本</DialogTitle>
-            <DialogDescription>
-              来自 GitHub Releases，stable 为正式版，pre-release 为预发布版
-            </DialogDescription>
-          </DialogHeader>
-          <div className="overflow-y-auto max-h-[60vh] -mx-6 px-6">
-            <ul className="space-y-2">
-              {versionsData?.releases?.map((r) => (
-                <li
-                  key={r.tag}
-                  className="flex items-center justify-between gap-2 py-1.5 border-b border-border last:border-0"
+                </p>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button
+                  variant="outline"
+                  onPress={() => setUpdateConfirmOpen(false)}
+                  isDisabled={updateMutation.isPending}
                 >
-                  <span className="font-mono text-sm">{r.tag}</span>
-                  <Badge
-                    variant={r.prerelease ? "outline" : "default"}
-                    className={
-                      r.prerelease
-                        ? "bg-amber-500/20 text-amber-700 dark:text-amber-400 border-amber-500/50"
-                        : "bg-emerald-600 text-white border-transparent"
-                    }
-                  >
-                    {r.prerelease ? "pre-release" : "stable"}
-                  </Badge>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </DialogContent>
-      </Dialog>
+                  取消
+                </Button>
+                <Button
+                  onPress={() => updateMutation.mutate()}
+                  isDisabled={updateActionDisabled}
+                >
+                  {updateMutation.isPending ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      更新中...
+                    </>
+                  ) : updateStream.isUpdating ? (
+                    "更新中..."
+                  ) : (
+                    "确定"
+                  )}
+                </Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal.Root>
 
-      {/* Error Detail Dialog */}
-      <Dialog open={errorModalOpen} onOpenChange={setErrorModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle>核心操作失败</DialogTitle>
-            <DialogDescription>错误详情如下：</DialogDescription>
-          </DialogHeader>
-          <pre className="mt-2 p-4 rounded-lg bg-muted text-sm overflow-auto max-h-[60vh] font-mono whitespace-pre-wrap">
-            {errorDetail}
-          </pre>
-        </DialogContent>
-      </Dialog>
+      <Modal.Root isOpen={rollbackConfirmOpen} onOpenChange={setRollbackConfirmOpen}>
+        <Modal.Backdrop>
+          <Modal.Container>
+            <Modal.Dialog>
+              <Modal.Header>
+                <Modal.Heading>确认回滚</Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                <p className="text-sm text-[color:var(--muted)]">确定要回滚到上一版本吗？</p>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button
+                  variant="outline"
+                  onPress={() => setRollbackConfirmOpen(false)}
+                  isDisabled={rollbackMutation.isPending}
+                >
+                  取消
+                </Button>
+                <Button
+                  onPress={() => rollbackMutation.mutate()}
+                  isDisabled={rollbackMutation.isPending}
+                >
+                  {rollbackMutation.isPending ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      回滚中...
+                    </>
+                  ) : (
+                    "确定"
+                  )}
+                </Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal.Root>
 
-      {/* Core Logs Dialog */}
-      <Dialog
-        open={logsOpen}
+      <Modal.Root isOpen={versionsListOpen} onOpenChange={setVersionsListOpen}>
+        <Modal.Backdrop>
+          <Modal.Container size="md" className="max-h-[80vh]">
+            <Modal.Dialog>
+              <Modal.Header>
+                <Modal.Heading>所有版本</Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                <p className="text-sm text-[color:var(--muted)]">
+              来自 GitHub Releases，stable 为正式版，pre-release 为预发布版
+                </p>
+                <div className="max-h-[60vh] overflow-y-auto">
+                  <ul className="space-y-2">
+                    {versionsData?.releases?.map((r) => (
+                      <li
+                        key={r.tag}
+                        className="flex items-center justify-between gap-2 border-b border-[color:var(--border)] py-2 last:border-0"
+                      >
+                        <span className="font-mono text-sm">{r.tag}</span>
+                        <Chip
+                          variant="secondary"
+                          className={
+                            r.prerelease
+                              ? "border-amber-500/50 bg-amber-500/20 text-amber-700 dark:text-amber-400"
+                              : "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                          }
+                        >
+                          {r.prerelease ? "pre-release" : "stable"}
+                        </Chip>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </Modal.Body>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal.Root>
+
+      <Modal.Root isOpen={errorModalOpen} onOpenChange={setErrorModalOpen}>
+        <Modal.Backdrop>
+          <Modal.Container size="lg" className="max-h-[80vh]">
+            <Modal.Dialog>
+              <Modal.Header>
+                <Modal.Heading>核心操作失败</Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                <p className="text-sm text-[color:var(--muted)]">错误详情如下：</p>
+                <pre className="mt-2 max-h-[60vh] overflow-auto rounded-lg bg-[color:var(--surface-secondary)] p-4 text-sm font-mono whitespace-pre-wrap">
+                  {errorDetail}
+                </pre>
+              </Modal.Body>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal.Root>
+
+      <Modal.Root
+        isOpen={logsOpen}
         onOpenChange={(open) => {
           setLogsOpen(open)
           if (!open) {
@@ -796,15 +818,18 @@ export function Core() {
           }
         }}
       >
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle>核心日志</DialogTitle>
-            <DialogDescription>
+        <Modal.Backdrop>
+          <Modal.Container size="lg" className="max-h-[80vh]">
+            <Modal.Dialog>
+              <Modal.Header>
+                <Modal.Heading>核心日志</Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                <p className="text-sm text-[color:var(--muted)]">
               {logsData?.path ? `日志路径：${logsData.path}` : "展示最近 200 行日志"}
-            </DialogDescription>
-          </DialogHeader>
+                </p>
           {logsMutation.isPending ? (
-            <div className="h-40 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+            <div className="h-40 flex items-center justify-center gap-2 text-sm text-[color:var(--muted)]">
               <Loader2 className="size-4 animate-spin" />
               正在读取日志...
             </div>
@@ -813,16 +838,19 @@ export function Core() {
               {logsError}
             </div>
           ) : logsData && logsData.entries.length > 0 ? (
-            <pre className="mt-2 p-4 rounded-lg bg-muted text-sm overflow-auto max-h-[60vh] font-mono whitespace-pre-wrap">
+            <pre className="mt-2 p-4 rounded-lg bg-[color:var(--surface-secondary)] text-sm overflow-auto max-h-[60vh] font-mono whitespace-pre-wrap">
               {logsData.entries.join("\n")}
             </pre>
           ) : (
-            <div className="h-40 flex items-center justify-center text-sm text-muted-foreground">
+            <div className="h-40 flex items-center justify-center text-sm text-[color:var(--muted)]">
               暂无日志内容
             </div>
           )}
-        </DialogContent>
-      </Dialog>
+              </Modal.Body>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal.Root>
     </div>
   )
 }

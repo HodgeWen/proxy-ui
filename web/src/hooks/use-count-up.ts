@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 interface UseCountUpOptions {
   to: number
@@ -10,17 +10,16 @@ interface UseCountUpOptions {
 }
 
 const prefersReducedMotion = () =>
-  typeof window !== "undefined" &&
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
 function formatNumber(value: number, separator: string, decimals: number): string {
-  if (separator === ",") {
-    return new Intl.NumberFormat("en-US", {
+  if (separator === ',') {
+    return new Intl.NumberFormat('en-US', {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
     }).format(value)
   }
-  const formatted = new Intl.NumberFormat("en-US", {
+  const formatted = new Intl.NumberFormat('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   }).format(value)
@@ -32,7 +31,7 @@ export function useCountUp({
   from = 0,
   duration = 0.8,
   startWhen = true,
-  separator = ",",
+  separator = ',',
   decimals = 0,
 }: UseCountUpOptions) {
   const [value, setValue] = useState(from)
@@ -98,8 +97,7 @@ export function useCountUp({
     animate(value, to)
 
     return () => cancelAnimationFrame(rafRef.current)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [to])
+  }, [animate, startWhen, to, value])
 
   return {
     value,

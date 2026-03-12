@@ -4,7 +4,7 @@ import { useState } from "react"
 import { QRCodeSVG } from "qrcode.react"
 import { Copy, ChevronDown, ChevronUp, RotateCcw } from "lucide-react"
 import { toast } from "sonner"
-import { Button } from "@/components/ui/button"
+import { Button, Card, Chip } from "@heroui/react"
 import { formatBytes } from "@/lib/format"
 import type { SubscriptionNode } from "@/components/users/UserTable"
 
@@ -59,48 +59,55 @@ export function UserSubscriptionCard({ user, onReset }: UserSubscriptionCardProp
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-2 text-sm sm:grid-cols-2">
+      <Card className="border border-[color:var(--border)] bg-[color:var(--surface-secondary)]/72 shadow-none">
+        <Card.Content className="grid gap-3 p-4 text-sm sm:grid-cols-2">
           <div>
-            <span className="text-muted-foreground">用户名：</span>
+            <span className="text-[color:var(--muted)]">用户名：</span>
             <span>{user.name}</span>
           </div>
           <div>
-            <span className="text-muted-foreground">剩余流量：</span>
+            <span className="text-[color:var(--muted)]">剩余流量：</span>
             <span>{trafficText}</span>
           </div>
           <div>
-            <span className="text-muted-foreground">到期时间：</span>
+            <span className="text-[color:var(--muted)]">到期时间：</span>
             <span>{expireText}</span>
           </div>
-        </div>
+        </Card.Content>
+      </Card>
 
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground shrink-0">订阅链接：</span>
-            <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs font-mono">
-              {fullSubscriptionUrl}
-            </code>
+      <Card className="border border-[color:var(--border)] bg-[color:var(--surface)] shadow-none">
+        <Card.Content className="space-y-3 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Chip variant="secondary" className="border-[color:var(--border)] bg-[color:var(--surface-secondary)]/74">
+              订阅链接
+            </Chip>
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => copyToClipboard(fullSubscriptionUrl)}
+              onPress={() => copyToClipboard(fullSubscriptionUrl)}
               aria-label="复制订阅链接"
             >
               <Copy className="size-4" />
               复制
             </Button>
           </div>
-        </div>
+          <code className="block rounded-lg bg-[color:var(--surface-secondary)] px-3 py-2 text-xs font-mono">
+            {fullSubscriptionUrl}
+          </code>
+        </Card.Content>
+      </Card>
 
-        {user.subscription_nodes && user.subscription_nodes.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">节点列表</p>
+      {user.subscription_nodes && user.subscription_nodes.length > 0 && (
+        <Card className="border border-[color:var(--border)] bg-[color:var(--surface)] shadow-none">
+          <Card.Content className="space-y-3 p-4">
+            <p className="text-sm text-[color:var(--muted)]">节点列表</p>
             <div className="space-y-2">
               {user.subscription_nodes.map((node) => (
                 <div
                   key={node.name}
-                  className="flex items-center gap-2 rounded-md bg-muted/80 px-3 py-2"
+                  className="flex items-center gap-2 rounded-lg bg-[color:var(--surface-secondary)] px-3 py-2"
                 >
                   <span className="flex-1 truncate text-sm">{node.name}</span>
                   <Button
@@ -108,7 +115,7 @@ export function UserSubscriptionCard({ user, onReset }: UserSubscriptionCardProp
                     variant="ghost"
                     size="sm"
                     className="shrink-0"
-                    onClick={() => copyToClipboard(node.link)}
+                    onPress={() => copyToClipboard(node.link)}
                     aria-label={`复制 ${node.name} 链接`}
                   >
                     <Copy className="size-4" />
@@ -116,15 +123,16 @@ export function UserSubscriptionCard({ user, onReset }: UserSubscriptionCardProp
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          </Card.Content>
+        </Card>
+      )}
 
-        <div className="space-y-2">
+      <div className="space-y-2">
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => setShowQR((v) => !v)}
+            onPress={() => setShowQR((v) => !v)}
             aria-expanded={showQR}
           >
             {showQR ? (
@@ -140,28 +148,28 @@ export function UserSubscriptionCard({ user, onReset }: UserSubscriptionCardProp
             )}
           </Button>
           {showQR && (
-            <div className="flex justify-center rounded-lg border border-border bg-card p-4">
+            <div className="flex justify-center rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
               <QRCodeSVG value={fullSubscriptionUrl} size={200} />
             </div>
           )}
-        </div>
+      </div>
 
-        <div>
+      <div>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            onClick={handleReset}
-            disabled={resetting}
-            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onPress={handleReset}
+            isDisabled={resetting}
+            className="border-[color:var(--danger)]/30 text-[color:var(--danger)] hover:bg-[color:var(--danger)]/10 hover:text-[color:var(--danger)]"
           >
             <RotateCcw className="size-4" />
             {resetting ? "重置中..." : "重置订阅"}
           </Button>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-xs text-[color:var(--muted)]">
             重置后旧订阅链接将立即失效
           </p>
-        </div>
+      </div>
     </div>
   )
 }

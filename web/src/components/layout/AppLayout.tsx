@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react"
 import { Outlet, useLocation } from "react-router-dom"
 import { Menu } from "lucide-react"
+import { Button } from "@heroui/react"
 import { Sidebar } from "./Sidebar"
-import { Button } from "@/components/ui/button"
 
-const titleMap: Record<string, string> = {
+const pageMeta: Record<string, string> = {
   "/": "仪表盘",
   "/inbounds": "入站管理",
   "/users": "用户管理",
@@ -18,42 +18,37 @@ export function AppLayout() {
   const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
 
-  const pageTitle = useMemo(() => {
-    const exact = titleMap[location.pathname]
+  const currentPage = useMemo(() => {
+    const exact = pageMeta[location.pathname]
     if (exact) return exact
-    const matched = Object.entries(titleMap).find(([path]) =>
+    const matched = Object.entries(pageMeta).find(([path]) =>
       path !== "/" ? location.pathname.startsWith(path) : false
     )
-    return matched?.[1] ?? "s-ui"
+    return matched?.[1] ?? "控制台"
   }, [location.pathname])
 
   return (
-    <div className="relative min-h-screen px-4 py-4 md:px-6 md:py-6">
-      <div className="mx-auto flex min-h-[calc(100vh-2rem)] max-w-[1600px] gap-6 md:min-h-[calc(100vh-3rem)]">
+    <div className="relative h-screen overflow-hidden px-4 py-4 md:px-6 md:py-6">
+      <div className="mx-auto flex h-[calc(100vh-2rem)] max-w-[1600px] gap-6 md:h-[calc(100vh-3rem)]">
         <div className="hidden w-72 shrink-0 lg:block">
           <Sidebar />
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col gap-4">
-          <header className="flex items-center justify-between rounded-[calc(var(--radius)*2)] border border-[color:var(--border)] bg-[color:var(--surface)]/88 px-4 py-3 shadow-[var(--surface-shadow)] backdrop-blur-xl">
-            <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-[color:var(--muted)]">
-                Control Center
-              </p>
-              <h2 className="text-lg font-semibold">{pageTitle}</h2>
-            </div>
+          <header className="flex shrink-0 items-center gap-3 px-2 py-3">
             <Button
-              variant="outline"
-              size="icon"
+              variant="ghost"
+              isIconOnly
               className="lg:hidden"
-              onClick={() => setMobileOpen(true)}
+              onPress={() => setMobileOpen(true)}
               aria-label="打开导航"
             >
               <Menu className="size-4" />
             </Button>
+            <h2 className="text-lg font-semibold">{currentPage}</h2>
           </header>
 
-          <main className="min-h-0 flex-1 rounded-[calc(var(--radius)*2.2)] border border-[color:var(--border)] bg-[color:var(--surface)]/84 shadow-[var(--surface-shadow)] backdrop-blur-xl">
+          <main className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)]/84 shadow-[var(--surface-shadow)] backdrop-blur-xl">
             <Outlet />
           </main>
         </div>

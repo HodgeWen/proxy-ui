@@ -1,14 +1,9 @@
 import { useQuery } from "@tanstack/react-query"
-import { Radio, Users, ArrowUpDown } from "lucide-react"
+import { ArrowUpDown, Radio, Users } from "lucide-react"
+import { Card } from "@heroui/react"
 import { formatBytes } from "@/lib/format"
 import { useCountUp } from "@/hooks/use-count-up"
-import { SpotlightCard } from "@/components/ui/spotlight-card"
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { PageHero } from "@/components/layout/PageHero"
 
 type StatsSummary = {
   inbound_count: number
@@ -41,7 +36,7 @@ export function Dashboard() {
       title: "入站数",
       icon: Radio,
       value: inboundCount.formatted,
-      sub: null,
+      sub: "当前已创建并可用于分配用户的入站数量。",
     },
     {
       title: "用户数",
@@ -60,38 +55,38 @@ export function Dashboard() {
     title: string
     icon: typeof Radio
     value: string
-    sub: string | null
+    sub: string
     smallValue?: boolean
   }>
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold">仪表盘</h1>
+      <PageHero
+        title="运行总览"
+        description="首屏强调当前规模、活跃度和总流量，方便快速确认整套面板是否处于健康区间。"
+        metrics={[
+          { label: "入站", value: inboundCount.formatted },
+          { label: "用户", value: userCount.formatted },
+          { label: "活跃", value: activeUserCount.formatted },
+        ]}
+      />
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {cards.map((card, index) => (
-          <div
-            key={card.title}
-            className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none"
-            style={{ animationDelay: `${index * 75}ms` }}
-          >
-            <SpotlightCard>
-              <Card className="transition-shadow hover:shadow-md">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">{card.title}</CardTitle>
-                  <card.icon className="size-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className={card.smallValue ? "text-xl font-bold" : "text-2xl font-bold"}>
-                    {card.value}
-                  </div>
-                  {card.sub && (
-                    <p className="text-sm text-muted-foreground">{card.sub}</p>
-                  )}
-                </CardContent>
-              </Card>
-            </SpotlightCard>
-          </div>
+        {cards.map((card) => (
+          <Card key={card.title} className="border border-[color:var(--border)] bg-[color:var(--surface)]">
+            <Card.Content className="space-y-4 p-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-medium text-[color:var(--muted)]">{card.title}</h2>
+                <card.icon className="size-4 text-[color:var(--accent)]" />
+              </div>
+              <div>
+                <div className={card.smallValue ? "text-xl font-bold" : "text-3xl font-semibold"}>
+                  {card.value}
+                </div>
+                <p className="mt-1 text-sm text-[color:var(--muted)]">{card.sub}</p>
+              </div>
+            </Card.Content>
+          </Card>
         ))}
       </div>
     </div>

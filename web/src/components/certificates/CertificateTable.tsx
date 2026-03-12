@@ -1,19 +1,5 @@
 import { Pencil, MoreHorizontal, Trash2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { Button, Dropdown, Table } from "@heroui/react"
 
 export type Certificate = {
   id: number
@@ -35,60 +21,62 @@ export function CertificateTable({
   onDelete,
 }: CertificateTableProps) {
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>名称</TableHead>
-          <TableHead>证书路径</TableHead>
-          <TableHead>私钥路径</TableHead>
-          <TableHead>创建时间</TableHead>
-          <TableHead>操作</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
+    <Table.Root aria-label="证书列表" className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] shadow-[var(--surface-shadow)]">
+      <Table.ScrollContainer>
+        <Table.Content>
+      <Table.Header>
+        <Table.Column>名称</Table.Column>
+        <Table.Column>证书路径</Table.Column>
+        <Table.Column>私钥路径</Table.Column>
+        <Table.Column>创建时间</Table.Column>
+        <Table.Column>操作</Table.Column>
+      </Table.Header>
+      <Table.Body>
         {certificates.map((cert) => (
-          <TableRow key={cert.id}>
-            <TableCell>{cert.name}</TableCell>
-            <TableCell>{cert.fullchain_path}</TableCell>
-            <TableCell>{cert.privkey_path}</TableCell>
-            <TableCell>{cert.created_at}</TableCell>
-            <TableCell>
+          <Table.Row key={cert.id}>
+            <Table.Cell>{cert.name}</Table.Cell>
+            <Table.Cell>{cert.fullchain_path}</Table.Cell>
+            <Table.Cell>{cert.privkey_path}</Table.Cell>
+            <Table.Cell>{cert.created_at}</Table.Cell>
+            <Table.Cell>
               <div className="flex items-center gap-2">
                 <Button
                   variant="ghost"
-                  size="icon"
-                  className="size-8"
-                  onClick={() => onEdit?.(cert.id)}
+                  isIconOnly
+                  onPress={() => onEdit?.(cert.id)}
                   aria-label="编辑"
                 >
                   <Pencil className="size-4" />
                 </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
+                <Dropdown.Root>
+                  <Dropdown.Trigger>
                     <Button
                       variant="ghost"
-                      size="icon"
-                      className="size-8"
+                      isIconOnly
                       aria-label="更多操作"
                     >
                       <MoreHorizontal className="size-4" />
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      variant="destructive"
-                      onClick={() => onDelete?.(cert.id)}
+                  </Dropdown.Trigger>
+                  <Dropdown.Popover placement="bottom end">
+                    <Dropdown.Menu>
+                    <Dropdown.Item
+                      onAction={() => onDelete?.(cert.id)}
+                      className="text-[color:var(--danger)]"
                     >
-                      <Trash2 className="size-4" />
+                      <Trash2 className="mr-2 inline size-4" />
                       删除
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                    </Dropdown.Item>
+                    </Dropdown.Menu>
+                  </Dropdown.Popover>
+                </Dropdown.Root>
               </div>
-            </TableCell>
-          </TableRow>
+            </Table.Cell>
+          </Table.Row>
         ))}
-      </TableBody>
-    </Table>
+      </Table.Body>
+        </Table.Content>
+      </Table.ScrollContainer>
+    </Table.Root>
   )
 }

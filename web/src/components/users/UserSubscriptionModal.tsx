@@ -2,14 +2,9 @@
 
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
+import { Modal } from "@heroui/react"
 import type { User } from "@/components/users/UserTable"
 import { UserSubscriptionCard } from "@/components/users/UserSubscriptionCard"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 
 async function fetchUser(id: number): Promise<User> {
   const res = await fetch(`/api/users/${id}`, { credentials: "include" })
@@ -53,13 +48,16 @@ export function UserSubscriptionModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>订阅信息{user ? ` — ${user.name}` : ""}</DialogTitle>
-        </DialogHeader>
+    <Modal.Root isOpen={open} onOpenChange={onOpenChange}>
+      <Modal.Backdrop>
+        <Modal.Container size="lg">
+          <Modal.Dialog>
+            <Modal.Header>
+              <Modal.Heading>订阅信息{user ? ` — ${user.name}` : ""}</Modal.Heading>
+            </Modal.Header>
+            <Modal.Body>
         {isLoading ? (
-          <div className="py-8 text-center text-muted-foreground">加载中...</div>
+          <div className="py-8 text-center text-[color:var(--muted)]">加载中...</div>
         ) : user ? (
           <UserSubscriptionCard
             user={{
@@ -73,9 +71,12 @@ export function UserSubscriptionModal({
             onReset={handleReset}
           />
         ) : (
-          <div className="py-8 text-center text-muted-foreground">用户未找到</div>
+          <div className="py-8 text-center text-[color:var(--muted)]">用户未找到</div>
         )}
-      </DialogContent>
-    </Dialog>
+            </Modal.Body>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal.Root>
   )
 }

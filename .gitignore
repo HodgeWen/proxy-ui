@@ -9,3 +9,5 @@ s-ui-linux-arm64
 # Embed requires web/dist - build frontend first
 
 config.json
+
+node_modules

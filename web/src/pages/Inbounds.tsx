@@ -1,19 +1,14 @@
 import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Button, Chip, Dropdown } from "@heroui/react"
+import { ArrowUpDown, Plus } from "lucide-react"
 import { InboundTable, type Inbound } from "@/components/inbounds/InboundTable"
 import {
   InboundFormModal,
   type InboundForEdit,
 } from "@/components/inbounds/InboundFormModal"
+import { PageHero } from "@/components/layout/PageHero"
 
 type SortOption = "created" | "traffic_asc" | "traffic_desc"
 
@@ -92,7 +87,7 @@ export function Inbounds() {
     return (
       <div className="p-6 space-y-6">
         <h1 className="text-2xl font-bold">入站管理</h1>
-        <p className="text-muted-foreground">加载中...</p>
+        <p className="text-[color:var(--muted)]">加载中...</p>
       </div>
     )
   }
@@ -101,41 +96,74 @@ export function Inbounds() {
     return (
       <div className="p-6 space-y-6">
         <h1 className="text-2xl font-bold">入站管理</h1>
-        <p className="text-destructive">{error?.message ?? "加载失败"}</p>
+        <p className="text-[color:var(--danger)]">{error?.message ?? "加载失败"}</p>
       </div>
     )
   }
 
   return (
     <div className="p-6 space-y-6">
-      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold">入站管理</h1>
-        <div className="flex items-center gap-4">
-          <Select
-            value={sort}
-            onValueChange={(v) => setSort(v as SortOption)}
-          >
-            <SelectTrigger className="w-32">
-              <SelectValue placeholder="排序" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="created">默认</SelectItem>
-              <SelectItem value="traffic_asc">流量升序</SelectItem>
-              <SelectItem value="traffic_desc">流量降序</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button onClick={handleAddInbound}>添加入站</Button>
-        </div>
-      </div>
-      </div>
-      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none" style={{ animationDelay: '75ms' }}>
+      <PageHero
+          title="协议入口编排"
+          description="把协议、TLS 与流量排序操作集中在首屏控制栏，让入站列表更像运维控制台，而不是单独的表格页。"
+          metrics={[
+            { label: "总入站", value: String(data?.data.length ?? 0) },
+            {
+              label: "排序",
+              value:
+                sort === "created"
+                  ? "默认"
+                  : sort === "traffic_asc"
+                    ? "流量升序"
+                    : "流量降序",
+            },
+          ]}
+          actions={
+            <>
+              <Dropdown.Root>
+                <Dropdown.Trigger>
+                  <Button variant="secondary">
+                    <ArrowUpDown className="size-4" />
+                    排序
+                  </Button>
+                </Dropdown.Trigger>
+                <Dropdown.Popover placement="bottom end">
+                  <Dropdown.Menu>
+                    <Dropdown.Item onAction={() => setSort("created")}>
+                      默认
+                    </Dropdown.Item>
+                    <Dropdown.Item onAction={() => setSort("traffic_asc")}>
+                      流量升序
+                    </Dropdown.Item>
+                    <Dropdown.Item onAction={() => setSort("traffic_desc")}>
+                      流量降序
+                    </Dropdown.Item>
+                  </Dropdown.Menu>
+                </Dropdown.Popover>
+              </Dropdown.Root>
+              <Button variant="primary" onPress={handleAddInbound}>
+                <Plus className="size-4" />
+                添加入站
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-2">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--muted)]">
+              Sort Preset
+            </p>
+            <Chip variant="secondary" className="border-[color:var(--border)] bg-[color:var(--surface-secondary)]/74">
+              {sort === "created" ? "按创建时间" : sort === "traffic_asc" ? "按低流量优先" : "按高流量优先"}
+            </Chip>
+          </div>
+        </PageHero>
+
       <InboundTable
-        inbounds={data?.data ?? []}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-      />
-      </div>
+          inbounds={data?.data ?? []}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+        />
+
       <InboundFormModal
         open={formOpen}
         onOpenChange={(open) => {

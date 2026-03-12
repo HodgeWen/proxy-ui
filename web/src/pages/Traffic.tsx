@@ -1,23 +1,9 @@
 import { useQuery } from "@tanstack/react-query"
 import { ArrowUpDown, Radio, Users } from "lucide-react"
+import { Card, Chip, Table, Tabs } from "@heroui/react"
 import { formatBytes } from "@/lib/format"
 import { useCountUp } from "@/hooks/use-count-up"
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { PageHero } from "@/components/layout/PageHero"
 
 type Inbound = {
   id: number
@@ -43,6 +29,21 @@ function getUserStatus(u: UserTraffic): { label: string; variant: "default" | "s
   if (u.expire_at && new Date(u.expire_at) <= new Date()) return { label: "过期", variant: "destructive" }
   if (u.traffic_limit > 0 && u.traffic_used >= u.traffic_limit) return { label: "超限", variant: "destructive" }
   return { label: "活跃", variant: "default" }
+}
+
+function renderStatusChip(status: ReturnType<typeof getUserStatus>) {
+  const className =
+    status.variant === "destructive"
+      ? "border-[color:var(--danger)]/30 bg-[color:var(--danger)]/10 text-[color:var(--danger)]"
+      : status.variant === "secondary"
+        ? "border-[color:var(--border)] bg-[color:var(--surface-secondary)] text-[color:var(--muted)]"
+        : "border-[color:var(--success)]/30 bg-[color:var(--success)]/12 text-[color:var(--success)]"
+
+  return (
+    <Chip variant="secondary" className={className}>
+      {status.label}
+    </Chip>
+  )
 }
 
 export function Traffic() {
@@ -121,123 +122,125 @@ export function Traffic() {
 
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold">流量</h1>
+      <PageHero
+        title="流量监控台"
+        description="首屏先看总流量、活跃用户和入站规模，再深入到按入站或按用户的明细表。"
+        metrics={[
+          { label: "总上行", value: formatBytes(uplinkCount.value) },
+          { label: "总下行", value: formatBytes(downlinkCount.value) },
+          { label: "活跃用户", value: activeUsersCount.formatted },
+          { label: "入站数", value: inboundLenCount.formatted },
+        ]}
+      />
 
       <div className="grid gap-6 md:grid-cols-3">
-        {statCards.map((card, index) => (
-          <div
-            key={card.title}
-            className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none"
-            style={{ animationDelay: `${index * 75}ms` }}
-          >
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">{card.title}</CardTitle>
-                <card.icon className="size-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className={card.smallValue ? "text-xl font-bold" : "text-2xl font-bold"}>
-                  {card.value}
-                </div>
-                {card.sub && (
-                  <p className="text-sm text-muted-foreground">{card.sub}</p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+        {statCards.map((card) => (
+          <Card key={card.title} className="border border-[color:var(--border)] bg-[color:var(--surface)]">
+            <Card.Content className="space-y-4 p-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-medium text-[color:var(--muted)]">{card.title}</h2>
+                <card.icon className="size-4 text-[color:var(--accent)]" />
+              </div>
+              <div className={card.smallValue ? "text-xl font-bold" : "text-2xl font-bold"}>
+                {card.value}
+              </div>
+              {card.sub && (
+                <p className="text-sm text-[color:var(--muted)]">{card.sub}</p>
+              )}
+            </Card.Content>
+          </Card>
         ))}
       </div>
 
-      <div
-        className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none"
-        style={{ animationDelay: "225ms" }}
-      >
-        <Tabs defaultValue="inbounds">
-          <TabsList>
-            <TabsTrigger value="inbounds">按入站</TabsTrigger>
-            <TabsTrigger value="users">按用户</TabsTrigger>
-          </TabsList>
+      <Tabs.Root defaultSelectedKey="inbounds" className="space-y-4">
+        <Tabs.ListContainer>
+          <Tabs.List>
+            <Tabs.Tab id="inbounds">按入站</Tabs.Tab>
+            <Tabs.Tab id="users">按用户</Tabs.Tab>
+          </Tabs.List>
+        </Tabs.ListContainer>
 
-          <TabsContent value="inbounds" className="mt-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>标签</TableHead>
-                  <TableHead>协议</TableHead>
-                  <TableHead>上行</TableHead>
-                  <TableHead>下行</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {inboundsLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                      加载中...
-                    </TableCell>
-                  </TableRow>
-                ) : inbounds.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                      暂无入站
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  inbounds.map((ib) => (
-                    <TableRow key={ib.id}>
-                      <TableCell className="font-medium">{ib.tag}</TableCell>
-                      <TableCell>{ib.protocol}</TableCell>
-                      <TableCell>{formatBytes(ib.traffic_uplink ?? 0)}</TableCell>
-                      <TableCell>{formatBytes(ib.traffic_downlink ?? 0)}</TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TabsContent>
+        <Tabs.Panel id="inbounds">
+          <Table.Root aria-label="入站流量表" className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] shadow-[var(--surface-shadow)]">
+            <Table.ScrollContainer>
+              <Table.Content>
+                <Table.Header>
+                  <Table.Column>标签</Table.Column>
+                  <Table.Column>协议</Table.Column>
+                  <Table.Column>上行</Table.Column>
+                  <Table.Column>下行</Table.Column>
+                </Table.Header>
+                <Table.Body>
+                  {inboundsLoading ? (
+                    <Table.Row>
+                      <Table.Cell colSpan={4} className="py-8 text-center text-[color:var(--muted)]">
+                        加载中...
+                      </Table.Cell>
+                    </Table.Row>
+                  ) : inbounds.length === 0 ? (
+                    <Table.Row>
+                      <Table.Cell colSpan={4} className="py-8 text-center text-[color:var(--muted)]">
+                        暂无入站
+                      </Table.Cell>
+                    </Table.Row>
+                  ) : (
+                    inbounds.map((ib) => (
+                      <Table.Row key={ib.id}>
+                        <Table.Cell className="font-medium">{ib.tag}</Table.Cell>
+                        <Table.Cell>{ib.protocol}</Table.Cell>
+                        <Table.Cell>{formatBytes(ib.traffic_uplink ?? 0)}</Table.Cell>
+                        <Table.Cell>{formatBytes(ib.traffic_downlink ?? 0)}</Table.Cell>
+                      </Table.Row>
+                    ))
+                  )}
+                </Table.Body>
+              </Table.Content>
+            </Table.ScrollContainer>
+          </Table.Root>
+        </Tabs.Panel>
 
-          <TabsContent value="users" className="mt-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>用户名</TableHead>
-                  <TableHead>上行</TableHead>
-                  <TableHead>下行</TableHead>
-                  <TableHead>状态</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {usersLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                      加载中...
-                    </TableCell>
-                  </TableRow>
-                ) : users.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                      暂无用户
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  users.map((u) => {
-                    const status = getUserStatus(u)
-                    return (
-                      <TableRow key={u.id}>
-                        <TableCell className="font-medium">{u.name}</TableCell>
-                        <TableCell>{formatBytes(u.traffic_uplink ?? 0)}</TableCell>
-                        <TableCell>{formatBytes(u.traffic_downlink ?? 0)}</TableCell>
-                        <TableCell>
-                          <Badge variant={status.variant}>{status.label}</Badge>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </TabsContent>
-        </Tabs>
-      </div>
+        <Tabs.Panel id="users">
+          <Table.Root aria-label="用户流量表" className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] shadow-[var(--surface-shadow)]">
+            <Table.ScrollContainer>
+              <Table.Content>
+                <Table.Header>
+                  <Table.Column>用户名</Table.Column>
+                  <Table.Column>上行</Table.Column>
+                  <Table.Column>下行</Table.Column>
+                  <Table.Column>状态</Table.Column>
+                </Table.Header>
+                <Table.Body>
+                  {usersLoading ? (
+                    <Table.Row>
+                      <Table.Cell colSpan={4} className="py-8 text-center text-[color:var(--muted)]">
+                        加载中...
+                      </Table.Cell>
+                    </Table.Row>
+                  ) : users.length === 0 ? (
+                    <Table.Row>
+                      <Table.Cell colSpan={4} className="py-8 text-center text-[color:var(--muted)]">
+                        暂无用户
+                      </Table.Cell>
+                    </Table.Row>
+                  ) : (
+                    users.map((u) => {
+                      const status = getUserStatus(u)
+                      return (
+                        <Table.Row key={u.id}>
+                          <Table.Cell className="font-medium">{u.name}</Table.Cell>
+                          <Table.Cell>{formatBytes(u.traffic_uplink ?? 0)}</Table.Cell>
+                          <Table.Cell>{formatBytes(u.traffic_downlink ?? 0)}</Table.Cell>
+                          <Table.Cell>{renderStatusChip(status)}</Table.Cell>
+                        </Table.Row>
+                      )
+                    })
+                  )}
+                </Table.Body>
+              </Table.Content>
+            </Table.ScrollContainer>
+          </Table.Root>
+        </Tabs.Panel>
+      </Tabs.Root>
     </div>
   )
 }

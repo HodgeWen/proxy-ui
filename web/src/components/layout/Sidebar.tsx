@@ -12,8 +12,7 @@ import {
   LayoutDashboard,
   X,
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Separator } from "@/components/ui/separator"
+import { Button } from "@heroui/react"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/components/theme-provider"
 
@@ -58,43 +57,32 @@ export function Sidebar({
   return (
     <aside
       className={cn(
-        "flex h-full w-full max-w-72 flex-col rounded-[calc(var(--radius)*2.2)] border border-[color:var(--border)] bg-[color:var(--surface)]/92 p-4 shadow-[var(--surface-shadow)] backdrop-blur-xl",
+        "flex h-full w-full max-w-72 flex-col rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface)]/92 p-4 shadow-[var(--surface-shadow)] backdrop-blur-xl",
         mobile &&
           "rounded-none border-0 bg-[color:var(--surface)] px-5 pb-5 pt-4 shadow-none"
       )}
       data-open={open}
     >
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-[color:var(--muted)]">
-            sing-box panel
-          </p>
-          <h1 className="text-2xl font-semibold tracking-tight">s-ui</h1>
+        <div className="flex items-center gap-3">
+          <div className="flex size-12 items-center justify-center rounded-[1.4rem] bg-[color:var(--accent)]/12 text-lg font-semibold text-[color:var(--accent)]">
+            S
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.24em] text-[color:var(--muted)]">
+              sing-box panel
+            </p>
+            <h1 className="text-2xl font-semibold tracking-tight">s-ui</h1>
+          </div>
         </div>
         {mobile && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onClose}
-            aria-label="关闭导航"
-          >
+          <Button variant="ghost" isIconOnly onPress={onClose} aria-label="关闭导航">
             <X className="size-4" />
           </Button>
         )}
       </div>
 
-      <div className="mt-6 rounded-[calc(var(--radius)*1.6)] border border-[color:var(--border)] bg-[color:var(--surface-secondary)] p-3">
-        <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--muted)]">
-          Workspace
-        </p>
-        <p className="mt-1 text-sm text-[color:var(--foreground)]">
-          管理 sing-box 用户、入站、证书与核心生命周期。
-        </p>
-      </div>
-
-      <Separator className="my-4" />
-
-      <nav className="flex flex-1 flex-col gap-1.5">
+      <nav className="mt-6 flex flex-1 flex-col gap-1.5">
         {navItems.map((item) => {
           const isActive =
             item.to === "/"
@@ -107,9 +95,9 @@ export function Sidebar({
               to={item.to}
               onClick={onClose}
               className={cn(
-                "flex items-center gap-3 rounded-[calc(var(--radius)*1.4)] px-3 py-2.5 text-sm font-medium transition-all",
+                "flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-all duration-200",
                 isActive
-                  ? "bg-[color:var(--accent)] text-[color:var(--accent-foreground)] shadow-[var(--surface-shadow)]"
+                  ? "bg-[color:var(--accent)]/10 text-[color:var(--accent)]"
                   : "text-[color:var(--muted)] hover:bg-[color:var(--surface-secondary)] hover:text-[color:var(--foreground)]"
               )}
             >
@@ -120,13 +108,11 @@ export function Sidebar({
         })}
       </nav>
 
-      <Separator className="my-4" />
-
-      <div className="space-y-2">
+      <div className="mt-auto space-y-2">
         <Button
-          variant="outline"
+          variant="secondary"
           className="w-full justify-start gap-2"
-          onClick={toggleTheme}
+          onPress={toggleTheme}
         >
           {resolvedTheme === "dark" ? (
             <Sun className="size-4" />
@@ -138,7 +124,7 @@ export function Sidebar({
         <Button
           variant="ghost"
           className="w-full justify-start gap-2"
-          onClick={handleLogout}
+          onPress={handleLogout}
         >
           <LogOut className="size-4" />
           <span>退出登录</span>

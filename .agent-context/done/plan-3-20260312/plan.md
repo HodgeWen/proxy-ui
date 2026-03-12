@@ -1,6 +1,6 @@
 # 前端重构 — 页面组件迁移
 
-> 状态: 未执行
+> 状态: 已执行
 
 ## 目标
 
@@ -67,4 +67,19 @@
 
 ## 影响范围
 
+- `.agent-context/plan-3/plan.md`
+- `.agent-context/plan-3/patch-1.md`
+- `.agent-context/plan-3/patch-2.md`
+- `.agent-context/plan-3/patch-3.md`
+- `web/eslint.config.js`
+- `web/src/components/ui/select.tsx`
+- `web/src/pages/Core.tsx`
+- `web/src/pages/Dashboard.tsx`
+- `web/src/pages/Login.tsx`
+- `web/src/pages/Setup.tsx`
+
 ## 历史补丁
+
+- patch-1: 优化登录页视觉与表单对齐
+- patch-2: 简化登录页为品牌单面板
+- patch-3: 精简登录页会话噪音并重做 Setup 首启界面

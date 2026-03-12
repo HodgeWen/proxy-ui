@@ -6,23 +6,12 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Info } from "lucide-react"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { Label } from "@/components/ui/label"
+  Button,
+  Input,
+  Modal,
+} from "@heroui/react"
+import { FieldLabel } from "@/components/form/FieldLabel"
 
 const schema = z.object({
   name: z.string().min(1, "名称不能为空"),
@@ -45,32 +34,6 @@ type CertificateFormModalProps = {
   onOpenChange: (open: boolean) => void
   certificate?: CertificateForEdit
   onSuccess?: () => void
-}
-
-function FieldLabel({
-  label,
-  tooltip,
-  htmlFor,
-}: {
-  label: string
-  tooltip: string
-  htmlFor?: string
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <Label htmlFor={htmlFor}>{label}</Label>
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Info className="size-4 text-muted-foreground cursor-help" />
-          </TooltipTrigger>
-          <TooltipContent className="max-w-xs">
-            <p className="text-xs">{tooltip}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    </div>
-  )
 }
 
 export function CertificateFormModal({
@@ -139,14 +102,17 @@ export function CertificateFormModal({
   })
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{certificate ? "编辑证书" : "添加证书"}</DialogTitle>
-        </DialogHeader>
+    <Modal.Root isOpen={open} onOpenChange={onOpenChange}>
+      <Modal.Backdrop>
+        <Modal.Container size="lg">
+          <Modal.Dialog>
+            <Modal.Header>
+              <Modal.Heading>{certificate ? "编辑证书" : "添加证书"}</Modal.Heading>
+            </Modal.Header>
+            <Modal.Body>
 
         {checkError && (
-          <div className="rounded-lg bg-destructive/10 text-destructive p-3 text-sm">
+          <div className="rounded-lg bg-[color:var(--danger)]/10 text-[color:var(--danger)] p-3 text-sm">
             <pre className="whitespace-pre-wrap">{checkError}</pre>
           </div>
         )}
@@ -165,7 +131,7 @@ export function CertificateFormModal({
                 placeholder="example.com"
               />
               {form.formState.errors.name && (
-                <p className="text-sm text-destructive">
+                <p className="text-sm text-[color:var(--danger)]">
                   {form.formState.errors.name.message}
                 </p>
               )}
@@ -182,7 +148,7 @@ export function CertificateFormModal({
                 placeholder="/etc/certs/fullchain.pem"
               />
               {form.formState.errors.fullchain_path && (
-                <p className="text-sm text-destructive">
+                <p className="text-sm text-[color:var(--danger)]">
                   {form.formState.errors.fullchain_path.message}
                 </p>
               )}
@@ -199,27 +165,30 @@ export function CertificateFormModal({
                 placeholder="/etc/certs/privkey.pem"
               />
               {form.formState.errors.privkey_path && (
-                <p className="text-sm text-destructive">
-                  {form.formState.errors.privkey_path.message}
+                <p className="text-sm text-[color:var(--danger)]">
+              {form.formState.errors.privkey_path.message}
                 </p>
               )}
             </div>
           </div>
 
-          <DialogFooter>
+              <Modal.Footer>
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onPress={() => onOpenChange(false)}
             >
               取消
             </Button>
-            <Button type="submit" disabled={form.formState.isSubmitting}>
+            <Button type="submit" isDisabled={form.formState.isSubmitting}>
               {certificate ? "保存" : "添加"}
             </Button>
-          </DialogFooter>
+              </Modal.Footer>
         </form>
-      </DialogContent>
-    </Dialog>
+            </Modal.Body>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal.Root>
   )
 }

@@ -3,22 +3,8 @@ import { useQuery } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Copy, QrCode } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { Button, Chip, Modal, Table } from "@heroui/react"
+import { PageHero } from "@/components/layout/PageHero"
 
 type UserSub = {
   id: number
@@ -35,6 +21,21 @@ function getStatus(u: UserSub): { label: string; variant: "default" | "secondary
   if (u.expire_at && new Date(u.expire_at) <= new Date()) return { label: "过期", variant: "destructive" }
   if (u.traffic_limit > 0 && u.traffic_used >= u.traffic_limit) return { label: "超限", variant: "destructive" }
   return { label: "活跃", variant: "default" }
+}
+
+function renderStatusChip(status: ReturnType<typeof getStatus>) {
+  const className =
+    status.variant === "destructive"
+      ? "border-[color:var(--danger)]/30 bg-[color:var(--danger)]/10 text-[color:var(--danger)]"
+      : status.variant === "secondary"
+        ? "border-[color:var(--border)] bg-[color:var(--surface-secondary)] text-[color:var(--muted)]"
+        : "border-[color:var(--success)]/30 bg-[color:var(--success)]/12 text-[color:var(--success)]"
+
+  return (
+    <Chip variant="secondary" className={className}>
+      {status.label}
+    </Chip>
+  )
 }
 
 function fullUrl(path: string): string {
@@ -69,101 +70,111 @@ export function Subscriptions() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none">
-      <h1 className="text-2xl font-bold">订阅</h1>
-      </div>
+      <PageHero
+        title="订阅分发面板"
+        description="统一查看订阅链接、状态和二维码入口，避免操作藏在稀疏的列表项里。"
+        metrics={[
+          { label: "用户数", value: String(users.length) },
+          {
+            label: "有效订阅",
+            value: String(users.filter((user) => Boolean(user.subscription_url)).length),
+          },
+        ]}
+      />
 
-      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none" style={{ animationDelay: '75ms' }}>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>用户名</TableHead>
-            <TableHead>订阅链接</TableHead>
-            <TableHead>状态</TableHead>
-            <TableHead>操作</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {isLoading ? (
-            <TableRow>
-              <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                加载中...
-              </TableCell>
-            </TableRow>
-          ) : users.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                暂无用户
-              </TableCell>
-            </TableRow>
-          ) : (
-            users.map((u) => {
-              const status = getStatus(u)
-              const url = u.subscription_url ? fullUrl(u.subscription_url) : ""
-              return (
-                <TableRow key={u.id}>
-                  <TableCell className="font-medium">{u.name}</TableCell>
-                  <TableCell className="max-w-xs">
-                    {url ? (
-                      <code className="truncate block rounded bg-muted px-2 py-1 text-xs font-mono">
-                        {url}
-                      </code>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={status.variant}>{status.label}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8"
-                        disabled={!url}
-                        onClick={() => copyToClipboard(url)}
-                        aria-label="复制链接"
-                      >
-                        <Copy className="size-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-8"
-                        disabled={!url}
-                        onClick={() => setQrUser(u)}
-                        aria-label="查看 QR 码"
-                      >
-                        <QrCode className="size-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              )
-            })
-          )}
-        </TableBody>
-      </Table>
-      </div>
+      <Table.Root aria-label="订阅列表" className="rounded-xl border border-[color:var(--border)] bg-[color:var(--surface)] shadow-[var(--surface-shadow)]">
+        <Table.ScrollContainer>
+          <Table.Content>
+            <Table.Header>
+              <Table.Column>用户名</Table.Column>
+              <Table.Column>订阅链接</Table.Column>
+              <Table.Column>状态</Table.Column>
+              <Table.Column>操作</Table.Column>
+            </Table.Header>
+            <Table.Body>
+              {isLoading ? (
+                <Table.Row>
+                  <Table.Cell className="py-8 text-center text-[color:var(--muted)]" colSpan={4}>
+                    加载中...
+                  </Table.Cell>
+                </Table.Row>
+              ) : users.length === 0 ? (
+                <Table.Row>
+                  <Table.Cell className="py-8 text-center text-[color:var(--muted)]" colSpan={4}>
+                    暂无用户
+                  </Table.Cell>
+                </Table.Row>
+              ) : (
+                users.map((u) => {
+                  const status = getStatus(u)
+                  const url = u.subscription_url ? fullUrl(u.subscription_url) : ""
+                  return (
+                    <Table.Row key={u.id}>
+                      <Table.Cell className="font-medium">{u.name}</Table.Cell>
+                      <Table.Cell className="max-w-xs">
+                        {url ? (
+                          <code className="block truncate rounded-lg bg-[color:var(--surface-secondary)] px-2.5 py-1.5 text-xs font-mono">
+                            {url}
+                          </code>
+                        ) : (
+                          <span className="text-[color:var(--muted)]">—</span>
+                        )}
+                      </Table.Cell>
+                      <Table.Cell>{renderStatusChip(status)}</Table.Cell>
+                      <Table.Cell>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            isIconOnly
+                            isDisabled={!url}
+                            onPress={() => copyToClipboard(url)}
+                            aria-label="复制链接"
+                          >
+                            <Copy className="size-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            isIconOnly
+                            isDisabled={!url}
+                            onPress={() => setQrUser(u)}
+                            aria-label="查看 QR 码"
+                          >
+                            <QrCode className="size-4" />
+                          </Button>
+                        </div>
+                      </Table.Cell>
+                    </Table.Row>
+                  )
+                })
+              )}
+            </Table.Body>
+          </Table.Content>
+        </Table.ScrollContainer>
+      </Table.Root>
 
-      <Dialog open={!!qrUser} onOpenChange={(open) => !open && setQrUser(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{qrUser?.name} — 订阅 QR 码</DialogTitle>
-          </DialogHeader>
+      <Modal.Root isOpen={!!qrUser} onOpenChange={(open) => !open && setQrUser(null)}>
+        <Modal.Backdrop>
+          <Modal.Container size="md">
+            <Modal.Dialog>
+              <Modal.Header>
+                <Modal.Heading>{qrUser?.name} — 订阅 QR 码</Modal.Heading>
+              </Modal.Header>
           {qrUser?.subscription_url && (
-            <div className="flex flex-col items-center gap-4">
-              <div className="rounded-lg border border-border bg-card p-4">
+            <Modal.Body>
+              <div className="flex flex-col items-center gap-4">
+                <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--surface)] p-4">
                 <QRCodeSVG value={fullUrl(qrUser.subscription_url)} size={200} />
+                </div>
+                <code className="break-all px-4 text-center text-xs font-mono text-[color:var(--muted)]">
+                  {fullUrl(qrUser.subscription_url)}
+                </code>
               </div>
-              <code className="text-xs font-mono text-muted-foreground break-all text-center px-4">
-                {fullUrl(qrUser.subscription_url)}
-              </code>
-            </div>
+            </Modal.Body>
           )}
-        </DialogContent>
-      </Dialog>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal.Root>
     </div>
   )
 }

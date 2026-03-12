@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { Button, Input } from "@heroui/react"
+import { Search, UserPlus } from "lucide-react"
 import { UserTable, type User } from "@/components/users/UserTable"
 import { UserFormModal } from "@/components/users/UserFormModal"
 import { UserSubscriptionModal } from "@/components/users/UserSubscriptionModal"
 import { BatchActionBar } from "@/components/users/BatchActionBar"
+import { PageHero } from "@/components/layout/PageHero"
 
 async function fetchUsers(q?: string): Promise<{ data: User[] }> {
   const url = q ? `/api/users?q=${encodeURIComponent(q)}` : "/api/users"
@@ -100,48 +101,69 @@ export function Users() {
 
   return (
     <div className="p-6 space-y-6">
-      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold">用户管理</h1>
-        <Button onClick={handleAddUser}>添加用户</Button>
-      </div>
-      </div>
-      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none" style={{ animationDelay: '75ms' }}>
-      <div className="flex items-center gap-4">
-        <Input
-          placeholder="搜索用户（名称/备注/UUID）"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          className="max-w-sm"
-        />
-        {isFetching && <span className="text-sm text-muted-foreground">搜索中...</span>}
-      </div>
-      </div>
+      <PageHero
+          title="用户控制台"
+          description="把搜索、批量操作和新增入口收进同一条控制轨道，避免数据页继续停留在单薄的 CRUD 头部。"
+          metrics={[
+            { label: "总用户", value: String(data?.data.length ?? 0) },
+            { label: "已选", value: String(selectedIds.length) },
+            { label: "搜索词", value: searchQ ? "已启用" : "未筛选" },
+          ]}
+          actions={
+            <>
+              <Input
+                startContent={<Search className="size-4 text-[color:var(--muted)]" />}
+                placeholder="搜索用户（名称 / 备注 / UUID）"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                variant="secondary"
+                className="w-full sm:w-80"
+              />
+              <Button variant="primary" onPress={handleAddUser}>
+                <UserPlus className="size-4" />
+                添加用户
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-2">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--muted)]">
+              Query State
+            </p>
+            <p className="text-sm font-medium">
+              {isFetching ? "正在刷新用户列表" : "用户列表已同步"}
+            </p>
+            <p className="text-sm text-[color:var(--muted)]">
+              当前搜索：{searchQ || "全部用户"}
+            </p>
+          </div>
+        </PageHero>
+
       {selectedIds.length > 0 && (
         <BatchActionBar
-          selectedCount={selectedIds.length}
-          onDelete={handleBatchDelete}
-          onEnable={() => runBatchAction("enable")}
-          onDisable={() => runBatchAction("disable")}
-          onResetTraffic={() => runBatchAction("reset_traffic")}
-          onClearSelection={() => setSelectedIds([])}
-        />
+            selectedCount={selectedIds.length}
+            onDelete={handleBatchDelete}
+            onEnable={() => runBatchAction("enable")}
+            onDisable={() => runBatchAction("disable")}
+            onResetTraffic={() => runBatchAction("reset_traffic")}
+            onClearSelection={() => setSelectedIds([])}
+          />
       )}
-      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none" style={{ animationDelay: '150ms' }}>
+
       {isError ? (
-        <p className="text-destructive">{error?.message ?? "加载失败"}</p>
-      ) : (
-        <UserTable
-          users={data?.data ?? []}
-          onEdit={handleEdit}
-          onDelete={handleDelete}
-          onSubscription={handleSubscription}
-          selectedIds={selectedIds}
-          onSelectionChange={setSelectedIds}
-          isLoading={isLoading}
-        />
-      )}
-      </div>
+          <p className="text-[color:var(--danger)]">{error?.message ?? "加载失败"}</p>
+        ) : (
+          <UserTable
+            users={data?.data ?? []}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            onSubscription={handleSubscription}
+            selectedIds={selectedIds}
+            onSelectionChange={setSelectedIds}
+            isLoading={isLoading}
+          />
+        )}
+
       <UserFormModal
         open={formOpen}
         onOpenChange={(open) => {

@@ -1,7 +1,8 @@
 import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Button } from "@/components/ui/button"
+import { Button } from "@heroui/react"
+import { Plus } from "lucide-react"
 import {
   CertificateTable,
   type Certificate,
@@ -10,6 +11,7 @@ import {
   CertificateFormModal,
   type CertificateForEdit,
 } from "@/components/certificates/CertificateFormModal"
+import { PageHero } from "@/components/layout/PageHero"
 
 async function fetchCertificates(): Promise<{ data: Certificate[] }> {
   const res = await fetch("/api/certs", { credentials: "include" })
@@ -72,7 +74,7 @@ export function Certificates() {
     return (
       <div className="p-6 space-y-6">
         <h1 className="text-2xl font-bold">证书管理</h1>
-        <p className="text-muted-foreground">加载中...</p>
+        <p className="text-[color:var(--muted)]">加载中...</p>
       </div>
     )
   }
@@ -81,26 +83,34 @@ export function Certificates() {
     return (
       <div className="p-6 space-y-6">
         <h1 className="text-2xl font-bold">证书管理</h1>
-        <p className="text-destructive">{error?.message ?? "加载失败"}</p>
+        <p className="text-[color:var(--danger)]">{error?.message ?? "加载失败"}</p>
       </div>
     )
   }
 
   return (
     <div className="p-6 space-y-6">
-      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold">证书管理</h1>
-        <Button onClick={handleAdd}>添加证书</Button>
-      </div>
-      </div>
-      <div className="animate-in fade-in zoom-in-95 duration-300 fill-mode-both motion-reduce:animate-none" style={{ animationDelay: '75ms' }}>
+      <PageHero
+          title="TLS 证书台账"
+          description="将证书路径维护从单行按钮页升级为带状态说明的台账面板，方便后续在入站配置里复用。"
+          metrics={[
+            { label: "证书数", value: String(data?.data.length ?? 0) },
+            { label: "用途", value: "TLS / Reality" },
+          ]}
+          actions={
+            <Button variant="primary" onPress={handleAdd}>
+              <Plus className="size-4" />
+              添加证书
+            </Button>
+          }
+        />
+
       <CertificateTable
-        certificates={data?.data ?? []}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-      />
-      </div>
+          certificates={data?.data ?? []}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+        />
+
       <CertificateFormModal
         open={formOpen}
         onOpenChange={(open) => {

@@ -7,23 +7,9 @@ import { z } from "zod"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Copy, ChevronDown } from "lucide-react"
+import { Button, Checkbox, Input, Modal, Popover } from "@heroui/react"
 import type { User } from "@/components/users/UserTable"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
+import { FieldLabel } from "@/components/form/FieldLabel"
 
 const schema = z.object({
   name: z.string().min(1, "名称不能为空"),
@@ -164,28 +150,32 @@ export function UserFormModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{user ? "编辑用户" : "添加用户"}</DialogTitle>
-        </DialogHeader>
+    <Modal.Root isOpen={open} onOpenChange={onOpenChange}>
+      <Modal.Backdrop>
+        <Modal.Container size="lg" className="max-h-[90vh]">
+          <Modal.Dialog>
+            <Modal.Header>
+              <Modal.Heading>{user ? "编辑用户" : "添加用户"}</Modal.Heading>
+            </Modal.Header>
+            <Modal.Body>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {user && (
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>UUID</Label>
+                <FieldLabel label="UUID" />
                 <div className="flex gap-2">
                   <Input
                     readOnly
                     value={user.uuid}
                     className="font-mono text-sm"
+                    variant="secondary"
                   />
                   <Button
                     type="button"
                     variant="outline"
-                    size="icon"
-                    onClick={() => copyToClipboard(user.uuid)}
+                    isIconOnly
+                    onPress={() => copyToClipboard(user.uuid)}
                     aria-label="复制 UUID"
                   >
                     <Copy className="size-4" />
@@ -193,18 +183,19 @@ export function UserFormModal({
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>密码</Label>
+                <FieldLabel label="密码" />
                 <div className="flex gap-2">
                   <Input
                     readOnly
                     value={user.password}
                     className="font-mono text-sm"
+                    variant="secondary"
                   />
                   <Button
                     type="button"
                     variant="outline"
-                    size="icon"
-                    onClick={() => copyToClipboard(user.password)}
+                    isIconOnly
+                    onPress={() => copyToClipboard(user.password)}
                     aria-label="复制密码"
                   >
                     <Copy className="size-4" />
@@ -216,32 +207,34 @@ export function UserFormModal({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="name">名称</Label>
+              <FieldLabel label="名称" htmlFor="name" />
               <Input
                 id="name"
                 {...form.register("name")}
                 placeholder="用户名"
+                variant="secondary"
               />
               {form.formState.errors.name && (
-                <p className="text-sm text-destructive">
+                <p className="text-sm text-[color:var(--danger)]">
                   {form.formState.errors.name.message}
                 </p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="remark">备注</Label>
+              <FieldLabel label="备注" htmlFor="remark" />
               <Input
                 id="remark"
                 {...form.register("remark")}
                 placeholder="可选"
+                variant="secondary"
               />
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label>节点</Label>
-            <Popover>
-              <PopoverTrigger asChild>
+            <FieldLabel label="节点" />
+            <Popover.Root>
+              <Popover.Trigger>
                 <Button
                   variant="outline"
                   className="w-full justify-between font-normal"
@@ -249,11 +242,12 @@ export function UserFormModal({
                   <span className="truncate">{displayText}</span>
                   <ChevronDown className="size-4 shrink-0 opacity-50" />
                 </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
+              </Popover.Trigger>
+              <Popover.Content className="w-[22rem] p-2" placement="bottom start">
+                <Popover.Dialog>
                 <div className="max-h-60 overflow-y-auto space-y-2">
                   {inbounds.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-2">暂无入站</p>
+                    <p className="text-sm text-[color:var(--muted)] py-2">暂无入站</p>
                   ) : (
                     inbounds.map((ib) => (
                       <div
@@ -261,57 +255,67 @@ export function UserFormModal({
                         className="flex items-center space-x-2 cursor-pointer rounded-sm py-2 px-2 hover:bg-accent"
                         onClick={() => toggleInbound(ib.id)}
                       >
-                        <Checkbox
-                          checked={selectedIds.includes(ib.id)}
-                          onCheckedChange={() => toggleInbound(ib.id)}
-                        />
-                        <Label className="flex-1 cursor-pointer text-sm font-normal">
-                          {ib.tag}
-                        </Label>
+                        <Checkbox.Root
+                          isSelected={selectedIds.includes(ib.id)}
+                          onChange={() => toggleInbound(ib.id)}
+                        >
+                          <Checkbox.Control>
+                            <Checkbox.Indicator />
+                          </Checkbox.Control>
+                          <Checkbox.Content className="flex-1 cursor-pointer text-sm font-normal">
+                            {ib.tag}
+                          </Checkbox.Content>
+                        </Checkbox.Root>
                       </div>
                     ))
                   )}
                 </div>
-              </PopoverContent>
-            </Popover>
+                </Popover.Dialog>
+              </Popover.Content>
+            </Popover.Root>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="traffic_limit">流量上限 (GB)</Label>
+              <FieldLabel label="流量上限 (GB)" htmlFor="traffic_limit" />
               <Input
                 id="traffic_limit"
                 type="number"
                 min={0}
                 {...form.register("traffic_limit")}
                 placeholder="0 表示无限制"
+                variant="secondary"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="expire_at">到期时间</Label>
+              <FieldLabel label="到期时间" htmlFor="expire_at" />
               <Input
                 id="expire_at"
                 type="date"
                 {...form.register("expire_at")}
+                variant="secondary"
               />
-              <p className="text-xs text-muted-foreground">留空表示永不过期</p>
+              <p className="text-xs text-[color:var(--muted)]">留空表示永不过期</p>
             </div>
           </div>
 
-          <DialogFooter>
+              <Modal.Footer>
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onPress={() => onOpenChange(false)}
             >
               取消
             </Button>
-            <Button type="submit" disabled={form.formState.isSubmitting}>
+            <Button type="submit" isDisabled={form.formState.isSubmitting}>
               {user ? "保存" : "添加"}
             </Button>
-          </DialogFooter>
+              </Modal.Footer>
         </form>
-      </DialogContent>
-    </Dialog>
+            </Modal.Body>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal.Root>
   )
 }

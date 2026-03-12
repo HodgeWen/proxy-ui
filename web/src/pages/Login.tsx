@@ -1,86 +1,142 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState } from "react"
+import { ArrowRight } from "lucide-react"
+import {
+  Button,
+  Card,
+  Description,
+  Form,
+  Input,
+  Label,
+  TextField,
+} from "@heroui/react"
+import { useNavigate } from "react-router-dom"
 
 export function Login() {
   const navigate = useNavigate()
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [remember, setRemember] = useState(false)
-  const [error, setError] = useState('')
+  const [username, setUsername] = useState("")
+  const [password, setPassword] = useState("")
+  const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  const hasCredentialError = error === "用户名或密码错误"
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError('')
+    setError("")
     setLoading(true)
+
     try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ username, password, remember }),
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ username: username.trim(), password }),
       })
+
       if (!res.ok) {
-        setError('用户名或密码错误')
+        setError("用户名或密码错误")
         return
       }
-      navigate('/', { replace: true })
+
+      navigate("/", { replace: true })
     } catch {
-      setError('网络错误')
+      setError("网络错误")
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-full max-w-sm rounded-lg border border-border bg-card p-8 shadow-xl">
-        <h1 className="mb-6 text-center text-2xl font-bold text-foreground">s-ui</h1>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="mb-1 block text-sm font-medium text-muted-foreground">用户名</label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full rounded-lg border border-input bg-background px-4 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="请输入用户名"
-              autoComplete="username"
-            />
+    <div className="flex min-h-screen items-center justify-center bg-[color:var(--background)] px-4">
+      <Card className="w-full max-w-md border border-[color:var(--border)] bg-[color:var(--surface)] shadow-[var(--overlay-shadow)]">
+        <Card.Header className="flex-col items-center gap-4 px-6 pt-8 text-center sm:px-8">
+          <div className="flex size-16 items-center justify-center rounded-2xl bg-[color:var(--accent)]/12 text-[color:var(--accent)]">
+            <span className="text-2xl font-bold">S</span>
           </div>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-muted-foreground">密码</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-input bg-background px-4 py-2 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="请输入密码"
-              autoComplete="current-password"
-            />
+          <div className="space-y-1">
+            <Card.Title className="text-2xl font-semibold">S-UI</Card.Title>
+            <Card.Description className="text-sm text-[color:var(--muted)]">
+              sing-box 管理面板
+            </Card.Description>
           </div>
-          <div className="flex items-center">
-            <input
-              type="checkbox"
-              id="remember"
-              checked={remember}
-              onChange={(e) => setRemember(e.target.checked)}
-              className="rounded border-input bg-background text-primary focus:ring-ring"
-            />
-            <label htmlFor="remember" className="ml-2 text-sm text-muted-foreground">
-              记住我
-            </label>
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-primary py-2 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        </Card.Header>
+
+        <Card.Content className="px-6 pb-8 sm:px-8">
+          <Form
+            onSubmit={handleSubmit}
+            validationBehavior="aria"
+            className="space-y-6"
           >
-            {loading ? '登录中...' : '登录'}
-          </button>
-        </form>
-      </div>
+            <TextField
+              name="username"
+              isRequired
+              fullWidth
+              isInvalid={hasCredentialError}
+              className="space-y-2"
+            >
+              <Label>用户名</Label>
+              <Input
+                autoComplete="username"
+                autoFocus
+                placeholder="输入管理员用户名"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                variant="secondary"
+                className="h-12"
+              />
+              <Description>管理员账户名</Description>
+            </TextField>
+
+            <TextField
+              name="password"
+              isRequired
+              fullWidth
+              isInvalid={hasCredentialError}
+              className="space-y-2"
+            >
+              <Label>密码</Label>
+              <Input
+                autoComplete="current-password"
+                placeholder="输入当前密码"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                variant="secondary"
+                className="h-12"
+              />
+              <Description>输入后直接进入控制台</Description>
+            </TextField>
+
+            {error && (
+              <div
+                role="alert"
+                className="rounded-xl border border-[color:var(--danger)]/30 bg-[color:var(--danger)]/10 px-4 py-3 text-sm text-[color:var(--danger)]"
+              >
+                {error}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <Button
+                fullWidth
+                isDisabled={loading}
+                type="submit"
+                variant="primary"
+                className="h-12 text-base font-semibold shadow-[var(--surface-shadow)]"
+              >
+                {loading ? "登录中..." : "登录"}
+              </Button>
+
+              <a
+                href="/setup"
+                className="flex items-center justify-center gap-2 py-3 text-sm text-[color:var(--muted)] transition-colors hover:text-[color:var(--accent)]"
+              >
+                <span>首次部署时前往初始化管理员账户</span>
+                <ArrowRight className="size-4 shrink-0" />
+              </a>
+            </div>
+          </Form>
+        </Card.Content>
+      </Card>
     </div>
   )
 }

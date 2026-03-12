@@ -6,31 +6,16 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Info } from "lucide-react"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import {
+  Button,
+  Input,
+  ListBox,
+  Modal,
+  Radio,
+  RadioGroup,
   Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+} from "@heroui/react"
+import { FieldLabel } from "@/components/form/FieldLabel"
 
 const baseSchema = z.object({
   tag: z.string().min(1, "标签不能为空"),
@@ -104,32 +89,6 @@ type InboundFormModalProps = {
 
 type VLESSFormValues = z.infer<typeof vlessSchema>
 type Hysteria2FormValues = z.infer<typeof hysteria2Schema>
-
-function FieldLabel({
-  label,
-  tooltip,
-  htmlFor,
-}: {
-  label: string
-  tooltip: string
-  htmlFor?: string
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <Label htmlFor={htmlFor}>{label}</Label>
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Info className="size-4 text-muted-foreground cursor-help" />
-          </TooltipTrigger>
-          <TooltipContent className="max-w-xs">
-            <p className="text-xs">{tooltip}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    </div>
-  )
-}
 
 function buildConfigJson(
   values: VLESSFormValues | Hysteria2FormValues,
@@ -413,7 +372,7 @@ export function InboundFormModal({
         tls_key_path: "",
       })
     }
-  }, [inbound, open])
+  }, [hy2Form, inbound, open, vlessForm])
 
   const handleSubmit = form.handleSubmit(async (values) => {
     setCheckError(null)
@@ -453,14 +412,17 @@ export function InboundFormModal({
   })
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{inbound ? "编辑入站" : "添加入站"}</DialogTitle>
-        </DialogHeader>
+    <Modal.Root isOpen={open} onOpenChange={onOpenChange}>
+      <Modal.Backdrop>
+        <Modal.Container size="lg" className="max-h-[90vh]">
+          <Modal.Dialog>
+            <Modal.Header>
+              <Modal.Heading>{inbound ? "编辑入站" : "添加入站"}</Modal.Heading>
+            </Modal.Header>
+            <Modal.Body>
 
         {checkError && (
-          <div className="rounded-lg bg-destructive/10 text-destructive p-3 text-sm">
+          <div className="rounded-lg bg-[color:var(--danger)]/10 text-[color:var(--danger)] p-3 text-sm">
             <pre className="whitespace-pre-wrap">{checkError}</pre>
           </div>
         )}
@@ -476,16 +438,18 @@ export function InboundFormModal({
                   htmlFor="protocol"
                 />
                 <Select
-                  value={protocol}
-                  onValueChange={(v) => setProtocol(v as "vless" | "hysteria2")}
+                  selectedKey={protocol}
+                  onSelectionChange={(key) => setProtocol(String(key) as "vless" | "hysteria2")}
                 >
-                  <SelectTrigger id="protocol">
-                    <SelectValue placeholder="选择协议" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="vless">VLESS</SelectItem>
-                    <SelectItem value="hysteria2">Hysteria2</SelectItem>
-                  </SelectContent>
+                  <Select.Trigger>
+                    <Select.Value />
+                  </Select.Trigger>
+                  <Select.Popover>
+                    <ListBox>
+                      <ListBox.Item id="vless">VLESS</ListBox.Item>
+                      <ListBox.Item id="hysteria2">Hysteria2</ListBox.Item>
+                    </ListBox>
+                  </Select.Popover>
                 </Select>
               </div>
               <div className="space-y-2">
@@ -498,9 +462,10 @@ export function InboundFormModal({
                   id="tag"
                   {...form.register("tag")}
                   placeholder={protocol === "vless" ? "vless-in-1" : "hy2-in-1"}
+                  variant="secondary"
                 />
                 {form.formState.errors.tag && (
-                  <p className="text-sm text-destructive">
+                  <p className="text-sm text-[color:var(--danger)]">
                     {form.formState.errors.tag.message}
                   </p>
                 )}
@@ -515,6 +480,7 @@ export function InboundFormModal({
                   id="listen"
                   {...form.register("listen")}
                   placeholder="::"
+                  variant="secondary"
                 />
               </div>
               <div className="space-y-2">
@@ -528,9 +494,10 @@ export function InboundFormModal({
                   type="number"
                   {...form.register("listen_port")}
                   placeholder="443"
+                  variant="secondary"
                 />
                 {form.formState.errors.listen_port && (
-                  <p className="text-sm text-destructive">
+                  <p className="text-sm text-[color:var(--danger)]">
                     {form.formState.errors.listen_port.message}
                   </p>
                 )}
@@ -547,6 +514,7 @@ export function InboundFormModal({
                       type="number"
                       {...form.register("up_mbps")}
                       placeholder="100"
+                      variant="secondary"
                     />
                   </div>
                   <div className="space-y-2">
@@ -559,6 +527,7 @@ export function InboundFormModal({
                       type="number"
                       {...form.register("down_mbps")}
                       placeholder="100"
+                      variant="secondary"
                     />
                   </div>
                   <div className="space-y-2 sm:col-span-2">
@@ -571,6 +540,7 @@ export function InboundFormModal({
                       type="password"
                       {...form.register("obfs_password")}
                       placeholder="留空则不使用混淆"
+                      variant="secondary"
                     />
                   </div>
                 </>
@@ -588,19 +558,21 @@ export function InboundFormModal({
                     tooltip="TLS 模式。无 TLS 表示明文；TLS 使用证书；Reality 使用 Reality 协议伪装。选择后下方显示对应配置字段。"
                   />
                   <Select
-                    value={form.watch("tls_type")}
-                    onValueChange={(v) =>
-                      form.setValue("tls_type", v as "none" | "tls" | "reality")
+                    selectedKey={form.watch("tls_type")}
+                    onSelectionChange={(key) =>
+                      form.setValue("tls_type", String(key) as "none" | "tls" | "reality")
                     }
                   >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">无 TLS</SelectItem>
-                      <SelectItem value="tls">TLS</SelectItem>
-                      <SelectItem value="reality">Reality</SelectItem>
-                    </SelectContent>
+                    <Select.Trigger>
+                      <Select.Value />
+                    </Select.Trigger>
+                    <Select.Popover>
+                      <ListBox>
+                        <ListBox.Item id="none">无 TLS</ListBox.Item>
+                        <ListBox.Item id="tls">TLS</ListBox.Item>
+                        <ListBox.Item id="reality">Reality</ListBox.Item>
+                      </ListBox>
+                    </Select.Popover>
                   </Select>
                 </div>
                 {form.watch("tls_type") === "tls" && (
@@ -614,6 +586,7 @@ export function InboundFormModal({
                         id="tls_server_name"
                         {...form.register("tls_server_name")}
                         placeholder="example.com"
+                        variant="secondary"
                       />
                     </div>
                     <div className="space-y-2">
@@ -622,13 +595,14 @@ export function InboundFormModal({
                         tooltip="选择已保存的证书或手动输入路径"
                       />
                       <Select
-                        value={
+                        selectedKey={
                           form.watch("certificate_id") != null &&
                           form.watch("certificate_id")! > 0
                             ? String(form.watch("certificate_id"))
                             : "manual"
                         }
-                        onValueChange={(v) => {
+                        onSelectionChange={(key) => {
+                          const v = String(key)
                           if (v === "manual") {
                             form.setValue("certificate_id", null)
                             form.setValue("tls_cert_mode", "manual")
@@ -642,17 +616,19 @@ export function InboundFormModal({
                           }
                         }}
                       >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="manual">手动输入</SelectItem>
-                          {certificates.map((c) => (
-                            <SelectItem key={c.id} value={String(c.id)}>
-                              {c.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
+                        <Select.Trigger>
+                          <Select.Value />
+                        </Select.Trigger>
+                        <Select.Popover>
+                          <ListBox>
+                            <ListBox.Item id="manual">手动输入</ListBox.Item>
+                            {certificates.map((c) => (
+                              <ListBox.Item key={c.id} id={String(c.id)}>
+                                {c.name}
+                              </ListBox.Item>
+                            ))}
+                          </ListBox>
+                        </Select.Popover>
                       </Select>
                     </div>
                     {(!form.watch("certificate_id") ||
@@ -667,6 +643,7 @@ export function InboundFormModal({
                             id="tls_certificate_path"
                             {...form.register("tls_certificate_path")}
                             placeholder="/etc/certs/fullchain.pem"
+                            variant="secondary"
                           />
                         </div>
                         <div className="space-y-2 sm:col-span-2">
@@ -678,6 +655,7 @@ export function InboundFormModal({
                             id="tls_key_path"
                             {...form.register("tls_key_path")}
                             placeholder="/etc/certs/privkey.pem"
+                            variant="secondary"
                           />
                         </div>
                       </>
@@ -695,6 +673,7 @@ export function InboundFormModal({
                         id="reality_server"
                         {...form.register("reality_server")}
                         placeholder="google.com"
+                        variant="secondary"
                       />
                     </div>
                     <div className="space-y-2">
@@ -707,6 +686,7 @@ export function InboundFormModal({
                         type="number"
                         {...form.register("reality_server_port")}
                         placeholder="443"
+                        variant="secondary"
                       />
                     </div>
                     <div className="space-y-2 sm:col-span-2">
@@ -718,6 +698,7 @@ export function InboundFormModal({
                         id="reality_private_key"
                         {...form.register("reality_private_key")}
                         placeholder="Reality 私钥"
+                        variant="secondary"
                       />
                     </div>
                     <div className="space-y-2">
@@ -729,6 +710,7 @@ export function InboundFormModal({
                         id="reality_short_id"
                         {...form.register("reality_short_id")}
                         placeholder="0123456789abcdef"
+                        variant="secondary"
                       />
                     </div>
                   </div>
@@ -745,6 +727,7 @@ export function InboundFormModal({
                     id="tls_server_name"
                     {...form.register("tls_server_name")}
                     placeholder="example.com"
+                    variant="secondary"
                   />
                 </div>
                 <div className="space-y-2">
@@ -753,13 +736,14 @@ export function InboundFormModal({
                     tooltip="选择已保存的证书或手动输入路径"
                   />
                   <Select
-                    value={
+                    selectedKey={
                       form.watch("certificate_id") != null &&
                       form.watch("certificate_id")! > 0
                         ? String(form.watch("certificate_id"))
                         : "manual"
                     }
-                    onValueChange={(v) => {
+                    onSelectionChange={(key) => {
+                      const v = String(key)
                       if (v === "manual") {
                         form.setValue("certificate_id", null)
                         form.setValue("tls_cert_mode", "manual")
@@ -773,17 +757,19 @@ export function InboundFormModal({
                       }
                     }}
                   >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="manual">手动输入</SelectItem>
-                      {certificates.map((c) => (
-                        <SelectItem key={c.id} value={String(c.id)}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
+                    <Select.Trigger>
+                      <Select.Value />
+                    </Select.Trigger>
+                    <Select.Popover>
+                      <ListBox>
+                        <ListBox.Item id="manual">手动输入</ListBox.Item>
+                        {certificates.map((c) => (
+                          <ListBox.Item key={c.id} id={String(c.id)}>
+                            {c.name}
+                          </ListBox.Item>
+                        ))}
+                      </ListBox>
+                    </Select.Popover>
                   </Select>
                 </div>
                 {(!form.watch("certificate_id") ||
@@ -798,6 +784,7 @@ export function InboundFormModal({
                         id="tls_certificate_path"
                         {...form.register("tls_certificate_path")}
                         placeholder="/etc/certs/fullchain.pem"
+                        variant="secondary"
                       />
                     </div>
                     <div className="space-y-2 sm:col-span-2">
@@ -809,6 +796,7 @@ export function InboundFormModal({
                         id="tls_key_path"
                         {...form.register("tls_key_path")}
                         placeholder="/etc/certs/privkey.pem"
+                        variant="secondary"
                       />
                     </div>
                   </>
@@ -820,30 +808,27 @@ export function InboundFormModal({
           {protocol === "vless" && (
             <section className="space-y-4">
               <h3 className="text-sm font-semibold">传输</h3>
-              <RadioGroup
+              <RadioGroup.Root
                 value={form.watch("transport_type")}
-                onValueChange={(v: string) =>
+                onChange={(v: string) =>
                   form.setValue("transport_type", v as "tcp" | "ws" | "grpc" | "http")
                 }
                 className="flex flex-wrap gap-4"
               >
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="tcp" id="tcp" />
-                  <Label htmlFor="tcp">TCP</Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="ws" id="ws" />
-                  <Label htmlFor="ws">WebSocket</Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="grpc" id="grpc" />
-                  <Label htmlFor="grpc">gRPC</Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <RadioGroupItem value="http" id="http" />
-                  <Label htmlFor="http">HTTP/2</Label>
-                </div>
-              </RadioGroup>
+                {[
+                  { value: "tcp", label: "TCP" },
+                  { value: "ws", label: "WebSocket" },
+                  { value: "grpc", label: "gRPC" },
+                  { value: "http", label: "HTTP/2" },
+                ].map((item) => (
+                  <Radio.Root key={item.value} value={item.value}>
+                    <Radio.Control>
+                      <Radio.Indicator />
+                    </Radio.Control>
+                    <Radio.Content>{item.label}</Radio.Content>
+                  </Radio.Root>
+                ))}
+              </RadioGroup.Root>
               {form.watch("transport_type") === "ws" && (
                 <div className="space-y-2">
                   <FieldLabel
@@ -854,6 +839,7 @@ export function InboundFormModal({
                     id="transport_path"
                     {...form.register("transport_path")}
                     placeholder="/vless"
+                    variant="secondary"
                   />
                 </div>
               )}
@@ -867,6 +853,7 @@ export function InboundFormModal({
                     id="transport_service_name"
                     {...form.register("transport_service_name")}
                     placeholder="TunService"
+                    variant="secondary"
                   />
                 </div>
               )}
@@ -881,6 +868,7 @@ export function InboundFormModal({
                       id="transport_http_host"
                       {...form.register("transport_http_host")}
                       placeholder=""
+                      variant="secondary"
                     />
                   </div>
                   <div className="space-y-2">
@@ -892,6 +880,7 @@ export function InboundFormModal({
                       id="transport_http_path"
                       {...form.register("transport_http_path")}
                       placeholder=""
+                      variant="secondary"
                     />
                   </div>
                 </div>
@@ -899,20 +888,23 @@ export function InboundFormModal({
             </section>
           )}
 
-          <DialogFooter>
+              <Modal.Footer>
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onPress={() => onOpenChange(false)}
             >
               取消
             </Button>
-            <Button type="submit" disabled={form.formState.isSubmitting}>
+            <Button type="submit" isDisabled={form.formState.isSubmitting}>
               {inbound ? "保存" : "添加"}
             </Button>
-          </DialogFooter>
+              </Modal.Footer>
         </form>
-      </DialogContent>
-    </Dialog>
+            </Modal.Body>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </Modal.Root>
   )
 }
