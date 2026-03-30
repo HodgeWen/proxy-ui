@@ -59,7 +59,7 @@ export function Sidebar({
       className={cn(
         "flex h-full w-full max-w-72 flex-col rounded-2xl border border-divider bg-content1 p-4 shadow-medium",
         mobile &&
-          "rounded-none border-0 bg-content1 px-5 pb-5 pt-4 shadow-none"
+          "rounded-none border-0 bg-transparent p-5"
       )}
       data-open={open}
     >
@@ -97,8 +97,8 @@ export function Sidebar({
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-all duration-200",
                 isActive
-                  ? "bg-primary/10 text-primary"
-                  : "text-foreground-500 hover:bg-content2 hover:text-foreground"
+                  ? "bg-primary/20 text-primary"
+                  : "text-foreground-500 hover:bg-default-100 hover:text-foreground"
               )}
             >
               <item.icon className="size-4" />

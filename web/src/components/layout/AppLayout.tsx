@@ -48,7 +48,7 @@ export function AppLayout() {
             <h2 className="text-lg font-semibold">{currentPage}</h2>
           </header>
 
-          <main className="min-h-0 flex-1 overflow-y-auto rounded-xl border border-divider bg-content1 shadow-medium">
+          <main className="min-h-0 flex-1 overflow-y-auto rounded-xl ">
             <Outlet />
           </main>
         </div>

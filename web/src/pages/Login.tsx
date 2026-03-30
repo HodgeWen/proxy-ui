@@ -47,9 +47,9 @@ export function Login() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-md shadow-large">
-        <Card.Header className="flex-col items-center gap-4 px-6 pt-8 text-center sm:px-8">
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md ">
+        <Card.Header className="flex flex-col items-center gap-4 text-center mt-4">
           <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary">
             <span className="text-2xl font-bold">S</span>
           </div>
@@ -61,7 +61,7 @@ export function Login() {
           </div>
         </Card.Header>
 
-        <Card.Content className="px-6 pb-8 sm:px-8">
+        <Card.Content >
           <Form
             onSubmit={handleSubmit}
             validationBehavior="aria"

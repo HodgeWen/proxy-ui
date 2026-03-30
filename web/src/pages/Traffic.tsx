@@ -121,16 +121,16 @@ export function Traffic() {
       <div className="grid gap-6 md:grid-cols-3">
         {statCards.map((card) => (
           <Card key={card.title}>
-            <Card.Content className="space-y-4 p-5">
+            <Card.Content className="space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-medium text-foreground-500">{card.title}</h2>
+                <h2 className="text-sm font-medium text-default-500">{card.title}</h2>
                 <card.icon className="size-4 text-primary" />
               </div>
               <div className={card.smallValue ? "text-xl font-bold" : "text-2xl font-bold"}>
                 {card.value}
               </div>
               {card.sub && (
-                <p className="text-sm text-foreground-500">{card.sub}</p>
+                <p className="text-sm text-default-500">{card.sub}</p>
               )}
             </Card.Content>
           </Card>
@@ -158,13 +158,13 @@ export function Traffic() {
                 <Table.Body>
                   {inboundsLoading ? (
                     <Table.Row>
-                      <Table.Cell colSpan={4} className="py-8 text-center text-foreground-500">
+                      <Table.Cell colSpan={4} className="py-8 text-center text-default-500">
                         加载中...
                       </Table.Cell>
                     </Table.Row>
                   ) : inbounds.length === 0 ? (
                     <Table.Row>
-                      <Table.Cell colSpan={4} className="py-8 text-center text-foreground-500">
+                      <Table.Cell colSpan={4} className="py-8 text-center text-default-500">
                         暂无入站
                       </Table.Cell>
                     </Table.Row>
@@ -197,13 +197,13 @@ export function Traffic() {
                 <Table.Body>
                   {usersLoading ? (
                     <Table.Row>
-                      <Table.Cell colSpan={4} className="py-8 text-center text-foreground-500">
+                      <Table.Cell colSpan={4} className="py-8 text-center text-default-500">
                         加载中...
                       </Table.Cell>
                     </Table.Row>
                   ) : users.length === 0 ? (
                     <Table.Row>
-                      <Table.Cell colSpan={4} className="py-8 text-center text-foreground-500">
+                      <Table.Cell colSpan={4} className="py-8 text-center text-default-500">
                         暂无用户
                       </Table.Cell>
                     </Table.Row>

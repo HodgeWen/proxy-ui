@@ -63,9 +63,9 @@ export function Setup() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-md shadow-large">
-        <Card.Header className="px-6 pt-8 sm:px-8">
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md ">
+        <Card.Header className="flex flex-col gap-2 mt-4 ml-2">
           <div className="space-y-1">
             <Card.Title className="text-2xl font-semibold">
               创建管理员账户
@@ -76,7 +76,7 @@ export function Setup() {
           </div>
         </Card.Header>
 
-        <Card.Content className="px-6 pb-8 sm:px-8">
+        <Card.Content >
           <Form
             onSubmit={handleSubmit}
             validationBehavior="aria"

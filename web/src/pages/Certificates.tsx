@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Button } from "@heroui/react"
+import { Modal,  Button  } from "@heroui/react"
 import { Plus } from "lucide-react"
 import {
   CertificateTable,
@@ -55,8 +55,21 @@ export function Certificates() {
     setEditingId(null)
   }
 
-  const handleDelete = async (id: number) => {
-    if (!window.confirm("确定要删除此证书吗？")) return
+  
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+
+  const handleDeleteClick = (id: number) => {
+    setDeletingId(id)
+    setDeleteModalOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (deletingId === null) return
+    const id = deletingId
+    setDeleteModalOpen(false)
+    setDeletingId(null)
+
     const res = await fetch(`/api/certs/${id}`, {
       method: "DELETE",
       credentials: "include",
@@ -68,17 +81,37 @@ export function Certificates() {
     }
     toast.success("证书已删除")
     queryClient.invalidateQueries({ queryKey: ["certificates"] })
+  
   }
+
 
   if (isLoading) {
     return (
       <div className="p-6 space-y-6">
         <h1 className="text-2xl font-bold">证书管理</h1>
-        <p className="text-foreground-500">加载中...</p>
-      </div>
-    )
-  }
-
+        <p className="text-default-500">加载中...</p>
+      
+      <Modal.Root isOpen={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <Modal.Backdrop>
+          <Modal.Container>
+            <Modal.Dialog>
+              <Modal.Header>
+                <Modal.Heading>确认删除</Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                <p className="text-sm text-default-500">确定要删除此证书吗？此操作无法撤销。</p>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button variant="outline" onPress={() => setDeleteModalOpen(false)}>取消</Button>
+                <Button variant="danger" onPress={confirmDelete}>确认删除</Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal.Root>
+    </div>
+  )
+}
   if (isError) {
     return (
       <div className="p-6 space-y-6">
@@ -108,7 +141,7 @@ export function Certificates() {
       <CertificateTable
           certificates={data?.data ?? []}
           onEdit={handleEdit}
-          onDelete={handleDelete}
+          onDelete={handleDeleteClick}
         />
 
       <CertificateFormModal

@@ -1,6 +1,5 @@
 # 前端全面迁移到 HeroUI v3 Beta
-
-> 状态: 未执行
+> 状态: 已执行
 
 ## 目标
 
@@ -185,14 +184,21 @@
 
 ## 影响范围
 
-- `web/src/main.tsx`
-- `web/src/index.css`
-- `web/src/components/theme-provider.tsx`
-- `web/src/components/layout/*`
-- `web/src/components/form/*`
-- `web/src/components/users/*`
-- `web/src/components/inbounds/*`
-- `web/src/components/certificates/*`
-- `web/src/pages/*`
+- web/src/components/layout/AppLayout.tsx
+- web/src/components/layout/Sidebar.tsx
+- web/src/components/layout/PageHero.tsx
+- web/src/pages/Login.tsx
+- web/src/pages/Setup.tsx
+- web/src/pages/Dashboard.tsx
+- web/src/pages/Traffic.tsx
+- web/src/pages/Users.tsx
+- web/src/pages/Inbounds.tsx
+- web/src/pages/Certificates.tsx
+- web/src/pages/Subscriptions.tsx
+- web/src/pages/Core.tsx
+- web/src/components/users/BatchActionBar.tsx
+- web/src/components/users/UserTable.tsx
+- web/src/components/inbounds/InboundTable.tsx
+- web/src/components/certificates/CertificateTable.tsx
 
 ## 历史补丁

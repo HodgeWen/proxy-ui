@@ -519,7 +519,7 @@ export function Core() {
         </Card.Header>
         <Card.Content>
           {isLoading ? (
-            <div className="h-16 flex items-center text-foreground-500">
+            <div className="h-16 flex items-center text-default-500">
               加载中...
             </div>
           ) : status ? (
@@ -534,7 +534,7 @@ export function Core() {
                   {stateMeta?.label || "状态未知"}
                 </span>
               </div>
-              <p className="text-sm text-foreground-500">
+              <p className="text-sm text-default-500">
                 {stateMeta?.description || "当前状态暂不可用。"}
               </p>
               {status.state === "running" && (
@@ -548,7 +548,7 @@ export function Core() {
                   <p className="font-medium">
                     检测到核心未安装，请先下载并安装 sing-box 二进制。
                   </p>
-                  <p className="text-foreground-500">
+                  <p className="text-default-500">
                     建议安装到当前路径：<span className="font-mono break-all">{status.binaryPath}</span>
                   </p>
                 </Alert>
@@ -559,7 +559,7 @@ export function Core() {
                     最近一次启动异常，可重试启动或查看日志定位问题。
                   </p>
                   {status.lastError?.message && (
-                    <p className="text-foreground-500 break-all">
+                    <p className="text-default-500 break-all">
                       错误信息：{status.lastError.message}
                     </p>
                   )}
@@ -579,25 +579,25 @@ export function Core() {
               <div className="grid gap-2 sm:grid-cols-2 text-sm">
                 {status.version && (
                   <div>
-                    <span className="text-foreground-500">当前版本：</span>
+                    <span className="text-default-500">当前版本：</span>
                     <span className="font-mono">{status.version}</span>
                   </div>
                 )}
                 {latestVersion && (
                   <div>
-                    <span className="text-foreground-500">最新版本：</span>
+                    <span className="text-default-500">最新版本：</span>
                     <span className="font-mono">{latestVersion}</span>
                   </div>
                 )}
                 {status.binaryPath && (
                   <div>
-                    <span className="text-foreground-500">二进制路径：</span>
+                    <span className="text-default-500">二进制路径：</span>
                     <span className="font-mono text-xs break-all">{status.binaryPath}</span>
                   </div>
                 )}
                 {status.configPath && (
                   <div>
-                    <span className="text-foreground-500">配置路径：</span>
+                    <span className="text-default-500">配置路径：</span>
                     <span className="font-mono text-xs break-all">{status.configPath}</span>
                   </div>
                 )}
@@ -605,7 +605,7 @@ export function Core() {
 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-auto p-0 text-foreground-500"
+                  className="h-auto p-0 text-default-500"
                 onPress={() => setVersionsListOpen(true)}
               >
                 查看所有版本
@@ -647,7 +647,7 @@ export function Core() {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-foreground-500">无法获取状态</p>
+            <p className="text-sm text-default-500">无法获取状态</p>
           )}
         </Card.Content>
       </Card>
@@ -659,13 +659,13 @@ export function Core() {
         </Card.Header>
         <Card.Content>
           {configLoading ? (
-            <div className="text-foreground-500 text-sm">加载中...</div>
+            <div className="text-default-500 text-sm">加载中...</div>
           ) : configContent ? (
             <pre className="bg-content2 rounded-lg p-4 text-sm font-mono overflow-auto max-h-[60vh] whitespace-pre-wrap">
               {configContent}
             </pre>
           ) : (
-            <p className="text-sm text-foreground-500">
+            <p className="text-sm text-default-500">
               暂无配置文件 — 添加入站后自动生成
             </p>
           )}
@@ -680,7 +680,7 @@ export function Core() {
                 <Modal.Heading>确认更新</Modal.Heading>
               </Modal.Header>
               <Modal.Body>
-                <p className="text-sm text-foreground-500">
+                <p className="text-sm text-default-500">
               确定要将 sing-box 更新到最新版本吗？更新过程中服务将短暂停止。
                 </p>
               </Modal.Body>
@@ -721,7 +721,7 @@ export function Core() {
                 <Modal.Heading>确认回滚</Modal.Heading>
               </Modal.Header>
               <Modal.Body>
-                <p className="text-sm text-foreground-500">确定要回滚到上一版本吗？</p>
+                <p className="text-sm text-default-500">确定要回滚到上一版本吗？</p>
               </Modal.Body>
               <Modal.Footer>
                 <Button
@@ -758,7 +758,7 @@ export function Core() {
                 <Modal.Heading>所有版本</Modal.Heading>
               </Modal.Header>
               <Modal.Body>
-                <p className="text-sm text-foreground-500">
+                <p className="text-sm text-default-500">
               来自 GitHub Releases，stable 为正式版，pre-release 为预发布版
                 </p>
                 <div className="max-h-[60vh] overflow-y-auto">
@@ -792,7 +792,7 @@ export function Core() {
                 <Modal.Heading>核心操作失败</Modal.Heading>
               </Modal.Header>
               <Modal.Body>
-                <p className="text-sm text-foreground-500">错误详情如下：</p>
+                <p className="text-sm text-default-500">错误详情如下：</p>
                 <pre className="mt-2 max-h-[60vh] overflow-auto rounded-lg bg-content2 p-4 text-sm font-mono whitespace-pre-wrap">
                   {errorDetail}
                 </pre>
@@ -820,11 +820,11 @@ export function Core() {
                 <Modal.Heading>核心日志</Modal.Heading>
               </Modal.Header>
               <Modal.Body>
-                <p className="text-sm text-foreground-500">
+                <p className="text-sm text-default-500">
               {logsData?.path ? `日志路径：${logsData.path}` : "展示最近 200 行日志"}
                 </p>
           {logsMutation.isPending ? (
-            <div className="h-40 flex items-center justify-center gap-2 text-sm text-foreground-500">
+            <div className="h-40 flex items-center justify-center gap-2 text-sm text-default-500">
               <Loader2 className="size-4 animate-spin" />
               正在读取日志...
             </div>
@@ -837,7 +837,7 @@ export function Core() {
               {logsData.entries.join("\n")}
             </pre>
           ) : (
-            <div className="h-40 flex items-center justify-center text-sm text-foreground-500">
+            <div className="h-40 flex items-center justify-center text-sm text-default-500">
               暂无日志内容
             </div>
           )}

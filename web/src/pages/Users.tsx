@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
-import { Button, Input } from "@heroui/react"
+import { Modal,  Button, Input  } from "@heroui/react"
 import { Search, UserPlus } from "lucide-react"
 import { UserTable, type User } from "@/components/users/UserTable"
 import { UserFormModal } from "@/components/users/UserFormModal"
@@ -64,8 +64,21 @@ export function Users() {
     setSubOpen(true)
   }
 
-  const handleDelete = async (id: number) => {
-    if (!window.confirm("确定要删除此用户吗？")) return
+  
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+
+  const handleDeleteClick = (id: number) => {
+    setDeletingId(id)
+    setDeleteModalOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (deletingId === null) return
+    const id = deletingId
+    setDeleteModalOpen(false)
+    setDeletingId(null)
+
     const res = await fetch(`/api/users/${id}`, {
       method: "DELETE",
       credentials: "include",
@@ -78,7 +91,9 @@ export function Users() {
     toast.success("用户已删除")
     queryClient.invalidateQueries({ queryKey: ["users"] })
     setSelectedIds((prev) => prev.filter((i) => i !== id))
+  
   }
+
 
   const runBatchAction = async (action: string) => {
     const res = await fetch("/api/users/batch", {
@@ -112,7 +127,7 @@ export function Users() {
           actions={
             <>
               <Input
-                startContent={<Search className="size-4 text-foreground-500" />}
+                startContent={<Search className="size-4 text-default-500" />}
                 placeholder="搜索用户（名称 / 备注 / UUID）"
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
@@ -126,13 +141,13 @@ export function Users() {
           }
         >
           <div className="space-y-2">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-foreground-500">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-default-500">
               Query State
             </p>
             <p className="text-sm font-medium">
               {isFetching ? "正在刷新用户列表" : "用户列表已同步"}
             </p>
-            <p className="text-sm text-foreground-500">
+            <p className="text-sm text-default-500">
               当前搜索：{searchQ || "全部用户"}
             </p>
           </div>
@@ -155,7 +170,7 @@ export function Users() {
           <UserTable
             users={data?.data ?? []}
             onEdit={handleEdit}
-            onDelete={handleDelete}
+            onDelete={handleDeleteClick}
             onSubscription={handleSubscription}
             selectedIds={selectedIds}
             onSelectionChange={setSelectedIds}
@@ -180,6 +195,25 @@ export function Users() {
         }}
         userId={subUserId}
       />
+    
+      <Modal.Root isOpen={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <Modal.Backdrop>
+          <Modal.Container>
+            <Modal.Dialog>
+              <Modal.Header>
+                <Modal.Heading>确认删除</Modal.Heading>
+              </Modal.Header>
+              <Modal.Body>
+                <p className="text-sm text-default-500">确定要删除此用户吗？此操作无法撤销。</p>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button variant="outline" onPress={() => setDeleteModalOpen(false)}>取消</Button>
+                <Button variant="danger" onPress={confirmDelete}>确认删除</Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal.Root>
     </div>
   )
 }

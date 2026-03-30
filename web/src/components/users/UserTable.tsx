@@ -111,13 +111,13 @@ export function UserTable({
       <Table.Body>
         {isLoading ? (
           <Table.Row>
-            <Table.Cell colSpan={9} className="text-center text-foreground-500 py-8">
+            <Table.Cell colSpan={20} className="text-center text-default-500 py-8">
               加载中...
             </Table.Cell>
           </Table.Row>
         ) : users.length === 0 ? (
           <Table.Row>
-            <Table.Cell colSpan={9} className="text-center text-foreground-500 py-8">
+            <Table.Cell colSpan={20} className="text-center text-default-500 py-8">
               暂无用户
             </Table.Cell>
           </Table.Row>

@@ -27,8 +27,8 @@ export function BatchActionBar({
 
   return (
     <>
-      <Card className="shadow-none">
-        <Card.Content className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+      <Card className="fixed bottom-6 left-1/2 z-50 w-[90%] -translate-x-1/2 shadow-medium md:w-auto border border-divider">
+        <Card.Content className="flex flex-col gap-3 px-6 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <span className="text-sm font-medium">已选 {selectedCount} 个用户</span>
           </div>

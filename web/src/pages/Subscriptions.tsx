@@ -79,13 +79,13 @@ export function Subscriptions() {
             <Table.Body>
               {isLoading ? (
                 <Table.Row>
-                  <Table.Cell className="py-8 text-center text-foreground-500" colSpan={4}>
+                  <Table.Cell colSpan={20} className="text-center text-default-500 py-8">
                     加载中...
                   </Table.Cell>
                 </Table.Row>
               ) : users.length === 0 ? (
                 <Table.Row>
-                  <Table.Cell className="py-8 text-center text-foreground-500" colSpan={4}>
+                  <Table.Cell colSpan={20} className="text-center text-default-500 py-8">
                     暂无用户
                   </Table.Cell>
                 </Table.Row>
@@ -96,13 +96,13 @@ export function Subscriptions() {
                   return (
                     <Table.Row key={u.id}>
                       <Table.Cell className="font-medium">{u.name}</Table.Cell>
-                      <Table.Cell className="max-w-xs">
+                      <Table.Cell >
                         {url ? (
-                          <code className="block truncate rounded-lg bg-content2 px-2.5 py-1.5 text-xs font-mono">
+                          <code className="block truncate rounded-lg bg-default-100 px-2 py-1 text-xs font-mono">
                             {url}
                           </code>
                         ) : (
-                          <span className="text-foreground-500">—</span>
+                          <span className="text-default-500">—</span>
                         )}
                       </Table.Cell>
                       <Table.Cell>
@@ -152,7 +152,7 @@ export function Subscriptions() {
                 <div className="rounded-lg border border-divider bg-content1 p-4">
                 <QRCodeSVG value={fullUrl(qrUser.subscription_url)} size={200} />
                 </div>
-                <code className="break-all px-4 text-center text-xs font-mono text-foreground-500">
+                <code className="break-all px-4 text-center text-xs font-mono text-default-500">
                   {fullUrl(qrUser.subscription_url)}
                 </code>
               </div>
