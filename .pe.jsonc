@@ -1,0 +1,4 @@
+{
+  // 内部文档服务地址（非敏感配置，提交入 git）
+  "docs_server_url": "https://agent-docs.dev.szyzh.cc/"
+}

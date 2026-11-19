@@ -1,0 +1,54 @@
+{
+  "version": 2,
+  "skills": {
+    "backend-expert": {
+      "source": "cabinet-fe/prompt-engineering",
+      "commit": "b7718647780ee1f91393ddcbded2cd246e204ead",
+      "sourceType": "github",
+      "skillPath": "skills/roles/backend-expert/SKILL.md",
+      "computedHash": "5a18e68b11c67721326fa929583c32379837db184030abe31cb596981475f668"
+    },
+    "docs-search": {
+      "source": "cabinet-fe/prompt-engineering",
+      "commit": "b7718647780ee1f91393ddcbded2cd246e204ead",
+      "sourceType": "github",
+      "skillPath": "skills/tools/docs-search/SKILL.md",
+      "computedHash": "cee4a0d261f44ba299d44a8771d1ab286bfeb0bd3562d750bf1b4690da8e1901"
+    },
+    "frontend-expert": {
+      "source": "cabinet-fe/prompt-engineering",
+      "commit": "b7718647780ee1f91393ddcbded2cd246e204ead",
+      "sourceType": "github",
+      "skillPath": "skills/roles/frontend-expert/SKILL.md",
+      "computedHash": "7dce9c7c58dafeb7c36c160368a3706e98426983f46d2f730e22a7bd2bd0f2a9"
+    },
+    "gin": {
+      "source": "cabinet-fe/prompt-engineering",
+      "commit": "b7718647780ee1f91393ddcbded2cd246e204ead",
+      "sourceType": "github",
+      "skillPath": "skills/frameworks/gin/SKILL.md",
+      "computedHash": "5afdd93f89bf2c5e77bdda55fa411247556627d5aabfa6785f33d4393029b6a1"
+    },
+    "go": {
+      "source": "cabinet-fe/prompt-engineering",
+      "commit": "b7718647780ee1f91393ddcbded2cd246e204ead",
+      "sourceType": "github",
+      "skillPath": "skills/langs/go/SKILL.md",
+      "computedHash": "3397ee0e29e63bafa3fc4cbff089df851e6af031a43b76ec5cb58d3c2f0026f7"
+    },
+    "typescript": {
+      "source": "cabinet-fe/prompt-engineering",
+      "commit": "b7718647780ee1f91393ddcbded2cd246e204ead",
+      "sourceType": "github",
+      "skillPath": "skills/langs/typescript/SKILL.md",
+      "computedHash": "59dc0eb8284c69b5619e0e8babb6c9496d1924343bf0195bf268e3626937f28f"
+    },
+    "vue": {
+      "source": "cabinet-fe/prompt-engineering",
+      "commit": "b7718647780ee1f91393ddcbded2cd246e204ead",
+      "sourceType": "github",
+      "skillPath": "skills/frameworks/vue/SKILL.md",
+      "computedHash": "a3dbe05ab5a8333eee3505b065dada40fe8b47f518c4fa28d09bdaae5fc719e6"
+    }
+  }
+}
