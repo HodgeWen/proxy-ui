@@ -36,7 +36,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	engine := server.New(server.Options{DB: gormDB, Dist: dist, Version: Version})
+	engine := server.New(server.Options{DB: gormDB, Dist: dist, Version: Version, DataDir: *dataDir})
 	slog.Info("面板启动", "addr", *addr, "version", Version, "db", *dbPath)
 	if err := http.ListenAndServe(*addr, engine); err != nil {
 		slog.Error("HTTP 服务退出", "err", err)

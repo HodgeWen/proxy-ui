@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	"gorm.io/gorm"
 
 	"proxy-ui/internal/api"
+	"proxy-ui/internal/singbox"
+	"proxy-ui/internal/update"
 )
 
 // Options 服务装配参数。
@@ -20,6 +23,7 @@ type Options struct {
 	DB      *gorm.DB // 数据库
 	Dist    fs.FS    // 前端构建产物（web/dist 子目录）
 	Version string   // 面板版本号
+	DataDir string   // 数据目录（内核、配置等落盘位置）
 }
 
 // New 装配面板 HTTP 服务。
@@ -28,7 +32,10 @@ func New(opt Options) *gin.Engine {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	store := NewSessionStore()
-	a := api.New(opt.DB, store)
+	coreDir := filepath.Join(opt.DataDir, "core")
+	core := singbox.New(coreDir)
+	updates := update.New(opt.DB, coreDir)
+	a := api.New(opt.DB, store, core, updates)
 
 	engine := gin.New()
 	engine.Use(gin.Recovery(), requestLog())
@@ -44,6 +51,15 @@ func New(opt Options) *gin.Engine {
 	g.POST("/logout", a.HandleLogout)
 	g.GET("/me", a.HandleMe)
 	g.PUT("/password", a.HandleChangePassword)
+	g.GET("/kernel/status", a.HandleKernelStatus)
+	g.GET("/kernel/logs", a.HandleKernelLogs)
+	g.POST("/kernel/start", a.HandleKernelStart)
+	g.POST("/kernel/stop", a.HandleKernelStop)
+	g.POST("/kernel/restart", a.HandleKernelRestart)
+	g.GET("/kernel/versions", a.HandleKernelVersions)
+	g.POST("/kernel/install", a.HandleKernelInstall)
+	g.GET("/kernel/mirror", a.HandleMirrorGet)
+	g.PUT("/kernel/mirror", a.HandleMirrorSet)
 
 	engine.NoRoute(spa(opt.Dist))
 	return engine
