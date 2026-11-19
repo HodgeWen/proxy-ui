@@ -1,6 +1,6 @@
 # 代码地图
 
-> `main.go`/`embed.go`/`internal/server`/`internal/api`/`internal/db`/`scripts/` 已落码；`singbox`/`subscription`/`update`/`ai`/`web` 包仍为**规划**，落码后由做改动的会话按「收尾」更新。
+> `main.go`/`embed.go`/`internal/server`/`internal/api`/`internal/db`/`web`/`scripts/` 已落码；`singbox`/`subscription`/`update`/`ai` 包仍为**规划**，落码后由做改动的会话按「收尾」更新。
 
 ## 树
 
@@ -19,14 +19,14 @@ proxy-ui/
 ├── scripts/
 │   └── build.sh          # 一键构建：前端（web 包存在时）+ linux/amd64、darwin/arm64 交叉编译（禁 CGO）
 └── web/                  # Vue3 SPA（独立 npm 包，bun + Vite）
-    ├── dist/             # 前端构建产物，go:embed 嵌入；当前为占位 index.html
+    ├── dist/             # 前端构建产物（bun run build 生成），go:embed 嵌入；.gitkeep 占位保底
     ├── src/
-    │   ├── api/          # 后端接口封装（规划）
-    │   ├── stores/       # Pinia（规划）
-    │   ├── views/        # 页面：仪表盘/入站/出站/订阅/规则/设置/AI 助手（规划）
-    │   ├── components/   # 通用组件（规划）
-    │   └── router/       # 路由（规划）
-    └── package.json      # 规划
+    │   ├── api/          # 请求封装（envelope 解包、401 跳登录、错误提示）与鉴权接口
+    │   ├── stores/       # Pinia：auth 鉴权状态（初始化/会话/登录/登出/改密）
+    │   ├── views/        # 页面：向导/登录/仪表盘/入站/出站/规则/订阅/AI 助手/设置
+    │   ├── components/   # 通用组件：AppLayout 侧边导航布局
+    │   └── router/       # 路由与守卫（未登录重定向、已初始化后向导不可达）
+    └── package.json      # bun + Vite + TS + Vue3 + @veltra/desktop + Pinia + Vue Router
 ```
 
 ## 模块
@@ -40,11 +40,11 @@ proxy-ui/
 | subscription | `internal/subscription/` | 多格式订阅导出、二维码、规则集 | 规划 |
 | update | `internal/update/` | 面板与内核在线更新 | 规划 |
 | ai | `internal/ai/` | AI 对话代理与工具桥 | 规划 |
-| web | `web/` | Vue3 SPA 前端包 | `src/main.ts`（规划） |
+| web | `web/` | Vue3 SPA：底座、布局导航、登录/向导、设置骨架；业务页面待后续阶段填充 | `src/main.ts` |
 
 ## 依赖
 
-已落码部分：`server` → `api` → `db`；其余边为规划（singbox/subscription/update/ai 落码后生效）。
+已落码部分：`web` → `api`（REST，开发模式经 Vite 代理）、`server` → `api` → `db`；其余边为规划（singbox/subscription/update/ai 落码后生效）。
 
 ```mermaid
 graph TD
