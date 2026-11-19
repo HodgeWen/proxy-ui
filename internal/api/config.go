@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,28 +17,34 @@ import (
 // HandleKernelApply POST /api/kernel/apply 应用配置：聚合全部启用入站/出站重新生成
 // config.json；内核运行中则按新配置重启，未运行时仅写入待下次启动生效。
 func (a *API) HandleKernelApply(c *gin.Context) {
+	result, status, err := a.applyKernel(c.Request.Context())
+	if err != nil {
+		Fail(c, status, err.Error())
+		return
+	}
+	OK(c, result)
+}
+
+// applyKernel 聚合并应用内核配置，返回结果载荷与错误对应的 HTTP 状态码。
+func (a *API) applyKernel(ctx context.Context) (gin.H, int, error) {
 	cfg, err := a.buildKernelConfig()
 	if err != nil {
-		Fail(c, http.StatusBadRequest, err.Error())
-		return
+		return nil, http.StatusBadRequest, err
 	}
 	if err := a.core.WriteConfig(cfg); err != nil {
-		Fail(c, http.StatusInternalServerError, err.Error())
-		return
+		return nil, http.StatusInternalServerError, err
 	}
-	if err := a.core.CheckConfig(c.Request.Context()); err != nil {
-		Fail(c, http.StatusBadRequest, err.Error())
-		return
+	if err := a.core.CheckConfig(ctx); err != nil {
+		return nil, http.StatusBadRequest, err
 	}
 	applied := false
 	if a.core.Status().Running {
 		if err := a.core.Restart(); err != nil {
-			Fail(c, http.StatusBadRequest, err.Error())
-			return
+			return nil, http.StatusBadRequest, err
 		}
 		applied = true
 	}
-	OK(c, gin.H{"applied": applied, "status": a.kernelStatus(c)})
+	return gin.H{"applied": applied, "status": a.kernelStatusOf(ctx)}, http.StatusOK, nil
 }
 
 // buildKernelConfig 从数据库聚合启用中的入站/出站/规则/策略组生成完整内核配置。

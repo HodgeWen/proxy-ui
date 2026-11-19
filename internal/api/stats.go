@@ -41,15 +41,23 @@ type inboundTrafficView struct {
 
 // HandleStatsInboundTraffic GET /api/stats/inbound-traffic 按入站累计流量（含未产生流量的入站）。
 func (a *API) HandleStatsInboundTraffic(c *gin.Context) {
+	views, err := a.inboundTrafficViews()
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "查询累计流量失败: "+err.Error())
+		return
+	}
+	OK(c, views)
+}
+
+// inboundTrafficViews 查询按入站累计流量视图（含未产生流量的入站）。
+func (a *API) inboundTrafficViews() ([]inboundTrafficView, error) {
 	var inbounds []db.Inbound
 	if err := a.db.Order("id").Find(&inbounds).Error; err != nil {
-		Fail(c, http.StatusInternalServerError, "查询入站失败: "+err.Error())
-		return
+		return nil, err
 	}
 	var traffics []db.InboundTraffic
 	if err := a.db.Find(&traffics).Error; err != nil {
-		Fail(c, http.StatusInternalServerError, "查询累计流量失败: "+err.Error())
-		return
+		return nil, err
 	}
 	byInbound := make(map[uint]db.InboundTraffic, len(traffics))
 	for _, t := range traffics {
@@ -67,5 +75,5 @@ func (a *API) HandleStatsInboundTraffic(c *gin.Context) {
 			DownloadBytes: t.DownloadBytes,
 		})
 	}
-	OK(c, views)
+	return views, nil
 }

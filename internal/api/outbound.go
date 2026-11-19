@@ -32,16 +32,25 @@ type outboundReq struct {
 
 // HandleOutboundsList GET /api/outbounds 出站列表。
 func (a *API) HandleOutboundsList(c *gin.Context) {
-	var records []db.Outbound
-	if err := a.db.Order("id").Find(&records).Error; err != nil {
+	views, err := a.outboundViews()
+	if err != nil {
 		Fail(c, http.StatusInternalServerError, "查询出站列表失败: "+err.Error())
 		return
+	}
+	OK(c, views)
+}
+
+// outboundViews 查询全部出站并转为响应视图。
+func (a *API) outboundViews() ([]outboundView, error) {
+	var records []db.Outbound
+	if err := a.db.Order("id").Find(&records).Error; err != nil {
+		return nil, err
 	}
 	views := make([]outboundView, 0, len(records))
 	for _, ob := range records {
 		views = append(views, outboundToView(ob))
 	}
-	OK(c, views)
+	return views, nil
 }
 
 // HandleOutboundCreate POST /api/outbounds 创建出站（direct 或自定义）。

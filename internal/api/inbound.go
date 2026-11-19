@@ -37,16 +37,25 @@ type inboundReq struct {
 
 // HandleInboundsList GET /api/inbounds 入站列表。
 func (a *API) HandleInboundsList(c *gin.Context) {
-	var records []db.Inbound
-	if err := a.db.Order("id").Find(&records).Error; err != nil {
+	views, err := a.inboundViews()
+	if err != nil {
 		Fail(c, http.StatusInternalServerError, "查询入站列表失败: "+err.Error())
 		return
+	}
+	OK(c, views)
+}
+
+// inboundViews 查询全部入站并转为响应视图。
+func (a *API) inboundViews() ([]inboundView, error) {
+	var records []db.Inbound
+	if err := a.db.Order("id").Find(&records).Error; err != nil {
+		return nil, err
 	}
 	views := make([]inboundView, 0, len(records))
 	for _, in := range records {
 		views = append(views, a.inboundToView(in))
 	}
-	OK(c, views)
+	return views, nil
 }
 
 // HandleInboundCreate POST /api/inbounds 创建入站（空配置按协议填默认值）。

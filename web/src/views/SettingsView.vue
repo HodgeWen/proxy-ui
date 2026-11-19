@@ -1,4 +1,4 @@
-<!-- 设置页：账号分区改密；内核分区提供镜像前缀、版本下载安装、启停与日志；面板更新 / AI 供应商分区占位 -->
+<!-- 设置页：账号分区改密；内核分区提供镜像前缀、版本下载安装、启停与日志；AI 分区配置 OpenAI 兼容供应商；面板更新分区占位 -->
 <script setup lang="ts">
 import {
   UButton,
@@ -9,6 +9,7 @@ import {
   UForm,
   UInput,
   UPasswordInput,
+  USelect,
   UTable,
   UTabs,
   UTag,
@@ -18,6 +19,7 @@ import {
 import type { FormExposed, TabItem } from '@veltra/desktop'
 import { nextTick, onBeforeUnmount, reactive, shallowRef, watch } from 'vue'
 
+import { fetchAIConfig, saveAIConfig } from '../api/ai'
 import {
   fetchKernelLogs,
   fetchKernelStatus,
@@ -189,18 +191,75 @@ function stopPolling() {
   pollTimer = undefined
 }
 
+// ---------- AI 供应商 ----------
+
+/** AI 供应商表单（apiKey 留空表示保留已存 Key） */
+const aiForm = reactive({ baseUrl: '', model: '', apiKey: '', reasoningEffort: '' })
+/** 是否已配置 api-key（决定输入框占位提示） */
+const aiHasKey = shallowRef(false)
+const aiSaving = shallowRef(false)
+
+/** 推理强度选项：留空不指定 */
+const reasoningOptions = [
+  { label: '不指定', value: '' },
+  { label: 'low（低）', value: 'low' },
+  { label: 'medium（中）', value: 'medium' },
+  { label: 'high（高）', value: 'high' },
+]
+
+async function loadAIConfig() {
+  try {
+    const config = await fetchAIConfig()
+    aiForm.baseUrl = config.baseUrl
+    aiForm.model = config.model
+    aiForm.reasoningEffort = config.reasoningEffort
+    aiForm.apiKey = ''
+    aiHasKey.value = config.hasKey
+  } catch {
+    // 静默：下次保存会重新拉起错误
+  }
+}
+
+async function saveAI() {
+  if (!aiForm.baseUrl.trim() || !aiForm.model.trim()) {
+    message.error('接口地址与模型名不能为空')
+    return
+  }
+  aiSaving.value = true
+  try {
+    const config = await saveAIConfig({
+      baseUrl: aiForm.baseUrl.trim(),
+      model: aiForm.model.trim(),
+      apiKey: aiForm.apiKey.trim(),
+      reasoningEffort: aiForm.reasoningEffort,
+    })
+    aiForm.apiKey = ''
+    aiHasKey.value = config.hasKey
+    message.success(config.configured ? 'AI 供应商配置已保存' : '已保存，还需填写 API Key 才能对话')
+  } catch {
+    // 错误已由请求封装统一提示
+  } finally {
+    aiSaving.value = false
+  }
+}
+
 watch(
   active,
   (tab) => {
     if (tab !== 'kernel') {
       stopPolling()
+    }
+    if (tab === 'ai') {
+      void loadAIConfig()
       return
     }
-    void refreshStatus(false)
-    void refreshLogs()
-    void refreshVersions()
-    void loadMirror()
-    startPolling()
+    if (tab === 'kernel') {
+      void refreshStatus(false)
+      void refreshLogs()
+      void refreshVersions()
+      void loadMirror()
+      startPolling()
+    }
   },
 )
 
@@ -380,9 +439,27 @@ onBeforeUnmount(stopPolling)
 
     <template #ai>
       <u-card>
-        <u-card-header>AI 供应商</u-card-header>
+        <u-card-header>AI 供应商（OpenAI 兼容）</u-card-header>
         <u-card-content>
-          <u-empty text="OpenAI 兼容供应商配置将在后续版本提供" block />
+          <u-form :model="aiForm" :cols="1" label-width="88px" class="settings-form">
+            <u-input
+              label="接口地址"
+              field="baseUrl"
+              placeholder="如 https://api.openai.com/v1（OpenAI 兼容 base-url）"
+            />
+            <u-input label="模型" field="model" placeholder="如 gpt-4o-mini / deepseek-chat" />
+            <u-password-input
+              label="API Key"
+              field="apiKey"
+              :placeholder="aiHasKey ? '已配置，留空保持不变' : '供应商 API Key（仅保存在服务端）'"
+            />
+            <u-select label="推理强度" field="reasoningEffort" :options="reasoningOptions" />
+          </u-form>
+          <u-button type="primary" :loading="aiSaving" @click="saveAI">保存配置</u-button>
+          <p class="hint">
+            Key 只保存在面板服务端，对话经面板代理流式转发；配置后可在「AI 助手」页对话并让 AI
+            协助查询与修改面板配置。
+          </p>
         </u-card-content>
       </u-card>
     </template>

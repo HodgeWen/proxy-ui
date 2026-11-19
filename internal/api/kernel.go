@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -9,16 +10,16 @@ import (
 	"proxy-ui/internal/singbox"
 )
 
-// kernelStatus 组合内核状态与已安装版本。
-func (a *API) kernelStatus(c *gin.Context) singbox.Status {
+// kernelStatusOf 组合内核状态与已安装版本。
+func (a *API) kernelStatusOf(ctx context.Context) singbox.Status {
 	st := a.core.Status()
-	st.Version = a.core.Version(c.Request.Context())
+	st.Version = a.core.Version(ctx)
 	return st
 }
 
 // HandleKernelStatus GET /api/kernel/status 内核运行状态。
 func (a *API) HandleKernelStatus(c *gin.Context) {
-	OK(c, a.kernelStatus(c))
+	OK(c, a.kernelStatusOf(c.Request.Context()))
 }
 
 // HandleKernelLogs GET /api/kernel/logs?limit=200 内核日志。
@@ -33,7 +34,7 @@ func (a *API) HandleKernelStart(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	OK(c, a.kernelStatus(c))
+	OK(c, a.kernelStatusOf(c.Request.Context()))
 }
 
 // HandleKernelStop POST /api/kernel/stop 停止内核。
@@ -42,7 +43,7 @@ func (a *API) HandleKernelStop(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "停止内核失败: "+err.Error())
 		return
 	}
-	OK(c, a.kernelStatus(c))
+	OK(c, a.kernelStatusOf(c.Request.Context()))
 }
 
 // HandleKernelRestart POST /api/kernel/restart 重启内核。
@@ -51,7 +52,7 @@ func (a *API) HandleKernelRestart(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	OK(c, a.kernelStatus(c))
+	OK(c, a.kernelStatusOf(c.Request.Context()))
 }
 
 // HandleKernelVersions GET /api/kernel/versions 可用版本列表（GitHub Releases）。
@@ -86,7 +87,7 @@ func (a *API) HandleKernelInstall(c *gin.Context) {
 		return
 	}
 	a.core.InvalidateVersion()
-	OK(c, gin.H{"version": tag, "status": a.kernelStatus(c)})
+	OK(c, gin.H{"version": tag, "status": a.kernelStatusOf(c.Request.Context())})
 }
 
 // HandleMirrorGet GET /api/kernel/mirror 下载镜像前缀设置。

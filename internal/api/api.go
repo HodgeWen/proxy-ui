@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"proxy-ui/internal/ai"
 	"proxy-ui/internal/db"
 	"proxy-ui/internal/singbox"
 	"proxy-ui/internal/update"
@@ -32,12 +33,16 @@ type API struct {
 	core     *singbox.Manager      // 内核子进程管理
 	updates  *update.Manager       // 内核版本查询与安装
 	stats    *singbox.StatsMonitor // 内核统计采集（速率/连接/按入站累计）
+	ai       *ai.Service           // AI 助手（供应商配置、对话代理、工具注册表）
 	dataDir  string                // 数据目录（证书存储等落盘位置）
 }
 
 // New 构造 API；dataDir 为面板数据目录。
 func New(database *gorm.DB, sessions SessionManager, core *singbox.Manager, updates *update.Manager, stats *singbox.StatsMonitor, dataDir string) *API {
-	return &API{db: database, sessions: sessions, core: core, updates: updates, stats: stats, dataDir: dataDir}
+	a := &API{db: database, sessions: sessions, core: core, updates: updates, stats: stats, dataDir: dataDir}
+	a.ai = ai.New(database)
+	a.registerAITools()
+	return a
 }
 
 // certDir 面板存储证书目录。

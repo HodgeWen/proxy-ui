@@ -10,6 +10,7 @@
   "dependencies": {
     "@cat-kit/core": "^1.2.1",
     "@cat-kit/fe": "^1.2.1",
+    "@veltra/ai": "^2.7.0",
     "@veltra/compositions": "^2.4.0",
     "@veltra/desktop": "^2.4.0",
     "@veltra/directives": "^2.4.0",

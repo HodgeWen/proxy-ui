@@ -107,6 +107,11 @@ func New(opt Options) *gin.Engine {
 	g.POST("/subscription/tokens", a.HandleTokenCreate)
 	g.PATCH("/subscription/tokens/:id/revoked", a.HandleTokenRevoke)
 	g.POST("/subscription/tokens/:id/reset", a.HandleTokenReset)
+	g.GET("/ai/config", a.HandleAIConfigGet)
+	g.PUT("/ai/config", a.HandleAIConfigPut)
+	g.GET("/ai/tools", a.HandleAIToolsGet)
+	g.POST("/ai/tools/call", a.HandleAIToolCall)
+	g.POST("/ai/chat", a.HandleAIChat)
 
 	// 匿名订阅端点：token 鉴权，不进会话守卫
 	engine.GET("/sub/:token", subs.Handle)

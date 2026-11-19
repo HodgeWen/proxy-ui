@@ -42,16 +42,25 @@ type ruleReq struct {
 
 // HandleRulesList GET /api/rules 规则列表（按排序）。
 func (a *API) HandleRulesList(c *gin.Context) {
-	var records []db.Rule
-	if err := a.db.Order("`order`").Find(&records).Error; err != nil {
+	views, err := a.ruleViews()
+	if err != nil {
 		Fail(c, http.StatusInternalServerError, "查询规则列表失败: "+err.Error())
 		return
+	}
+	OK(c, views)
+}
+
+// ruleViews 查询全部规则并转为响应视图（按排序）。
+func (a *API) ruleViews() ([]ruleView, error) {
+	var records []db.Rule
+	if err := a.db.Order("`order`").Find(&records).Error; err != nil {
+		return nil, err
 	}
 	views := make([]ruleView, len(records))
 	for i, r := range records {
 		views[i] = ruleView(r)
 	}
-	OK(c, views)
+	return views, nil
 }
 
 // HandleRuleCreate POST /api/rules 创建规则（排序追加到末尾）。
@@ -226,16 +235,25 @@ type groupReq struct {
 
 // HandleGroupsList GET /api/policy-groups 策略组列表。
 func (a *API) HandleGroupsList(c *gin.Context) {
-	var records []db.PolicyGroup
-	if err := a.db.Order("id").Find(&records).Error; err != nil {
+	views, err := a.groupViews()
+	if err != nil {
 		Fail(c, http.StatusInternalServerError, "查询策略组列表失败: "+err.Error())
 		return
+	}
+	OK(c, views)
+}
+
+// groupViews 查询全部策略组并转为响应视图。
+func (a *API) groupViews() ([]groupView, error) {
+	var records []db.PolicyGroup
+	if err := a.db.Order("id").Find(&records).Error; err != nil {
+		return nil, err
 	}
 	views := make([]groupView, 0, len(records))
 	for _, g := range records {
 		views = append(views, groupToView(g))
 	}
-	OK(c, views)
+	return views, nil
 }
 
 // HandleGroupCreate POST /api/policy-groups 创建策略组。
