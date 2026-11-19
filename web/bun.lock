@@ -13,6 +13,7 @@
         "@veltra/icons": "^1.5.0",
         "@veltra/styles": "^2.4.0",
         "@veltra/utils": "^2.4.0",
+        "etiket": "^1.1.0",
         "pinia": "^4.1.0",
         "vue": "^3.5.45",
         "vue-router": "^5.5.1",
@@ -262,6 +263,8 @@
     "entities": ["entities@7.0.1", "", {}, "sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA=="],
 
     "estree-walker": ["estree-walker@2.0.2", "", {}, "sha512-Rfkk/Mp/DL7JVje3u18FxFujQlTNR2q6QfMSMB7AvCBx91NGj/ba3kCfza0f6dVDbw7YlRf/nDrn7pQrCCyQ/w=="],
+
+    "etiket": ["etiket@1.1.0", "", { "bin": { "etiket": "dist/cli.mjs" } }, "sha512-ZwnfqSRjjrkXoy4+R94coROTwRZUdHhiHgYGWBn33NjISHhigVMtRQVWKSID0OHIjsXaldXl+56LgswmYkgltA=="],
 
     "exsolve": ["exsolve@1.2.0", "", {}, "sha512-h1pQPR9XoeSMdntRNCjyTznaume4UpfXrULBnlkZ2CUM/G5eSa+pBByGldO5uR8dxbPC+OuJXsPPNf+JZ81ADg=="],
 

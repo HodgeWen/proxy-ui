@@ -15,6 +15,7 @@ import (
 
 	"proxy-ui/internal/api"
 	"proxy-ui/internal/singbox"
+	"proxy-ui/internal/subscription"
 	"proxy-ui/internal/update"
 )
 
@@ -35,6 +36,7 @@ func New(opt Options) *gin.Engine {
 	coreDir := filepath.Join(opt.DataDir, "core")
 	core := singbox.New(coreDir)
 	updates := update.New(opt.DB, coreDir)
+	subs := subscription.New(opt.DB)
 	a := api.New(opt.DB, store, core, updates, opt.DataDir)
 
 	engine := gin.New()
@@ -94,6 +96,14 @@ func New(opt Options) *gin.Engine {
 	g.DELETE("/policy-groups/:id", a.HandleGroupDelete)
 	g.GET("/anti-ad", a.HandleAntiADGet)
 	g.PUT("/anti-ad", a.HandleAntiADSet)
+	g.GET("/subscription", a.HandleSubscriptionGet)
+	g.PUT("/subscription/server", a.HandleSubscriptionServerPut)
+	g.POST("/subscription/tokens", a.HandleTokenCreate)
+	g.PATCH("/subscription/tokens/:id/revoked", a.HandleTokenRevoke)
+	g.POST("/subscription/tokens/:id/reset", a.HandleTokenReset)
+
+	// 匿名订阅端点：token 鉴权，不进会话守卫
+	engine.GET("/sub/:token", subs.Handle)
 
 	engine.NoRoute(spa(opt.Dist))
 	return engine

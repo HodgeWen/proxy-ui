@@ -216,14 +216,14 @@ func TestBuildConfigRoutingErrors(t *testing.T) {
 
 func TestRoutingRuleJSON(t *testing.T) {
 	// 多值逗号拆分与 literal 字段映射
-	rule, refs, err := routingRuleJSON(RuleEntry{Type: RuleTypeDomainSuffix, Value: " google.com, youtube.com ", Outbound: "proxy"})
+	rule, refs, err := RoutingRuleJSON(RuleEntry{Type: RuleTypeDomainSuffix, Value: " google.com, youtube.com ", Outbound: "proxy"})
 	if err != nil {
 		t.Fatalf("映射失败: %v", err)
 	}
 	if !jsonEqual(rule["domain_suffix"], []string{"google.com", "youtube.com"}) || rule["outbound"] != "proxy" || refs != nil {
 		t.Errorf("多值规则映射不符: %v %v", rule, refs)
 	}
-	if _, _, err := routingRuleJSON(RuleEntry{Type: RuleTypeDomain, Value: "  ", Outbound: "direct"}); err == nil {
+	if _, _, err := RoutingRuleJSON(RuleEntry{Type: RuleTypeDomain, Value: "  ", Outbound: "direct"}); err == nil {
 		t.Errorf("空匹配值应报错")
 	}
 }

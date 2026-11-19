@@ -65,8 +65,8 @@ type Routing struct {
 	AntiAD string       // anti-AD 规则源地址，空用官方默认源
 }
 
-// ruleSetConfig 生成规则集 tag 对应的远程规则集定义。
-func ruleSetConfig(tag, antiAD string) (RuleSetConfig, error) {
+// RuleSetConfigOf 生成规则集 tag 对应的远程规则集定义（订阅客户端渲染复用）。
+func RuleSetConfigOf(tag, antiAD string) (RuleSetConfig, error) {
 	var url string
 	switch {
 	case tag == AntiADTag:
@@ -84,8 +84,9 @@ func ruleSetConfig(tag, antiAD string) (RuleSetConfig, error) {
 	return RuleSetConfig{Type: "remote", Tag: tag, Format: "binary", URL: url}, nil
 }
 
-// routingRuleJSON 把规则条目映射为 sing-box route rule JSON 对象，返回引用的规则集 tag。
-func routingRuleJSON(r RuleEntry) (map[string]any, []string, error) {
+// RoutingRuleJSON 把规则条目映射为 sing-box route rule JSON 对象，返回引用的规则集 tag
+// （订阅客户端渲染复用）。
+func RoutingRuleJSON(r RuleEntry) (map[string]any, []string, error) {
 	items := splitRuleValue(r.Value)
 	if len(items) == 0 {
 		return nil, nil, fmt.Errorf("规则 %s 的匹配值不能为空", r.Value)
@@ -114,8 +115,9 @@ func routingRuleJSON(r RuleEntry) (map[string]any, []string, error) {
 	return rule, refs, nil
 }
 
-// groupOutboundJSON 把策略组映射为 sing-box selector/urltest 出站 JSON 对象。
-func groupOutboundJSON(g GroupEntry) (map[string]any, error) {
+// GroupOutboundJSON 把策略组映射为 sing-box selector/urltest 出站 JSON 对象
+// （订阅客户端渲染复用）。
+func GroupOutboundJSON(g GroupEntry) (map[string]any, error) {
 	if len(g.Members) == 0 {
 		return nil, fmt.Errorf("策略组 %s 未配置成员", g.Name)
 	}

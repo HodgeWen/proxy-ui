@@ -19,10 +19,11 @@ type RouteConfig struct {
 
 // RuleSetConfig 远程规则集。
 type RuleSetConfig struct {
-	Type   string `json:"type"`   // 类型：remote
-	Tag    string `json:"tag"`    // 规则集 tag
-	Format string `json:"format"` // 格式：binary（.srs）
-	URL    string `json:"url"`    // 下载地址
+	Type           string `json:"type"`                      // 类型：remote
+	Tag            string `json:"tag"`                       // 规则集 tag
+	Format         string `json:"format"`                    // 格式：binary（.srs）
+	URL            string `json:"url"`                       // 下载地址
+	DownloadDetour string `json:"download_detour,omitempty"` // 下载经由此出站（订阅客户端配置 direct，避免代理未就绪时下载失败）
 }
 
 // LogConfig 内核日志配置。

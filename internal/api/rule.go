@@ -14,10 +14,10 @@ import (
 	"proxy-ui/internal/singbox"
 )
 
-// 设置键。
+// 设置键（键名常量以 db 包为准）。
 const (
-	settingAntiAD     = "anti_ad_source" // anti-AD 规则源地址，空用官方默认源
-	settingRouteFinal = "route_final"    // 未命中规则的兜底出站 tag，空用内核默认
+	settingAntiAD     = db.SettingAntiADSource
+	settingRouteFinal = db.SettingRouteFinal
 )
 
 // ruleView 规则响应视图。

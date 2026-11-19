@@ -89,7 +89,7 @@ func applyRouting(cfg *Config, routing *Routing) error {
 		return err
 	}
 	for _, g := range routing.Groups {
-		ob, err := groupOutboundJSON(g)
+		ob, err := GroupOutboundJSON(g)
 		if err != nil {
 			return err
 		}
@@ -102,7 +102,7 @@ func applyRouting(cfg *Config, routing *Routing) error {
 		if r.Outbound != OutboundBlock && !tags[r.Outbound] && !groupTags[r.Outbound] {
 			return fmt.Errorf("规则 %s 的出站 %s 不存在", r.Value, r.Outbound)
 		}
-		rule, refs, err := routingRuleJSON(r)
+		rule, refs, err := RoutingRuleJSON(r)
 		if err != nil {
 			return err
 		}
@@ -115,7 +115,7 @@ func applyRouting(cfg *Config, routing *Routing) error {
 		}
 	}
 	for _, tag := range ruleSetTags {
-		rs, err := ruleSetConfig(tag, routing.AntiAD)
+		rs, err := RuleSetConfigOf(tag, routing.AntiAD)
 		if err != nil {
 			return err
 		}
