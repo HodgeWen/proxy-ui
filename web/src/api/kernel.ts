@@ -18,8 +18,8 @@ export interface KernelLogLine {
   line: string
 }
 
-/** 内核可用版本条目 */
-export interface KernelVersion {
+/** GitHub Releases 版本条目（内核与面板更新共用） */
+export interface ReleaseVersion {
   tag: string
   version: string
   prerelease: boolean
@@ -49,8 +49,8 @@ export function kernelAction(action: 'start' | 'stop' | 'restart'): Promise<Kern
 }
 
 /** 查询可用版本列表 */
-export function fetchKernelVersions(): Promise<{ versions: KernelVersion[] }> {
-  return request<{ versions: KernelVersion[] }>('/api/kernel/versions')
+export function fetchKernelVersions(): Promise<{ versions: ReleaseVersion[] }> {
+  return request<{ versions: ReleaseVersion[] }>('/api/kernel/versions')
 }
 
 /** 下载并安装内核；version 为空表示最新稳定版 */

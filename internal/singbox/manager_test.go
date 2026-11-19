@@ -193,3 +193,42 @@ func TestStartWithoutConfig(t *testing.T) {
 		t.Errorf("Stop 失败: %v", err)
 	}
 }
+
+// TestCoreConfigArgRelative 回归：sing-box 把相对 -c 路径按 -D 目录解析，
+// run/check 必须只传文件名 config.json，不得传完整相对路径（否则内核读不到配置立即退出）。
+func TestCoreConfigArgRelative(t *testing.T) {
+	m := New(t.TempDir())
+	writeFakeCore(t, m)
+	if err := m.EnsureConfig(); err != nil {
+		t.Fatalf("EnsureConfig 失败: %v", err)
+	}
+	// 改写假内核：先落盘参数（写绝对路径，子进程 cwd 是测试进程 cwd）；check 立即成功，run 常驻
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + filepath.Join(m.dir, "args.log") + "\nif [ \"$1\" = \"check\" ]; then exit 0; fi\nsleep 60\n"
+	if err := os.WriteFile(m.CorePath(), []byte(script), 0o755); err != nil {
+		t.Fatalf("改写假内核失败: %v", err)
+	}
+
+	readArgs := func() []string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(m.dir, "args.log"))
+		if err != nil {
+			t.Fatalf("读取参数记录失败: %v", err)
+		}
+		return strings.Fields(string(data))
+	}
+
+	if err := m.CheckConfig(context.Background()); err != nil {
+		t.Fatalf("CheckConfig 失败: %v", err)
+	}
+	if got := readArgs(); len(got) != 5 || got[0] != "check" || got[1] != "-D" || got[3] != "-c" || got[4] != "config.json" {
+		t.Fatalf("check 参数应为 check -D <dir> -c config.json, got %v", got)
+	}
+
+	if err := m.Start(); err != nil {
+		t.Fatalf("Start 失败: %v", err)
+	}
+	defer func() { _ = m.Stop() }()
+	if got := readArgs(); len(got) != 5 || got[0] != "run" || got[1] != "-D" || got[3] != "-c" || got[4] != "config.json" {
+		t.Fatalf("run 参数应为 run -D <dir> -c config.json, got %v", got)
+	}
+}

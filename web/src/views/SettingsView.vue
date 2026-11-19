@@ -1,4 +1,4 @@
-<!-- 设置页：账号分区改密；内核分区提供镜像前缀、版本下载安装、启停与日志；AI 分区配置 OpenAI 兼容供应商；面板更新分区占位 -->
+<!-- 设置页：账号分区改密；内核分区提供镜像前缀、版本下载安装、启停与日志；更新分区面板与内核在线更新；AI 分区配置 OpenAI 兼容供应商 -->
 <script setup lang="ts">
 import {
   UButton,
@@ -17,9 +17,10 @@ import {
   message,
 } from '@veltra/desktop'
 import type { FormExposed, TabItem } from '@veltra/desktop'
-import { nextTick, onBeforeUnmount, reactive, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, shallowRef, watch } from 'vue'
 
 import { fetchAIConfig, saveAIConfig } from '../api/ai'
+import { fetchHealth } from '../api/auth'
 import {
   fetchKernelLogs,
   fetchKernelStatus,
@@ -29,7 +30,8 @@ import {
   kernelAction,
   updateMirrorPrefix,
 } from '../api/kernel'
-import type { KernelLogLine, KernelStatus, KernelVersion } from '../api/kernel'
+import type { KernelLogLine, KernelStatus, ReleaseVersion } from '../api/kernel'
+import { fetchPanelVersions, updatePanel } from '../api/panel'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
@@ -73,7 +75,7 @@ const acting = shallowRef<'start' | 'stop' | 'restart' | ''>('')
 const logBox = shallowRef<HTMLElement>()
 
 /** 版本列表 */
-const versions = shallowRef<KernelVersion[]>([])
+const versions = shallowRef<ReleaseVersion[]>([])
 const loadingVersions = shallowRef(false)
 /** 正在安装的版本 tag；LATEST 表示「安装最新稳定版」 */
 const installing = shallowRef('')
@@ -191,6 +193,69 @@ function stopPolling() {
   pollTimer = undefined
 }
 
+// ---------- 面板与内核在线更新 ----------
+
+/** 面板当前版本与可用版本 */
+const panelVersion = shallowRef('')
+const panelVersions = shallowRef<ReleaseVersion[]>([])
+const panelChecking = shallowRef(false)
+const panelUpdating = shallowRef(false)
+/** 面板更新阶段提示（下载替换 / 等待重启恢复） */
+const panelPhase = shallowRef('')
+
+/** 最新稳定版（面板与内核通用取法） */
+const latestPanel = computed(() => panelVersions.value.find((item) => !item.prerelease))
+const latestKernel = computed(() => versions.value.find((item) => !item.prerelease))
+
+async function checkPanelUpdate() {
+  panelChecking.value = true
+  try {
+    const { currentVersion, versions: list } = await fetchPanelVersions()
+    panelVersion.value = currentVersion
+    panelVersions.value = list
+  } catch {
+    // 网络错误已由请求封装统一提示
+  } finally {
+    panelChecking.value = false
+  }
+}
+
+async function handlePanelUpdate() {
+  if (!latestPanel.value) return
+  panelUpdating.value = true
+  panelPhase.value = '正在下载并替换面板二进制…'
+  try {
+    const { version } = await updatePanel('')
+    panelPhase.value = `已更新到 ${version}，面板正在重启，等待服务恢复…`
+    if (await waitPanelOnline(version)) {
+      message.success(`面板已更新到 ${version}`)
+      window.location.reload()
+    } else {
+      message.warn('面板服务恢复超时，请稍后手动刷新查看')
+      panelPhase.value = ''
+    }
+  } catch {
+    panelPhase.value = ''
+    // 下载失败错误已由请求封装统一提示
+  } finally {
+    panelUpdating.value = false
+  }
+}
+
+/** 等待面板重启恢复且版本号变为目标版本；60 秒内未恢复返回 false */
+async function waitPanelOnline(targetVersion: string): Promise<boolean> {
+  for (let i = 0; i < 60; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    try {
+      const health = await fetchHealth()
+      if (health.version === targetVersion) return true
+    } catch {
+      // 服务重启中，继续等待
+    }
+  }
+  return false
+}
+
 // ---------- AI 供应商 ----------
 
 /** AI 供应商表单（apiKey 留空表示保留已存 Key） */
@@ -259,6 +324,12 @@ watch(
       void refreshVersions()
       void loadMirror()
       startPolling()
+      return
+    }
+    if (tab === 'update') {
+      void checkPanelUpdate()
+      void refreshStatus(false)
+      void refreshVersions()
     }
   },
 )
@@ -429,10 +500,53 @@ onBeforeUnmount(stopPolling)
     </template>
 
     <template #update>
-      <u-card>
+      <u-card class="kernel-card">
         <u-card-header>面板更新</u-card-header>
         <u-card-content>
-          <u-empty text="面板在线检查更新与一键升级将在后续版本提供" block />
+          <div class="kernel-meta">
+            <span>当前版本：<strong>{{ panelVersion || '未知' }}</strong></span>
+            <span>最新稳定版：<strong>{{ latestPanel?.tag ?? '未检查' }}</strong></span>
+          </div>
+          <div class="kernel-actions">
+            <u-button :loading="panelChecking" @click="checkPanelUpdate">检查更新</u-button>
+            <u-button
+              type="primary"
+              :loading="panelUpdating"
+              :disabled="!latestPanel"
+              @click="handlePanelUpdate"
+            >
+              {{ latestPanel?.installed ? '重装最新版' : '一键更新' }}
+            </u-button>
+          </div>
+          <p v-if="panelPhase" class="hint">{{ panelPhase }}</p>
+          <p class="hint">
+            更新会替换面板二进制并自动重启进程，数据与配置保留；GitHub
+            下载镜像前缀在「内核」分区配置，面板与内核更新共用。
+          </p>
+        </u-card-content>
+      </u-card>
+
+      <u-card class="kernel-card">
+        <u-card-header>sing-box 内核更新</u-card-header>
+        <u-card-content>
+          <div class="kernel-meta">
+            <span>
+              当前版本：<strong>{{ status?.version || (status?.installed ? '未知' : '未安装') }}</strong>
+            </span>
+            <span>最新稳定版：<strong>{{ latestKernel?.tag ?? '未检查' }}</strong></span>
+          </div>
+          <div class="kernel-actions">
+            <u-button :loading="loadingVersions" @click="refreshVersions">检查更新</u-button>
+            <u-button
+              type="primary"
+              :loading="installing === 'LATEST'"
+              :disabled="!latestKernel"
+              @click="handleInstall()"
+            >
+              {{ latestKernel?.installed ? '重装最新版' : '一键更新到最新' }}
+            </u-button>
+          </div>
+          <p class="hint">内核运行中时请先在「内核」分区停止；完整版本列表与内核日志见「内核」分区。</p>
         </u-card-content>
       </u-card>
     </template>

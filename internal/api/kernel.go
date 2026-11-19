@@ -65,14 +65,14 @@ func (a *API) HandleKernelVersions(c *gin.Context) {
 	OK(c, gin.H{"versions": versions})
 }
 
-// installReq 安装内核请求。
-type installReq struct {
+// versionReq 指定目标版本的安装/更新请求。
+type versionReq struct {
 	Version string `json:"version"` // 目标版本 tag；空表示最新稳定版
 }
 
 // HandleKernelInstall POST /api/kernel/install 下载并安装内核（同步等待完成）。
 func (a *API) HandleKernelInstall(c *gin.Context) {
-	var req installReq
+	var req versionReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
 		return

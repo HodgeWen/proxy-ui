@@ -93,13 +93,20 @@ func (a *API) buildKernelConfig() (singbox.Config, error) {
 }
 
 // resolveCertPaths 把面板存储证书 ID 解析为证书/私钥绝对路径（含存在性校验）。
+// 必须返回绝对路径：sing-box 对配置内的相对路径按其工作目录（-D）解析，相对路径会指错位置。
 func (a *API) resolveCertPaths(certID uint) (string, string, error) {
 	var cert db.Certificate
 	if err := a.db.First(&cert, certID).Error; err != nil {
 		return "", "", fmt.Errorf("证书 %d 不存在", certID)
 	}
-	certPath := filepath.Join(a.certDir(), cert.CertPath)
-	keyPath := filepath.Join(a.certDir(), cert.KeyPath)
+	certPath, err := filepath.Abs(filepath.Join(a.certDir(), cert.CertPath))
+	if err != nil {
+		return "", "", fmt.Errorf("解析证书路径失败: %w", err)
+	}
+	keyPath, err := filepath.Abs(filepath.Join(a.certDir(), cert.KeyPath))
+	if err != nil {
+		return "", "", fmt.Errorf("解析私钥路径失败: %w", err)
+	}
 	for _, p := range []string{certPath, keyPath} {
 		if _, err := os.Stat(p); err != nil {
 			return "", "", fmt.Errorf("证书 %s 的文件不存在: %s", cert.Name, p)

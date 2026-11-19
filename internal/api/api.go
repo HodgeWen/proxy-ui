@@ -28,18 +28,19 @@ type SessionManager interface {
 
 // API 面板 REST handlers，持有数据库、会话管理与内核相关模块。
 type API struct {
-	db       *gorm.DB
-	sessions SessionManager
-	core     *singbox.Manager      // 内核子进程管理
-	updates  *update.Manager       // 内核版本查询与安装
-	stats    *singbox.StatsMonitor // 内核统计采集（速率/连接/按入站累计）
-	ai       *ai.Service           // AI 助手（供应商配置、对话代理、工具注册表）
-	dataDir  string                // 数据目录（证书存储等落盘位置）
+	db          *gorm.DB
+	sessions    SessionManager
+	core        *singbox.Manager      // 内核子进程管理
+	updates     *update.Manager       // 内核版本查询与安装
+	selfUpdates *update.SelfUpdater   // 面板自身版本查询、替换与重启
+	stats       *singbox.StatsMonitor // 内核统计采集（速率/连接/按入站累计）
+	ai          *ai.Service           // AI 助手（供应商配置、对话代理、工具注册表）
+	dataDir     string                // 数据目录（证书存储等落盘位置）
 }
 
 // New 构造 API；dataDir 为面板数据目录。
-func New(database *gorm.DB, sessions SessionManager, core *singbox.Manager, updates *update.Manager, stats *singbox.StatsMonitor, dataDir string) *API {
-	a := &API{db: database, sessions: sessions, core: core, updates: updates, stats: stats, dataDir: dataDir}
+func New(database *gorm.DB, sessions SessionManager, core *singbox.Manager, updates *update.Manager, selfUpdates *update.SelfUpdater, stats *singbox.StatsMonitor, dataDir string) *API {
+	a := &API{db: database, sessions: sessions, core: core, updates: updates, selfUpdates: selfUpdates, stats: stats, dataDir: dataDir}
 	a.ai = ai.New(database)
 	a.registerAITools()
 	return a

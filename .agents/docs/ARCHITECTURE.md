@@ -21,7 +21,7 @@
 - **web（Vue3 SPA）**：`@veltra/desktop`（ultra-ui）组件 + `@veltra/ai`（AI 助手对话组件），构建产物经 `go:embed` 打进二进制
 - **api（Gin）**：REST + JSON 统一响应；会话鉴权，单管理员
 - **subscription**：匿名 token 鉴权的 GET 订阅端点，按 User-Agent/查询参数输出 sing-box / clash(mihomo) 配置（二维码由前端 etiket 生成）
-- **singbox / update / ai**：业务模块，被 api 编排；singbox 负责配置生成、子进程生命周期与流量/连接统计采集（Clash API 实时采样 + 按入站累计落库）；ai 负责供应商配置存取（key 不回显）、OpenAI 兼容 SSE 对话代理与工具注册表（面板工具由 api 注册，执行回落业务模块）
+- **singbox / update / ai**：业务模块，被 api 编排；singbox 负责配置生成、子进程生命周期与流量/连接统计采集（Clash API 实时采样 + 按入站累计落库）；update 负责内核与面板自身的 GitHub Releases 版本查询、镜像下载与安装（面板更新含二进制替换与同 PID 重启）；ai 负责供应商配置存取（key 不回显）、OpenAI 兼容 SSE 对话代理与工具注册表（面板工具由 api 注册，执行回落业务模块）
 - **db**：SQLite 单文件（glebarez 纯 Go 驱动 + GORM），存面板配置、账号与按入站累计流量；启动时自动迁移
 
 架构形态与 `PROJECT.md` 一致：前后端分离（独立前端 + REST API），部署为单二进制。
@@ -39,5 +39,4 @@
 
 ## 未决
 
-- 发版流水线（GitHub Actions / goreleaser / 变更日志）待接入 `release` 技能时定
-- AI 供应商协议：默认按 OpenAI 兼容接口实现，是否扩展其他协议实现时再定
+- 发版流水线（GitHub Actions / goreleaser / 变更日志）交由 `release` 技能接入时定

@@ -37,10 +37,11 @@ func New(opt Options) *gin.Engine {
 	coreDir := filepath.Join(opt.DataDir, "core")
 	core := singbox.New(coreDir)
 	updates := update.New(opt.DB, coreDir)
+	selfUpdates := update.NewSelfUpdate(opt.DB, opt.Version)
 	stats := singbox.NewStatsMonitor(core, opt.DB)
 	go stats.Run(context.Background()) // 统计常驻采集（实时速率 + 按入站累计），随进程生命周期
 	subs := subscription.New(opt.DB)
-	a := api.New(opt.DB, store, core, updates, stats, opt.DataDir)
+	a := api.New(opt.DB, store, core, updates, selfUpdates, stats, opt.DataDir)
 
 	engine := gin.New()
 	engine.Use(gin.Recovery(), requestLog())
@@ -65,6 +66,8 @@ func New(opt Options) *gin.Engine {
 	g.POST("/kernel/install", a.HandleKernelInstall)
 	g.GET("/kernel/mirror", a.HandleMirrorGet)
 	g.PUT("/kernel/mirror", a.HandleMirrorSet)
+	g.GET("/panel/versions", a.HandlePanelVersions)
+	g.POST("/panel/update", a.HandlePanelUpdate)
 	g.POST("/kernel/apply", a.HandleKernelApply)
 	g.GET("/stats/realtime", a.HandleStatsRealtime)
 	g.GET("/stats/connections", a.HandleStatsConnections)

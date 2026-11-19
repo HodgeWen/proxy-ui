@@ -1,14 +1,29 @@
-// Package update 提供 GitHub Releases 版本查询与 sing-box 内核下载、完整性校验与安装。
+// Package update 提供 GitHub Releases 版本查询与 sing-box 内核 / 面板自身下载、完整性校验与安装。
 package update
 
 import (
 	"cmp"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
+
+	"proxy-ui/internal/db"
 )
+
+// defaultAPIBase GitHub API 基址。
+const defaultAPIBase = "https://api.github.com"
 
 // repo sing-box 内核所在 GitHub 仓库。
 const repo = "SagerNet/sing-box"
@@ -175,4 +190,137 @@ func pickRelease(rels []ghRelease, version string) (ghRelease, bool) {
 		best, bestV, found = r, v, true
 	}
 	return best, found
+}
+
+// findAsset 在 release 中查找指定名称资产。
+func findAsset(rel ghRelease, name string) *ghAsset {
+	for i := range rel.Assets {
+		if rel.Assets[i].Name == name {
+			return &rel.Assets[i]
+		}
+	}
+	return nil
+}
+
+// ghClient 内核与面板更新共用的 GitHub Releases 访问底座：镜像前缀、请求、下载校验与版本列表。
+type ghClient struct {
+	db      *gorm.DB // 读镜像前缀设置
+	apiBase string   // GitHub API 基址（测试可替换）
+	client  *http.Client
+}
+
+// newGHClient 构建默认 GitHub 访问底座。
+func newGHClient(database *gorm.DB) ghClient {
+	return ghClient{db: database, apiBase: defaultAPIBase, client: &http.Client{Timeout: 10 * time.Minute}}
+}
+
+// mirror 读取下载镜像前缀设置（空表示直连 GitHub）。
+func (g *ghClient) mirror() string { return getSetting(g.db, settingMirror) }
+
+// get 发起 GET 请求并校验状态码，URL 先经镜像前缀拼接。
+func (g *ghClient) get(ctx context.Context, url string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, MirrorURL(g.mirror(), url), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "proxy-ui")
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("请求 GitHub 失败（网络不通时可在设置页配置镜像前缀）: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("GitHub 返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+	return resp, nil
+}
+
+// fetchReleases 拉取指定仓库的 Releases 列表（经镜像前缀）。
+func (g *ghClient) fetchReleases(ctx context.Context, repo string) ([]ghRelease, error) {
+	resp, err := g.get(ctx, g.apiBase+"/repos/"+repo+"/releases?per_page=100")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var rels []ghRelease
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<20)).Decode(&rels); err != nil {
+		return nil, fmt.Errorf("解析 GitHub 响应失败: %w", err)
+	}
+	return rels, nil
+}
+
+// listVersions 查询仓库可用版本列表，按版本号降序；installedTag 归一化命中当前版本。
+func (g *ghClient) listVersions(ctx context.Context, repo, installedTag string) ([]Version, error) {
+	rels, err := g.fetchReleases(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+	installed := strings.TrimPrefix(installedTag, "v")
+	versions := make([]Version, 0, len(rels))
+	for _, r := range rels {
+		v, ok := parseVersionTag(r.TagName)
+		if !ok || r.Draft {
+			continue
+		}
+		versions = append(versions, Version{
+			Tag:         r.TagName,
+			Version:     v.String(),
+			Prerelease:  r.Prerelease || v.pre != "",
+			PublishedAt: r.PublishedAt.Format(time.RFC3339),
+			Installed:   strings.TrimPrefix(r.TagName, "v") == installed,
+		})
+	}
+	slices.SortFunc(versions, func(a, b Version) int {
+		va, _ := parseVersionTag(a.Tag)
+		vb, _ := parseVersionTag(b.Tag)
+		return vb.compare(va) // 降序：新版本在前
+	})
+	return versions, nil
+}
+
+// downloadFile 下载 url 到 tmpDir 下临时文件并按 digest 校验完整性，返回临时文件路径（调用方负责删除）。
+func (g *ghClient) downloadFile(ctx context.Context, url, digest, tmpDir string) (string, error) {
+	resp, err := g.get(ctx, url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		return "", fmt.Errorf("创建临时目录失败: %w", err)
+	}
+	tmp, err := os.CreateTemp(tmpDir, ".download-*.tmp")
+	if err != nil {
+		return "", fmt.Errorf("创建临时文件失败: %w", err)
+	}
+	hash := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(tmp, hash), resp.Body); err != nil {
+		tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return "", fmt.Errorf("下载安装包失败: %w", err)
+	}
+	tmp.Close()
+	if err := verifyDigestHex(hex.EncodeToString(hash.Sum(nil)), digest); err != nil {
+		_ = os.Remove(tmp.Name())
+		return "", err
+	}
+	return tmp.Name(), nil
+}
+
+// getSetting 读取设置值，不存在返回空字符串。
+func getSetting(database *gorm.DB, key string) string {
+	if database == nil {
+		return ""
+	}
+	var s db.Setting
+	if err := database.Where("`key` = ?", key).First(&s).Error; err != nil {
+		return ""
+	}
+	return s.Value
+}
+
+// setSetting 写入设置值（upsert）。
+func setSetting(database *gorm.DB, key, value string) error {
+	return database.Save(&db.Setting{Key: key, Value: value}).Error
 }

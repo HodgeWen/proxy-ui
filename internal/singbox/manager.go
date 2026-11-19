@@ -98,7 +98,8 @@ func (m *Manager) CheckConfig(ctx context.Context) error {
 	if !m.Installed() {
 		return nil
 	}
-	out, err := exec.CommandContext(ctx, m.CorePath(), "check", "-D", m.dir, "-c", m.ConfigPath()).CombinedOutput()
+	// -c 传相对 -D 的文件名：sing-box 会把相对 -c 路径按 -D 目录解析，传完整路径会拼错位置
+	out, err := exec.CommandContext(ctx, m.CorePath(), "check", "-D", m.dir, "-c", "config.json").CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		if msg == "" {
@@ -122,8 +123,8 @@ func (m *Manager) Start() error {
 	if err := m.EnsureConfig(); err != nil {
 		return err
 	}
-	// 注意不用请求 ctx：内核生命周期独立于触发启动的 HTTP 请求
-	cmd := exec.Command(m.CorePath(), "run", "-D", m.dir, "-c", m.ConfigPath())
+	// 注意不用请求 ctx：内核生命周期独立于触发启动的 HTTP 请求；-c 相对 -D 解析，只传文件名
+	cmd := exec.Command(m.CorePath(), "run", "-D", m.dir, "-c", "config.json")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("接管内核输出失败: %w", err)
