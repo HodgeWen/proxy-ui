@@ -67,3 +67,8 @@ export function fetchMirrorPrefix(): Promise<{ prefix: string }> {
 export function updateMirrorPrefix(prefix: string): Promise<{ prefix: string }> {
   return request<{ prefix: string }>('/api/kernel/mirror', { method: 'PUT', body: { prefix } })
 }
+
+/** 应用配置：聚合全部启用入站/出站重新生成并校验内核配置；内核运行中则按新配置重启 */
+export function applyKernelConfig(): Promise<{ applied: boolean; status: KernelStatus }> {
+  return request<{ applied: boolean; status: KernelStatus }>('/api/kernel/apply', { method: 'POST' })
+}
