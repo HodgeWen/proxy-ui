@@ -91,6 +91,22 @@ func (m *Manager) EnsureConfig() error {
 	return m.WriteConfig(MinConfig())
 }
 
+// CheckConfig 以 `sing-box check` 校验当前 config.json；未安装内核时跳过（返回 nil）。
+func (m *Manager) CheckConfig(ctx context.Context) error {
+	if !m.Installed() {
+		return nil
+	}
+	out, err := exec.CommandContext(ctx, m.CorePath(), "check", "-D", m.dir, "-c", m.ConfigPath()).CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("内核配置校验失败: %s", msg)
+	}
+	return nil
+}
+
 // Start 拉起内核子进程；已在运行时幂等返回，未安装内核或进程立即退出（多为配置错误）时报错。
 func (m *Manager) Start() error {
 	m.mu.Lock()

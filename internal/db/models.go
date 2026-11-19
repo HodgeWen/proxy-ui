@@ -19,15 +19,18 @@ type Setting struct {
 
 // Inbound 入站配置；协议特定参数（密码/UUID/Reality/TLS/证书引用等）统一存 Config JSON。
 type Inbound struct {
-	ID         uint      `gorm:"primaryKey" json:"id"`          // 主键
-	Name       string    `gorm:"size:64" json:"name"`           // 名称
-	Protocol   string    `gorm:"size:32;index" json:"protocol"` // 协议：vless/hysteria2/tuic/anytls/trojan/vmess/shadowsocks/direct
-	ListenPort int       `gorm:"uniqueIndex" json:"listenPort"` // 监听端口
-	Enabled    bool      `gorm:"default:true" json:"enabled"`   // 是否启用
-	Config     string    `gorm:"type:text" json:"config"`       // 协议特定配置（JSON）
-	CreatedAt  time.Time `json:"createdAt"`                     // 创建时间
-	UpdatedAt  time.Time `json:"updatedAt"`                     // 更新时间
+	ID         uint      `gorm:"primaryKey" json:"id"`            // 主键
+	Name       string    `gorm:"uniqueIndex;size:64" json:"name"` // 名称（即 sing-box 入站 tag）
+	Protocol   string    `gorm:"size:32;index" json:"protocol"`   // 协议：vless/hysteria2/tuic/anytls/trojan/vmess/shadowsocks/direct
+	ListenPort int       `gorm:"uniqueIndex" json:"listenPort"`   // 监听端口
+	Enabled    bool      `gorm:"default:true" json:"enabled"`     // 是否启用
+	Config     string    `gorm:"type:text" json:"config"`         // 协议特定配置（JSON）
+	CreatedAt  time.Time `json:"createdAt"`                       // 创建时间
+	UpdatedAt  time.Time `json:"updatedAt"`                       // 更新时间
 }
+
+// OutboundTypeDirect direct 出站类型常量。
+const OutboundTypeDirect = "direct"
 
 // Outbound 出站配置；direct 之外的自定义出站参数存 Config JSON。
 type Outbound struct {
@@ -36,6 +39,17 @@ type Outbound struct {
 	Type      string    `gorm:"size:32" json:"type"`             // 类型：direct 或自定义出站协议
 	Enabled   bool      `gorm:"default:true" json:"enabled"`     // 是否启用
 	Config    string    `gorm:"type:text" json:"config"`         // 协议特定配置（JSON）
+	CreatedAt time.Time `json:"createdAt"`                       // 创建时间
+	UpdatedAt time.Time `json:"updatedAt"`                       // 更新时间
+}
+
+// Certificate TLS 证书：managed 模式证书/私钥由面板存储（落数据目录 certs/），path 模式引用服务器本地路径。
+type Certificate struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`            // 主键
+	Name      string    `gorm:"uniqueIndex;size:64" json:"name"` // 名称备注
+	Mode      string    `gorm:"size:16" json:"mode"`             // 引用方式：managed 上传/粘贴存储 / path 服务器本地路径
+	CertPath  string    `gorm:"size:256" json:"certPath"`        // managed：数据目录 certs/ 内相对路径；path：证书绝对路径
+	KeyPath   string    `gorm:"size:256" json:"keyPath"`         // managed：私钥相对路径；path：私钥绝对路径
 	CreatedAt time.Time `json:"createdAt"`                       // 创建时间
 	UpdatedAt time.Time `json:"updatedAt"`                       // 更新时间
 }

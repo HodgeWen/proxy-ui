@@ -2,6 +2,7 @@
 package api
 
 import (
+	"path/filepath"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -30,12 +31,16 @@ type API struct {
 	sessions SessionManager
 	core     *singbox.Manager // 内核子进程管理
 	updates  *update.Manager  // 内核版本查询与安装
+	dataDir  string           // 数据目录（证书存储等落盘位置）
 }
 
-// New 构造 API。
-func New(database *gorm.DB, sessions SessionManager, core *singbox.Manager, updates *update.Manager) *API {
-	return &API{db: database, sessions: sessions, core: core, updates: updates}
+// New 构造 API；dataDir 为面板数据目录。
+func New(database *gorm.DB, sessions SessionManager, core *singbox.Manager, updates *update.Manager, dataDir string) *API {
+	return &API{db: database, sessions: sessions, core: core, updates: updates, dataDir: dataDir}
 }
+
+// certDir 面板存储证书目录。
+func (a *API) certDir() string { return filepath.Join(a.dataDir, "certs") }
 
 // Initialized 面板是否已完成初始化（存在管理员账号）。
 func (a *API) Initialized() bool {

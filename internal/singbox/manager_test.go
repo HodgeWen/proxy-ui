@@ -9,13 +9,17 @@ import (
 	"time"
 )
 
-// writeFakeCore 写一个模拟 sing-box 的 shell 脚本：version 子命令输出版本号，run 时打印日志后常驻。
+// writeFakeCore 写一个模拟 sing-box 的 shell 脚本：version/check 子命令正常返回，run 时打印日志后常驻。
 func writeFakeCore(t *testing.T, m *Manager) {
 	t.Helper()
 	script := `#!/bin/sh
 if [ "$1" = "version" ]; then
   echo "sing-box version 9.9.9 test"
   echo "Environment: go1.26 test"
+  exit 0
+fi
+if [ "$1" = "check" ]; then
+  echo "configuration is valid"
   exit 0
 fi
 echo "stdout line 1"
@@ -56,10 +60,34 @@ func TestVersionParses(t *testing.T) {
 		t.Errorf("版本解析错误: %q", v)
 	}
 	if got := parseVersionOutput("sing-box version 1.14.4\nEnvironment: x\n"); got != "1.14.4" {
-		t.Errorf("parseVersionOutput = %q", got)
+		t.Errorf("parseVersionOutput = %q, want 1.14.4", got)
 	}
 	if got := parseVersionOutput("garbage"); got != "" {
 		t.Errorf("无法解析的输出应返回空, got %q", got)
+	}
+}
+
+func TestCheckConfig(t *testing.T) {
+	// 未安装内核时跳过校验
+	if err := New(t.TempDir()).CheckConfig(context.Background()); err != nil {
+		t.Errorf("未安装内核应跳过校验: %v", err)
+	}
+	m := New(t.TempDir())
+	writeFakeCore(t, m)
+	if err := m.EnsureConfig(); err != nil {
+		t.Fatalf("EnsureConfig 失败: %v", err)
+	}
+	if err := m.CheckConfig(context.Background()); err != nil {
+		t.Errorf("合法配置不应报错: %v", err)
+	}
+	// check 退出的假内核：错误信息应带回输出
+	script := "#!/bin/sh\necho 'FATAL parse config failed' >&2\nexit 1\n"
+	if err := os.WriteFile(m.CorePath(), []byte(script), 0o755); err != nil {
+		t.Fatalf("改写假内核失败: %v", err)
+	}
+	err := m.CheckConfig(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "parse config failed") {
+		t.Errorf("校验失败应带回内核输出, got %v", err)
 	}
 }
 

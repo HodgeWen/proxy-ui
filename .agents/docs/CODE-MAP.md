@@ -10,9 +10,9 @@ proxy-ui/
 ├── embed.go              # //go:embed all:web/dist 嵌入前端构建产物
 ├── internal/
 │   ├── server/           # Gin 路由装配、会话中间件与统一守卫、SPA 静态资源回退；构造 singbox/update 管理器注入 api
-│   ├── api/              # REST handlers，按资源分文件；已落：首次设置/登录/登出/me/改密、内核状态/启停/日志/版本/安装/镜像前缀
-│   ├── db/               # SQLite（glebarez+GORM）连接、全量模型、启动自动迁移
-│   ├── singbox/          # sing-box 内核：最小可运行配置生成（clash_api 预留）、子进程启停/重启、状态与 stdout/stderr 日志采集
+│   ├── api/              # REST handlers，按资源分文件；已落：首次设置/登录/登出/me/改密、内核状态/启停/日志/版本/安装/镜像前缀/应用配置、入站/出站/证书 CRUD
+│   ├── db/               # SQLite（glebarez+GORM）连接、全量模型（含证书）、启动自动迁移
+│   ├── singbox/          # sing-box 内核：八协议入站/出站字段模型与配置映射、聚合生成（BuildConfig）、check 校验、子进程启停/重启、状态与 stdout/stderr 日志采集
 │   ├── subscription/     # 订阅导出：singbox/clash(mihomo) 格式、二维码、策略组与 anti-AD 规则（规划）
 │   ├── update/           # sing-box 内核版本查询、镜像前缀下载（sha256 校验）与解压安装（GitHub Releases）
 │   └── ai/               # AI 供应商配置、对话代理、面板接口工具桥（规划）
@@ -34,9 +34,9 @@ proxy-ui/
 | 模块 | 路径 | 职责 | 主要入口 |
 | --- | --- | --- | --- |
 | server | `internal/server/` | 路由装配、会话守卫、SPA 静态资源 | `New(Options)` |
-| api | `internal/api/` | REST handlers，按资源分文件；已落鉴权、首次设置与内核管理 | `New(db, sessions, core, updates)` |
+| api | `internal/api/` | REST handlers，按资源分文件；已落鉴权、首次设置、内核管理、入站/出站/证书管理与应用配置 | `New(db, sessions, core, updates, dataDir)` |
 | db | `internal/db/` | SQLite 连接、全量模型、自动迁移 | `Open(path)` |
-| singbox | `internal/singbox/` | 内核配置生成与子进程生命周期、状态与日志采集 | `New(dir)` |
+| singbox | `internal/singbox/` | 八协议入站/出站配置映射与聚合生成、内核子进程生命周期、状态与日志采集 | `New(dir)` |
 | subscription | `internal/subscription/` | 多格式订阅导出、二维码、规则集 | 规划 |
 | update | `internal/update/` | 内核版本查询、镜像下载、完整性校验与安装 | `New(db, dir)` |
 | ai | `internal/ai/` | AI 对话代理与工具桥 | 规划 |
