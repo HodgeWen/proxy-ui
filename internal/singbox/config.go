@@ -41,6 +41,7 @@ type Experimental struct {
 // ClashAPI Clash API 配置。
 type ClashAPI struct {
 	ExternalController string `json:"external_controller"` // 监听地址，仅本机访问
+	Secret             string `json:"secret,omitempty"`    // Bearer 认证密钥（面板生成的配置留空）
 }
 
 // CacheFile 缓存文件配置：开启后远程规则集缓存到 cache.db，内核重启免重复下载。

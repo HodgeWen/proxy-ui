@@ -21,6 +21,8 @@ const (
 	startGrace  = 500 * time.Millisecond // 启动后观察窗口：进程立即退出视为启动失败
 	stopTimeout = 5 * time.Second        // 优雅停止等待，超时强杀
 	logCapacity = 1000                   // 日志环形缓冲行数
+
+	trafficFirstLine = 3 * time.Second // Clash API /traffic 首行（每秒一拍）最长等待
 )
 
 // LogLine 内核日志行。

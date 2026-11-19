@@ -170,3 +170,26 @@ func TestWriteConfig(t *testing.T) {
 		t.Fatalf("配置未写入或格式不符: %v %s", err, data)
 	}
 }
+
+// TestStartWithoutConfig 回归：config.json 缺失时 Start 内部经 EnsureConfig 写配置，
+// 与 Manager 锁交互不得死锁（曾在 WriteConfig 内加锁导致）。
+func TestStartWithoutConfig(t *testing.T) {
+	m := New(t.TempDir())
+	writeFakeCore(t, m)
+	done := make(chan error, 1)
+	go func() { done <- m.Start() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Start 失败: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Start 疑似死锁：EnsureConfig 与锁路径冲突")
+	}
+	if _, err := os.Stat(m.ConfigPath()); err != nil {
+		t.Errorf("Start 应生成 config.json: %v", err)
+	}
+	if err := m.Stop(); err != nil {
+		t.Errorf("Stop 失败: %v", err)
+	}
+}

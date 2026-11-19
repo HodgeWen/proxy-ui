@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"proxy-ui/internal/db"
 	"proxy-ui/internal/singbox"
@@ -133,13 +134,19 @@ func (a *API) HandleInboundSetEnabled(c *gin.Context) {
 	OK(c, a.inboundToView(in))
 }
 
-// HandleInboundDelete DELETE /api/inbounds/:id 删除入站。
+// HandleInboundDelete DELETE /api/inbounds/:id 删除入站（连同其累计流量记录）。
 func (a *API) HandleInboundDelete(c *gin.Context) {
 	id, ok := idParam(c)
 	if !ok {
 		return
 	}
-	if err := a.db.Delete(&db.Inbound{}, id).Error; err != nil {
+	err := a.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("inbound_id = ?", id).Delete(&db.InboundTraffic{}).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&db.Inbound{}, id).Error
+	})
+	if err != nil {
 		Fail(c, http.StatusInternalServerError, "删除入站失败: "+err.Error())
 		return
 	}

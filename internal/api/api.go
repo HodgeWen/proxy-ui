@@ -29,14 +29,15 @@ type SessionManager interface {
 type API struct {
 	db       *gorm.DB
 	sessions SessionManager
-	core     *singbox.Manager // 内核子进程管理
-	updates  *update.Manager  // 内核版本查询与安装
-	dataDir  string           // 数据目录（证书存储等落盘位置）
+	core     *singbox.Manager      // 内核子进程管理
+	updates  *update.Manager       // 内核版本查询与安装
+	stats    *singbox.StatsMonitor // 内核统计采集（速率/连接/按入站累计）
+	dataDir  string                // 数据目录（证书存储等落盘位置）
 }
 
 // New 构造 API；dataDir 为面板数据目录。
-func New(database *gorm.DB, sessions SessionManager, core *singbox.Manager, updates *update.Manager, dataDir string) *API {
-	return &API{db: database, sessions: sessions, core: core, updates: updates, dataDir: dataDir}
+func New(database *gorm.DB, sessions SessionManager, core *singbox.Manager, updates *update.Manager, stats *singbox.StatsMonitor, dataDir string) *API {
+	return &API{db: database, sessions: sessions, core: core, updates: updates, stats: stats, dataDir: dataDir}
 }
 
 // certDir 面板存储证书目录。

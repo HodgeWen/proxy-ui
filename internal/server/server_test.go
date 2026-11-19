@@ -7,6 +7,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"testing/fstest"
 
@@ -146,6 +147,92 @@ func TestSetupLoginFlow(t *testing.T) {
 	if code, _ = doJSON(t, client, http.MethodPost, srv.URL+"/api/login",
 		map[string]string{"username": "admin", "password": "newpassword456"}); code != http.StatusOK {
 		t.Fatal("新密码登录失败")
+	}
+}
+
+func TestStatsEndpoints(t *testing.T) {
+	srv, dbPath := newTestServer(t)
+	client := newClient(t)
+	if code, env := doJSON(t, client, http.MethodPost, srv.URL+"/api/setup",
+		map[string]string{"username": "admin", "password": "password123"}); code != http.StatusOK {
+		t.Fatalf("setup 失败: %s", env.Msg)
+	}
+
+	// 统计接口受会话守卫：未登录 401
+	anon := newClient(t)
+	if code, _ := doJSON(t, anon, http.MethodGet, srv.URL+"/api/stats/realtime", nil); code != http.StatusUnauthorized {
+		t.Errorf("未登录访问实时统计应 401, got %d", code)
+	}
+
+	// 内核未运行：实时统计零值、连接快照为空
+	code, env := doJSON(t, client, http.MethodGet, srv.URL+"/api/stats/realtime", nil)
+	if code != http.StatusOK || !env.Success {
+		t.Fatalf("realtime 应成功: code=%d msg=%s", code, env.Msg)
+	}
+	var realtime struct {
+		Up                int64 `json:"up"`
+		Down              int64 `json:"down"`
+		Memory            int64 `json:"memory"`
+		ActiveConnections int   `json:"activeConnections"`
+	}
+	if err := json.Unmarshal(env.Data, &realtime); err != nil {
+		t.Fatalf("解析 realtime 失败: %v", err)
+	}
+	if realtime.Up != 0 || realtime.Down != 0 || realtime.Memory != 0 || realtime.ActiveConnections != 0 {
+		t.Errorf("内核未运行时统计应为零值: %+v", realtime)
+	}
+	if code, env = doJSON(t, client, http.MethodGet, srv.URL+"/api/stats/connections", nil); code != http.StatusOK {
+		t.Fatalf("connections 应成功: %s", env.Msg)
+	}
+	var snapshot struct {
+		Connections []any `json:"connections"`
+	}
+	if err := json.Unmarshal(env.Data, &snapshot); err != nil || len(snapshot.Connections) != 0 {
+		t.Errorf("内核未运行时连接应为空: %v %s", err, env.Data)
+	}
+
+	// 建入站后累计查询应包含零值行
+	code, env = doJSON(t, client, http.MethodPost, srv.URL+"/api/inbounds",
+		map[string]any{"protocol": "hysteria2", "listenPort": 18443, "name": "hy-in"})
+	if code != http.StatusOK {
+		t.Fatalf("创建入站失败: %s", env.Msg)
+	}
+	var created struct {
+		ID uint `json:"id"`
+	}
+	if err := json.Unmarshal(env.Data, &created); err != nil {
+		t.Fatalf("解析入站响应失败: %v", err)
+	}
+	if code, env = doJSON(t, client, http.MethodGet, srv.URL+"/api/stats/inbound-traffic", nil); code != http.StatusOK {
+		t.Fatalf("inbound-traffic 应成功: %s", env.Msg)
+	}
+	var rows []struct {
+		InboundID     uint   `json:"inboundId"`
+		Name          string `json:"name"`
+		UploadBytes   int64  `json:"uploadBytes"`
+		DownloadBytes int64  `json:"downloadBytes"`
+	}
+	if err := json.Unmarshal(env.Data, &rows); err != nil || len(rows) != 1 {
+		t.Fatalf("应返回一条累计行: %v %s", err, env.Data)
+	}
+	if rows[0].Name != "hy-in" || rows[0].UploadBytes != 0 || rows[0].DownloadBytes != 0 {
+		t.Errorf("累计行不符: %+v", rows[0])
+	}
+
+	// 删除入站应连带删除累计流量记录
+	gormDB, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("打开数据库失败: %v", err)
+	}
+	if err := gormDB.Create(&db.InboundTraffic{InboundID: created.ID, UploadBytes: 100, DownloadBytes: 200}).Error; err != nil {
+		t.Fatalf("写入累计流量失败: %v", err)
+	}
+	if code, env = doJSON(t, client, http.MethodDelete, srv.URL+"/api/inbounds/"+strconv.FormatUint(uint64(created.ID), 10), nil); code != http.StatusOK {
+		t.Fatalf("删除入站失败: %s", env.Msg)
+	}
+	var count int64
+	if err := gormDB.Model(&db.InboundTraffic{}).Count(&count).Error; err != nil || count != 0 {
+		t.Errorf("删除入站后累计记录应清除: count=%d err=%v", count, err)
 	}
 }
 
