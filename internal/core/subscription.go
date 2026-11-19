@@ -1,0 +1,192 @@
+package core
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"strings"
+
+	"github.com/s-ui/s-ui/internal/db"
+	"gopkg.in/yaml.v3"
+)
+
+// BuildUserinfoHeader returns subscription-userinfo header (lowercase).
+// upload/download: TrafficUplink, TrafficDownlink; total: TrafficLimit (omit if 0); expire: Unix sec (omit if nil).
+func BuildUserinfoHeader(u *db.User) string {
+	upload := u.TrafficUplink
+	download := u.TrafficDownlink
+	parts := []string{
+		fmt.Sprintf("upload=%d", upload),
+		fmt.Sprintf("download=%d", download),
+	}
+	if u.TrafficLimit > 0 {
+		parts = append(parts, fmt.Sprintf("total=%d", u.TrafficLimit))
+	}
+	if u.ExpireAt != nil {
+		parts = append(parts, fmt.Sprintf("expire=%d", u.ExpireAt.Unix()))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// extractHostFromInbound extracts host from inbound ConfigJSON for share links.
+// Uses tls.server_name; falls back to config["host"]. Returns empty string if absent.
+func extractHostFromInbound(ib *db.Inbound) string {
+	if len(ib.ConfigJSON) == 0 {
+		return ""
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(ib.ConfigJSON, &cfg); err != nil {
+		return ""
+	}
+	if tls, ok := cfg["tls"]; ok && tls != nil {
+		if t, ok := tls.(map[string]any); ok {
+			if s, ok := t["server_name"].(string); ok && s != "" {
+				return s
+			}
+		}
+	}
+	if host, ok := cfg["host"].(string); ok && host != "" {
+		return host
+	}
+	return ""
+}
+
+// isTLSEnabled checks if TLS is enabled in inbound ConfigJSON.
+func isTLSEnabled(ib *db.Inbound) bool {
+	if len(ib.ConfigJSON) == 0 {
+		return false
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(ib.ConfigJSON, &cfg); err != nil {
+		return false
+	}
+	if tls, ok := cfg["tls"]; ok && tls != nil {
+		if t, ok := tls.(map[string]any); ok {
+			if enabled, ok := t["enabled"].(bool); ok {
+				return enabled
+			}
+		}
+	}
+	return false
+}
+
+// NodeLink holds a name and link for a single node (used by admin UI).
+type NodeLink struct {
+	Name string
+	Link string
+}
+
+// GetNodeLinks returns per-node links for admin UI per-node copy.
+// fallbackHost is used when tls.server_name is absent (e.g. request Host header).
+func GetNodeLinks(u *db.User, fallbackHost string) []NodeLink {
+	links := make([]NodeLink, 0, len(u.Inbounds))
+	for _, ib := range u.Inbounds {
+		host := extractHostFromInbound(&ib)
+		if host == "" {
+			host = fallbackHost
+		}
+		if host == "" {
+			continue
+		}
+		if ib.Protocol == "vless" {
+			tlsEnabled := isTLSEnabled(&ib)
+			params := url.Values{
+				"type": {"tcp"},
+			}
+			if tlsEnabled {
+				params.Set("security", "tls")
+				params.Set("sni", host)
+				params.Set("flow", "xtls-rprx-vision")
+			} else {
+				params.Set("security", "none")
+			}
+			raw := fmt.Sprintf("vless://%s@%s:%d?%s#%s",
+				u.UUID, host, ib.ListenPort, params.Encode(), url.PathEscape(ib.Tag))
+			links = append(links, NodeLink{Name: ib.Tag, Link: raw})
+		} else if ib.Protocol == "hysteria2" {
+			raw := fmt.Sprintf("hysteria2://%s@%s:%d/?sni=%s#%s",
+				url.PathEscape(u.Password), host, ib.ListenPort, host, url.PathEscape(ib.Tag))
+			links = append(links, NodeLink{Name: ib.Tag, Link: raw})
+		}
+	}
+	return links
+}
+
+// GenerateBase64 returns Base64-encoded subscription body (V2Ray format).
+// For each inbound: VLESS or Hysteria2 links; join with newline; Base64 encode.
+func GenerateBase64(u *db.User, fallbackHost string) ([]byte, error) {
+	nodeLinks := GetNodeLinks(u, fallbackHost)
+	if len(nodeLinks) == 0 {
+		return nil, nil
+	}
+	lines := make([]string, len(nodeLinks))
+	for i, nl := range nodeLinks {
+		lines[i] = nl.Link
+	}
+	body := strings.Join(lines, "\n")
+	return []byte(base64.StdEncoding.EncodeToString([]byte(body))), nil
+}
+
+// clashProxy represents a ClashMeta proxy entry.
+type clashProxy struct {
+	Name      string `yaml:"name"`
+	Type      string `yaml:"type"`
+	Server    string `yaml:"server"`
+	Port      uint   `yaml:"port"`
+	UUID      string `yaml:"uuid,omitempty"`
+	Network   string `yaml:"network,omitempty"`
+	Servername string `yaml:"servername,omitempty"`
+	Flow      string `yaml:"flow,omitempty"`
+	TLS       bool   `yaml:"tls,omitempty"`
+	Password  string `yaml:"password,omitempty"`
+	SNI       string `yaml:"sni,omitempty"`
+}
+
+// GenerateClash returns ClashMeta YAML bytes.
+func GenerateClash(u *db.User, fallbackHost string) ([]byte, error) {
+	proxies := make([]clashProxy, 0, len(u.Inbounds))
+	for _, ib := range u.Inbounds {
+		host := extractHostFromInbound(&ib)
+		if host == "" {
+			host = fallbackHost
+		}
+		if host == "" {
+			continue
+		}
+		tlsEnabled := isTLSEnabled(&ib)
+		if ib.Protocol == "vless" {
+			p := clashProxy{
+				Name:    ib.Tag,
+				Type:    "vless",
+				Server:  host,
+				Port:    ib.ListenPort,
+				UUID:    u.UUID,
+				Network: "tcp",
+				TLS:     tlsEnabled,
+			}
+			if tlsEnabled {
+				p.Servername = host
+				p.Flow = "xtls-rprx-vision"
+			}
+			proxies = append(proxies, p)
+		} else if ib.Protocol == "hysteria2" {
+			proxies = append(proxies, clashProxy{
+				Name:     ib.Tag,
+				Type:     "hysteria2",
+				Server:   host,
+				Port:     ib.ListenPort,
+				Password: u.Password,
+				SNI:      host,
+			})
+		}
+	}
+	if len(proxies) == 0 {
+		return nil, nil
+	}
+
+	cfg := map[string]any{
+		"proxies": proxies,
+	}
+	return yaml.Marshal(cfg)
+}

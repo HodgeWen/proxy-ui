@@ -1,0 +1,17 @@
+# Dependencies and build artifacts (built in container)
+web/node_modules
+web/dist
+
+# Version control and planning
+.git
+.planning
+
+# Documentation (except README)
+*.md
+!README.md
+
+# Local binaries and misc
+s-ui
+*.db
+.env
+.env.*
