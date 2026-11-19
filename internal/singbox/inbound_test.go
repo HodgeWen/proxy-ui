@@ -16,6 +16,7 @@ func buildOne(t *testing.T, protocol, rawConfig string) map[string]any {
 	cfg, err := BuildConfig(
 		[]InboundEntry{{Tag: "test-in", Protocol: protocol, ListenPort: 8443, Config: rawConfig, Cert: stubResolver}},
 		nil,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("生成配置失败: %v", err)

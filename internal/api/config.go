@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -39,7 +40,7 @@ func (a *API) HandleKernelApply(c *gin.Context) {
 	OK(c, gin.H{"applied": applied, "status": a.kernelStatus(c)})
 }
 
-// buildKernelConfig 从数据库聚合启用中的入站/出站生成完整内核配置。
+// buildKernelConfig 从数据库聚合启用中的入站/出站/规则/策略组生成完整内核配置。
 func (a *API) buildKernelConfig() (singbox.Config, error) {
 	var inbounds []db.Inbound
 	if err := a.db.Where("enabled = ?", true).Order("id").Find(&inbounds).Error; err != nil {
@@ -48,6 +49,14 @@ func (a *API) buildKernelConfig() (singbox.Config, error) {
 	var outbounds []db.Outbound
 	if err := a.db.Where("enabled = ?", true).Order("id").Find(&outbounds).Error; err != nil {
 		return singbox.Config{}, fmt.Errorf("查询出站失败: %w", err)
+	}
+	var rules []db.Rule
+	if err := a.db.Where("enabled = ?", true).Order("`order`").Find(&rules).Error; err != nil {
+		return singbox.Config{}, fmt.Errorf("查询规则失败: %w", err)
+	}
+	var groups []db.PolicyGroup
+	if err := a.db.Where("enabled = ?", true).Order("id").Find(&groups).Error; err != nil {
+		return singbox.Config{}, fmt.Errorf("查询策略组失败: %w", err)
 	}
 	inEntries := make([]singbox.InboundEntry, 0, len(inbounds))
 	for _, in := range inbounds {
@@ -60,7 +69,20 @@ func (a *API) buildKernelConfig() (singbox.Config, error) {
 	for _, ob := range outbounds {
 		outEntries = append(outEntries, singbox.OutboundEntry{Tag: ob.Name, Type: ob.Type, Config: ob.Config})
 	}
-	return singbox.BuildConfig(inEntries, outEntries)
+	routing := &singbox.Routing{Final: a.getSetting(settingRouteFinal), AntiAD: a.getSetting(settingAntiAD)}
+	for _, r := range rules {
+		routing.Rules = append(routing.Rules, singbox.RuleEntry{Type: r.Type, Value: r.Value, Outbound: r.Outbound})
+	}
+	for _, g := range groups {
+		members := []string{}
+		if g.Members != "" {
+			if err := json.Unmarshal([]byte(g.Members), &members); err != nil {
+				return singbox.Config{}, fmt.Errorf("策略组 %s 成员配置不合法: %w", g.Name, err)
+			}
+		}
+		routing.Groups = append(routing.Groups, singbox.GroupEntry{Name: g.Name, Mode: g.Mode, Members: members})
+	}
+	return singbox.BuildConfig(inEntries, outEntries, routing)
 }
 
 // resolveCertPaths 把面板存储证书 ID 解析为证书/私钥绝对路径（含存在性校验）。

@@ -17,6 +17,7 @@ func TestBuildConfigAggregate(t *testing.T) {
 		[]OutboundEntry{
 			{Tag: "my-proxy", Type: "http", Config: `{"server":"127.0.0.1","server_port":3128,"type":"ignored","tag":"ignored"}`},
 		},
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("聚合生成失败: %v", err)
@@ -49,7 +50,7 @@ func TestBuildConfigAggregate(t *testing.T) {
 }
 
 func TestBuildConfigDirectOutboundNoFallback(t *testing.T) {
-	cfg, err := BuildConfig(nil, []OutboundEntry{{Tag: "direct", Type: "direct", Config: "{}"}})
+	cfg, err := BuildConfig(nil, []OutboundEntry{{Tag: "direct", Type: "direct", Config: "{}"}}, nil)
 	if err != nil {
 		t.Fatalf("聚合生成失败: %v", err)
 	}
@@ -84,7 +85,7 @@ func TestBuildConfigErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := BuildConfig([]InboundEntry{tt.inbound}, nil)
+			_, err := BuildConfig([]InboundEntry{tt.inbound}, nil, nil)
 			if err == nil || !strings.Contains(err.Error(), tt.inbound.Tag) {
 				t.Errorf("错误应带上入站 tag %q, got %v", tt.inbound.Tag, err)
 			}
@@ -97,14 +98,14 @@ func TestBuildConfigCertResolveError(t *testing.T) {
 	_, err := BuildConfig([]InboundEntry{{
 		Tag: "hy2-in", Protocol: ProtoHysteria2, ListenPort: 8443,
 		Config: `{"password":"pw","tls":{"enabled":true,"certMode":"managed","certId":7}}`, Cert: failed,
-	}}, nil)
+	}}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "证书文件不存在") {
 		t.Errorf("应透传证书解析错误, got %v", err)
 	}
 }
 
 func TestOutboundJSON(t *testing.T) {
-	_, err := BuildConfig(nil, []OutboundEntry{{Tag: "bad", Type: "vmess", Config: `[1,2]`}})
+	_, err := BuildConfig(nil, []OutboundEntry{{Tag: "bad", Type: "vmess", Config: `[1,2]`}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "bad") {
 		t.Errorf("非对象出站配置应报错, got %v", err)
 	}

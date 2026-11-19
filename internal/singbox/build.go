@@ -21,8 +21,9 @@ type OutboundEntry struct {
 	Config string // 出站配置 JSON 对象
 }
 
-// BuildConfig 聚合启用中的入站/出站生成完整内核配置（日志、clash_api 与 direct 兜底出站自动包含）。
-func BuildConfig(inbounds []InboundEntry, outbounds []OutboundEntry) (Config, error) {
+// BuildConfig 聚合启用中的入站/出站/路由生成完整内核配置（日志、clash_api、缓存文件与
+// direct 兜底出站自动包含）；routing 为 nil 或全空时不生成 route 段。
+func BuildConfig(inbounds []InboundEntry, outbounds []OutboundEntry, routing *Routing) (Config, error) {
 	cfg := MinConfig()
 	cfg.Outbounds = nil // 出站全部由条目聚合，无 direct 出站时末尾补兜底
 	for _, e := range inbounds {
@@ -47,9 +48,125 @@ func BuildConfig(inbounds []InboundEntry, outbounds []OutboundEntry) (Config, er
 		}
 		cfg.Outbounds = append(cfg.Outbounds, ob)
 	}
+	if routing != nil {
+		if err := applyRouting(&cfg, routing); err != nil {
+			return Config{}, err
+		}
+	}
 	if !hasDirect {
 		// direct 兜底出站：无任何 direct 出站时补齐，供路由规则引用
 		cfg.Outbounds = append(cfg.Outbounds, map[string]any{"type": "direct", "tag": "direct"})
 	}
 	return cfg, nil
+}
+
+// applyRouting 把策略组出站与路由规则写入配置，校验出站引用与策略组循环引用。
+func applyRouting(cfg *Config, routing *Routing) error {
+	tags := map[string]bool{"direct": true} // direct 兜底视为始终可用
+	for _, ob := range cfg.Outbounds {
+		if tag, _ := ob["tag"].(string); tag != "" {
+			tags[tag] = true
+		}
+	}
+	groupTags := map[string]bool{}
+	for _, g := range routing.Groups {
+		if tags[g.Name] {
+			return fmt.Errorf("策略组 %s 与出站同名", g.Name)
+		}
+		groupTags[g.Name] = true
+	}
+	for _, g := range routing.Groups {
+		for _, m := range g.Members {
+			if m == g.Name {
+				return fmt.Errorf("策略组 %s 不能引用自身", g.Name)
+			}
+			if !tags[m] && !groupTags[m] {
+				return fmt.Errorf("策略组 %s 的成员 %s 不存在", g.Name, m)
+			}
+		}
+	}
+	if err := detectGroupCycle(routing.Groups); err != nil {
+		return err
+	}
+	for _, g := range routing.Groups {
+		ob, err := groupOutboundJSON(g)
+		if err != nil {
+			return err
+		}
+		cfg.Outbounds = append(cfg.Outbounds, ob)
+	}
+	route := &RouteConfig{}
+	var ruleSetTags []string
+	seen := map[string]bool{}
+	for _, r := range routing.Rules {
+		if r.Outbound != OutboundBlock && !tags[r.Outbound] && !groupTags[r.Outbound] {
+			return fmt.Errorf("规则 %s 的出站 %s 不存在", r.Value, r.Outbound)
+		}
+		rule, refs, err := routingRuleJSON(r)
+		if err != nil {
+			return err
+		}
+		route.Rules = append(route.Rules, rule)
+		for _, tag := range refs {
+			if !seen[tag] {
+				seen[tag] = true
+				ruleSetTags = append(ruleSetTags, tag)
+			}
+		}
+	}
+	for _, tag := range ruleSetTags {
+		rs, err := ruleSetConfig(tag, routing.AntiAD)
+		if err != nil {
+			return err
+		}
+		route.RuleSet = append(route.RuleSet, rs)
+	}
+	if routing.Final != "" {
+		if !tags[routing.Final] && !groupTags[routing.Final] {
+			return fmt.Errorf("兜底出站 %s 不存在", routing.Final)
+		}
+		route.Final = routing.Final
+	}
+	if len(route.Rules) > 0 || route.Final != "" {
+		cfg.Route = route
+	}
+	return nil
+}
+
+// detectGroupCycle 以 DFS 检测策略组间循环引用。
+func detectGroupCycle(groups []GroupEntry) error {
+	members := map[string][]string{}
+	for _, g := range groups {
+		members[g.Name] = g.Members
+	}
+	const visiting, done = 1, 2
+	state := map[string]int{}
+	var visit func(name string) error
+	visit = func(name string) error {
+		state[name] = visiting
+		for _, m := range members[name] {
+			if _, isGroup := members[m]; !isGroup {
+				continue
+			}
+			switch state[m] {
+			case visiting:
+				return fmt.Errorf("策略组 %s 与 %s 存在循环引用", name, m)
+			case done:
+				continue
+			}
+			if err := visit(m); err != nil {
+				return err
+			}
+		}
+		state[name] = done
+		return nil
+	}
+	for _, g := range groups {
+		if state[g.Name] == 0 {
+			if err := visit(g.Name); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }

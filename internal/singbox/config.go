@@ -1,13 +1,28 @@
 package singbox
 
-// Config sing-box 运行配置（入站/出站由配置管理聚合生成；路由/DNS 由全局规则阶段接入）。
+// Config sing-box 运行配置（入站/出站/路由由配置管理聚合生成；DNS 预留）。
 type Config struct {
 	Log          *LogConfig       `json:"log,omitempty"`          // 日志
-	DNS          any              `json:"dns,omitempty"`          // DNS 配置预留（全局规则阶段接入）
+	DNS          any              `json:"dns,omitempty"`          // DNS 配置预留
 	Inbounds     []any            `json:"inbounds,omitempty"`     // 入站列表（BuildConfig 聚合生成）
-	Outbounds    []map[string]any `json:"outbounds,omitempty"`    // 出站列表（含 direct 兜底）
-	Route        any              `json:"route,omitempty"`        // 路由规则预留（全局规则阶段接入）
-	Experimental *Experimental    `json:"experimental,omitempty"` // 实验特性：clash_api 供流量/连接统计
+	Outbounds    []map[string]any `json:"outbounds,omitempty"`    // 出站列表（含策略组与 direct 兜底）
+	Route        *RouteConfig     `json:"route,omitempty"`        // 路由规则（全局规则聚合生成）
+	Experimental *Experimental    `json:"experimental,omitempty"` // 实验特性：clash_api 与缓存文件
+}
+
+// RouteConfig 路由配置：规则、规则集与未命中兜底出站。
+type RouteConfig struct {
+	Rules   []map[string]any `json:"rules,omitempty"`    // 路由规则（按面板排序生效）
+	RuleSet []RuleSetConfig  `json:"rule_set,omitempty"` // 远程规则集（geosite/geoip/anti-AD）
+	Final   string           `json:"final,omitempty"`    // 未命中规则的兜底出站 tag
+}
+
+// RuleSetConfig 远程规则集。
+type RuleSetConfig struct {
+	Type   string `json:"type"`   // 类型：remote
+	Tag    string `json:"tag"`    // 规则集 tag
+	Format string `json:"format"` // 格式：binary（.srs）
+	URL    string `json:"url"`    // 下载地址
 }
 
 // LogConfig 内核日志配置。
@@ -18,7 +33,8 @@ type LogConfig struct {
 
 // Experimental 实验特性配置。
 type Experimental struct {
-	ClashAPI *ClashAPI `json:"clash_api,omitempty"` // Clash API（流量/连接统计阶段消费）
+	ClashAPI  *ClashAPI  `json:"clash_api,omitempty"`  // Clash API（流量/连接统计阶段消费）
+	CacheFile *CacheFile `json:"cache_file,omitempty"` // 缓存文件（远程规则集持久化）
 }
 
 // ClashAPI Clash API 配置。
@@ -26,7 +42,12 @@ type ClashAPI struct {
 	ExternalController string `json:"external_controller"` // 监听地址，仅本机访问
 }
 
-// MinConfig 最小可运行配置：日志、direct 出站兜底与 clash_api 预留，无任何入站。
+// CacheFile 缓存文件配置：开启后远程规则集缓存到 cache.db，内核重启免重复下载。
+type CacheFile struct {
+	Enabled bool `json:"enabled"` // 是否启用
+}
+
+// MinConfig 最小可运行配置：日志、direct 出站兜底与 clash_api/缓存文件，无任何入站。
 func MinConfig() Config {
 	return Config{
 		Log: &LogConfig{Level: "info", Timestamp: true},
@@ -34,7 +55,8 @@ func MinConfig() Config {
 			{"type": "direct", "tag": "direct"},
 		},
 		Experimental: &Experimental{
-			ClashAPI: &ClashAPI{ExternalController: "127.0.0.1:19090"},
+			ClashAPI:  &ClashAPI{ExternalController: "127.0.0.1:19090"},
+			CacheFile: &CacheFile{Enabled: true},
 		},
 	}
 }

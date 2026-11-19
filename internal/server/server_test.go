@@ -24,19 +24,20 @@ type envelope struct {
 func newTestServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "panel.db")
-	srv := httptest.NewServer(mustNewEngine(dbPath))
+	dataDir := t.TempDir()
+	srv := httptest.NewServer(mustNewEngine(dbPath, dataDir))
 	t.Cleanup(srv.Close)
 	return srv, dbPath
 }
 
-// mustNewEngine 在指定库文件上装配引擎（重启场景复用同一文件）。
-func mustNewEngine(dbPath string) http.Handler {
+// mustNewEngine 在指定库文件与数据目录上装配引擎（重启场景复用同一文件）。
+func mustNewEngine(dbPath, dataDir string) http.Handler {
 	database, err := db.Open(dbPath)
 	if err != nil {
 		panic(err)
 	}
 	dist := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html>proxy-ui</html>")}}
-	return New(Options{DB: database, Dist: dist, Version: "test"})
+	return New(Options{DB: database, Dist: dist, Version: "test", DataDir: dataDir})
 }
 
 // newClient 带会话 Cookie 的客户端。
@@ -165,7 +166,7 @@ func TestRestartPersistence(t *testing.T) {
 	}
 
 	// 模拟重启：在同一个库文件上重新装配服务
-	srv2 := httptest.NewServer(mustNewEngine(dbPath))
+	srv2 := httptest.NewServer(mustNewEngine(dbPath, t.TempDir()))
 	defer srv2.Close()
 	if code, env := doJSON(t, newClient(t), http.MethodGet, srv2.URL+"/api/health", nil); code != http.StatusOK {
 		t.Fatalf("重启后健康检查异常: code=%d msg=%s", code, env.Msg)
