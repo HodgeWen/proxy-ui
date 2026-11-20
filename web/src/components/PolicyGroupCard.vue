@@ -225,7 +225,7 @@ async function handleSave(): Promise<void> {
           label="模式"
           field="mode"
           :rules="{ required: '请选择模式' }"
-          tips="组内成员的选择方式：固定=手动固定一个节点（默认用首个成员）；自动=定时测延迟、自动选最快；故障转移=自动测速切换到可用节点，带容差防抖、节点恢复后自动切回"
+          tips="三者的差异：固定=手动锁定一个节点（默认首个成员，客户端里也可手动切换）；自动=定时测延迟、永远走最快；故障转移=尽量保持在靠前的可用节点，挂了才切下一个、恢复后切回。日常推荐「自动」，要把流量锁定在指定节点（如流媒体解锁）用「固定」，节点经常不稳用「故障转移」"
         >
           <u-select v-model="form.mode" :options="modeOptions" />
         </u-form-item>
@@ -235,7 +235,7 @@ async function handleSave(): Promise<void> {
         <u-form-item
           label="成员出站"
           span="full"
-          tips="成员顺序决定固定模式的默认节点；可选 direct、自定义出站或其它策略组（不可选拦截）。客户端订阅实际使用入站节点、direct 与其它组，自定义出站仅在服务端配置生效"
+          tips="成员顺序就是优先级：固定模式默认用首个成员，故障转移优先用靠前的可用成员，自动模式与顺序无关；可选 direct、自定义出站或其它策略组（不可选拦截）。客户端订阅实际使用入站节点、direct 与其它组，自定义出站仅在服务端配置生效"
         >
           <u-multi-select
             v-model="form.members"

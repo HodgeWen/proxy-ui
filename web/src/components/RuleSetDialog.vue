@@ -107,9 +107,10 @@ const urlRule = {
 /**
  * 示例地址放脚本里而非直接写进模板属性：属性值中的 `//` 会让 vue-tsc
  * 在 v-for 作用域内解析失败（报 Cannot find name 'item'）。
+ * 取真实可用的公开规则集仓库作示例，用户可直接照抄换成自己需要的那份。
  */
-const SINGBOX_PLACEHOLDER = 'https://example.com/geosite-cn.srs'
-const MIHOMO_PLACEHOLDER = 'https://example.com/cn.mrs'
+const SINGBOX_PLACEHOLDER = 'https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs'
+const MIHOMO_PLACEHOLDER = 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs'
 
 function openCreate(): void {
   editingId.value = CREATE_ID
@@ -239,7 +240,7 @@ watch(visible, (open) => {
       <div class="list-head">
         <span class="list-title">内容项（{{ items.length }}）</span>
         <div class="list-head-ops">
-          <span class="list-hint">点左侧圆点即可切换启用来源</span>
+          <span class="list-hint">启用 = 点左侧圆点：同一时刻只有一条启用，启用项就是下载来源</span>
           <u-button size="small" type="primary" :disabled="editingId === CREATE_ID" @click="openCreate">
             新增内容
           </u-button>
@@ -295,7 +296,7 @@ watch(visible, (open) => {
                   label="备注"
                   field="remark"
                   span="full"
-                  tips="仅用于区分同一规则集下的多条来源，如「官方源 / 镜像源」"
+                  tips="仅用于区分同一规则集下的多条来源，如「官方源 / 镜像源」；留空显示为「未命名来源」"
                 >
                   <u-input v-model="editor.remark" placeholder="如 官方源" clearable />
                 </u-form-item>
@@ -304,7 +305,7 @@ watch(visible, (open) => {
                   field="singBoxUrl"
                   span="full"
                   :rules="urlRule"
-                  tips=".srs 规则集地址，供服务端 sing-box 与 sing-box 客户端下载；与 mihomo 地址至少填一个"
+                  :tips="`.srs 二进制规则集地址，供服务端 sing-box 与 sing-box 客户端下载；与 mihomo 地址至少填一个。示例：${SINGBOX_PLACEHOLDER}`"
                 >
                   <u-input v-model="editor.singBoxUrl" :placeholder="SINGBOX_PLACEHOLDER" clearable />
                 </u-form-item>
@@ -313,14 +314,14 @@ watch(visible, (open) => {
                   field="mihomoUrl"
                   span="full"
                   :rules="urlRule"
-                  tips=".mrs 或 .yaml 规则集地址，供 clash / mihomo 客户端下载；与 sing-box 地址至少填一个"
+                  :tips="`.mrs 或 .yaml 规则集地址，供 clash / mihomo 客户端下载；与 sing-box 地址至少填一个。示例：${MIHOMO_PLACEHOLDER}`"
                 >
                   <u-input v-model="editor.mihomoUrl" :placeholder="MIHOMO_PLACEHOLDER" clearable />
                 </u-form-item>
                 <u-form-item
                   label="mihomo 行为"
                   field="mihomoBehavior"
-                  tips="mihomo 侧按何种规则类型解析该源：domain=域名列表、ipcidr=IP 段、classical=混合规则"
+                  tips="mihomo 侧按何种规则类型解析该源：domain=域名列表、ipcidr=IP 段、classical=混合规则；须与源文件实际内容一致，否则客户端解析失败"
                 >
                   <u-select v-model="editor.mihomoBehavior" :options="behaviorOptions" />
                 </u-form-item>

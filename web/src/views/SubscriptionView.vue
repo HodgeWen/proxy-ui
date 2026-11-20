@@ -463,7 +463,12 @@ onMounted(refresh)
           />
         </div>
       </u-form-item>
-      <u-form-item label="到期时间" field="expiry.date" :rules="expiryRules">
+      <u-form-item
+        label="到期时间"
+        field="expiry.date"
+        :rules="expiryRules"
+        tips="到达该时刻后该用户全部节点自动暂停，续期改这里即可恢复；默认「永久有效」不限制"
+      >
         <div class="field-row">
           <u-switch v-model="form.permanent" active-text="永久有效" />
           <template v-if="!form.permanent">
@@ -477,11 +482,12 @@ onMounted(refresh)
         field="nodeInbounds"
         :options="inboundOptions"
         placeholder="选择该用户可用的入站"
+        tips="勾选的每个入站都会为该用户生成一个节点（独立凭据、共用入站端口），订阅里只有这些节点；默认不勾，保存后可随时补勾"
         filterable
       />
       <p class="form-hint">
-        勾选或取消入站，会在对应入站里创建 / 删除该用户的身份，节点随之增减；保存后立即生效。
-        只改配额或到期时间时后端会自动应用，并且只暂停 / 恢复节点，不影响链接与端口。
+        勾选或取消入站，会在对应入站里创建 / 删除该用户的身份，节点随之增减；保存即生效，内核自动按新配置重建，无需任何额外操作。
+        只改配额或到期时间同样保存即生效，只暂停 / 恢复节点，不影响链接与端口。
       </p>
       <p v-if="!hasEnabledInbound" class="form-hint is-warning">
         暂无启用的入站，请先到「入站」页创建并启用入站，再回来为该用户勾选节点。

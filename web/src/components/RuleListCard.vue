@@ -193,6 +193,19 @@ const ruleSetText = computed(() => {
   return selectedRuleSet.value?.name ?? `已删除的规则集 #${form.ruleSetId}`
 })
 
+/** 出站选择 tips：说明三类去向，并给出「通常指向策略组」的主流用法 */
+const outboundTips = computed(() => {
+  const hasGroup = props.outboundOptions.some((o) => o.label.endsWith('（策略组）'))
+  return hasGroup
+    ? '命中后流量从哪出去：direct=直连不走代理；block=拒绝连接（广告拦截就是它）；其余为自定义出站或策略组。主流用法是指向策略组，客户端里可自行切换节点'
+    : '命中后流量从哪出去：direct=直连不走代理；block=拒绝连接（广告拦截就是它）；其余为自定义出站或策略组'
+})
+
+/** 新建规则的默认出站：已有策略组时取第一个（主流做法是规则指向策略组），否则 direct */
+const defaultOutbound = computed(
+  () => props.outboundOptions.find((o) => o.label.endsWith('（策略组）'))?.value ?? 'direct',
+)
+
 const valuePlaceholder = computed(() => {
   if (form.matchType === 'ip') return '10.0.0.0/8；多个用英文逗号分隔'
   switch (form.matchMethod) {
@@ -264,7 +277,7 @@ function openCreate(): void {
     matchMethod: 'suffix',
     value: '',
     ruleSetId: undefined,
-    outbound: 'direct',
+    outbound: defaultOutbound.value,
   })
   formVisible.value = true
 }
@@ -436,12 +449,7 @@ function handleMaintain(): void {
         <u-input v-model="form.value" :placeholder="valuePlaceholder" clearable />
       </u-form-item>
 
-      <u-form-item
-        label="出站"
-        field="outbound"
-        :rules="{ required: '请选择出站' }"
-        tips="命中后流量从哪出去：direct=直连不走代理；block=拒绝连接（广告拦截就是它）；其余为自定义出站或策略组"
-      >
+      <u-form-item label="出站" field="outbound" :rules="{ required: '请选择出站' }" :tips="outboundTips">
         <!-- text 兜底：规则引用的出站已被删除时仍显示原 tag，不至于看起来空白 -->
         <u-select
           v-model="form.outbound"

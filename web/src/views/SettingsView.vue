@@ -1082,6 +1082,7 @@ onBeforeUnmount(stopPolling)
         <u-card-content>
           <div class="section-desc">
             预设只是一份模板：点击应用会把服务器、规则与默认服务器填进下方编辑器并丢弃未保存的改动，不会自动保存。
+            从未保存过 DNS 时，面板默认就按「国内外分流（推荐）」这套预设运行，下方编辑器里显示的就是它。
           </div>
           <div class="preset-list">
             <div v-for="preset in dnsPresets" :key="preset.id" class="dns-preset">
@@ -1151,7 +1152,7 @@ onBeforeUnmount(stopPolling)
               <div v-for="(server, index) in dnsForm.servers" :key="index" class="editor-row">
                 <div class="editor-fields">
                   <div class="editor-cell">
-                    <u-input v-model="server.tag" placeholder="tag，如 ali" />
+                    <u-input v-model="server.tag" placeholder="tag，如 ali" title="服务器名字：规则与默认服务器靠它引用，必填且不可重复" />
                     <div v-if="serverTagHint(server)" class="editor-warn">{{ serverTagHint(server) }}</div>
                   </div>
                   <u-select
@@ -1159,11 +1160,13 @@ onBeforeUnmount(stopPolling)
                     :options="typeOptions"
                     :clearable="false"
                     placeholder="类型"
+                    title="查询方式：udp / tcp 为明文（可能被劫持污染），tls=DoT、https=DoH、h3=DoH3（加密防污染），local=系统本地解析"
                   />
                   <u-input
                     v-if="server.type !== 'local'"
                     v-model="server.server"
                     placeholder="地址，如 223.5.5.5"
+                    title="DNS 服务器地址（域名或 IP）；国内推荐 223.5.5.5，加密 DNS 推荐 1.1.1.1 / 8.8.8.8"
                   />
                   <u-number-input
                     v-if="server.type !== 'local'"
@@ -1171,20 +1174,29 @@ onBeforeUnmount(stopPolling)
                     placeholder="端口（可空）"
                     :min="1"
                     :max="65535"
+                    title="留空按类型取默认端口：udp/tcp 53、tls 853、https/h3 443"
                   />
                   <u-input
                     v-if="showPath(server.type)"
                     v-model="server.path"
                     placeholder="DoH 路径，默认 /dns-query"
+                    title="DoH / DoH3 的请求路径，绝大多数服务商用默认的 /dns-query，无需修改"
                   />
-                  <u-input v-model="server.detour" placeholder="经由出站（可空，如 proxy）" />
+                  <u-input
+                    v-model="server.detour"
+                    placeholder="经由出站（可空，如 proxy）"
+                    title="留空表示直连发起查询；填出站 tag 则由该出站代发，可避开本地运营商的 DNS 劫持"
+                  />
                 </div>
                 <u-button text size="small" type="danger" @click="removeServer(index)">删除</u-button>
               </div>
               <p v-if="!dnsForm.servers.length" class="section-desc">还没有服务器，请至少添加一个。</p>
               <p class="hint">
-                tag 是规则与默认服务器引用它的名字，必须非空且唯一；local 类型使用系统本地解析，不需要地址与端口；
-                https / h3 可填 DoH 路径；「经由出站」留空表示直连查询，填出站 tag 则由该出站发起查询。
+                tag 是规则与默认服务器引用它的名字，必须非空且唯一；类型 udp / tcp 为明文查询（可能被劫持污染），
+                tls / https / h3 为加密查询（DoT / DoH / DoH3，防污染推荐），local 使用系统本地解析、不需要地址与端口；
+                地址是国内推荐 223.5.5.5、加密推荐 1.1.1.1；端口留空按类型取默认（53 / 853 / 443）；
+                https / h3 可填 DoH 路径（默认 /dns-query）；「经由出站」留空表示直连查询，填出站 tag
+                则由该出站发起查询（走代理防污染时用它）。
               </p>
             </section>
 
@@ -1199,11 +1211,29 @@ onBeforeUnmount(stopPolling)
               </div>
               <div v-for="(rule, index) in dnsForm.rules" :key="index" class="editor-row">
                 <div class="editor-fields">
-                  <u-input v-model="rule.domain" placeholder="精确域名，逗号分隔" />
-                  <u-input v-model="rule.domainSuffix" placeholder="域名后缀，逗号分隔" />
-                  <u-input v-model="rule.domainKeyword" placeholder="域名关键字，逗号分隔" />
+                  <u-input
+                    v-model="rule.domain"
+                    placeholder="精确域名，逗号分隔"
+                    title="只匹配填写的域名本身，不含子域；如 www.qq.com"
+                  />
+                  <u-input
+                    v-model="rule.domainSuffix"
+                    placeholder="域名后缀，逗号分隔"
+                    title="匹配该后缀及其所有子域；如 cn（匹配所有 .cn 域名）、baidu.com"
+                  />
+                  <u-input
+                    v-model="rule.domainKeyword"
+                    placeholder="域名关键字，逗号分隔"
+                    title="域名中只要包含该词就命中；如 taobao"
+                  />
                   <div class="editor-cell">
-                    <u-select v-model="rule.server" :options="tagOptions" :clearable="false" placeholder="目标服务器" />
+                    <u-select
+                      v-model="rule.server"
+                      :options="tagOptions"
+                      :clearable="false"
+                      placeholder="目标服务器"
+                      title="命中条件的查询交给哪个 DNS 服务器（上方服务器列表里的 tag）"
+                    />
                     <div v-if="!rule.server" class="editor-warn">请选择目标服务器</div>
                   </div>
                 </div>
@@ -1326,8 +1356,14 @@ onBeforeUnmount(stopPolling)
           />
 
           <p class="hint">
-            BBR 是 Google 提出的拥塞控制算法，在有丢包或高延迟的链路上能显著提升吞吐、减少排队延迟，
-            对跨运营商、跨境线路的代理转发尤其明显。开启后对本机所有 TCP 连接生效。
+            BBR 是 Google 提出的 TCP 拥塞控制算法，解决的是「传统算法把丢包当拥塞，丢包一多速度就被压死」的问题：
+            在有丢包或高延迟的链路上能显著提升吞吐、减少排队延迟，对跨运营商、跨境线路的代理转发尤其明显。
+          </p>
+          <p class="hint">
+            什么时候该开：服务器走跨境 / 跨运营商等丢包较高的线路、以代理转发为主时建议开启；
+            纯内网或线路很优质时收益不明显，可不开。副作用：开启会把拥塞控制与队列调度（fq）一起改掉，
+            且对本机所有 TCP 连接生效、不只代理流量；面板无权限改 sysctl 或内核不支持（如 OpenVZ 容器）时无法一键开启，
+            按页面下方指引手动处理。
           </p>
           <p class="hint">
             这里只管系统级的 TCP 拥塞控制；入站若使用 QUIC / Hysteria 之类的协议，其单独的拥塞控制设置在各入站的
