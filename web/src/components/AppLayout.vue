@@ -1,16 +1,25 @@
 <!-- 应用布局：左侧品牌 + 侧边导航，右侧顶栏（版本 / 用户 / 登出）与内容区 -->
 <script setup lang="ts">
-import { UButton, UNav } from '@veltra/desktop'
+import { UButton, UNav, USegment } from '@veltra/desktop'
 import type { NavItem } from '@veltra/desktop'
 import { AiChat, Download, Filter, Monitor, Setting, Share, Upload } from '@veltra/icons/normal'
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useAuthStore } from '../stores/auth'
+import { setThemeMode, useTheme } from '../theme'
+import type { ThemeMode } from '../theme'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const { mode } = useTheme()
+
+const themeModeItems: { label: string; value: ThemeMode }[] = [
+  { label: '亮色', value: 'light' },
+  { label: '暗色', value: 'dark' },
+  { label: '跟随系统', value: 'system' },
+]
 
 const menus: NavItem[] = [
   { title: '仪表盘', icon: Monitor, path: '/dashboard' },
@@ -48,6 +57,13 @@ async function handleLogout() {
     <div class="app-main">
       <header class="app-header">
         <span v-if="auth.version" class="app-version">v{{ auth.version }}</span>
+        <u-segment
+          class="app-theme-switch"
+          :model-value="mode"
+          :items="themeModeItems"
+          size="small"
+          @update:model-value="setThemeMode"
+        />
         <span class="app-user">{{ auth.user?.username }}</span>
         <u-button size="small" @click="handleLogout">退出登录</u-button>
       </header>
@@ -102,8 +118,11 @@ async function handleLogout() {
   font-size: 13px;
 }
 
-.app-header .app-user {
+.app-header .app-theme-switch {
   margin-left: auto;
+}
+
+.app-header .app-user {
   font-size: 14px;
 }
 

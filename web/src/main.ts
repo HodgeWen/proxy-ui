@@ -2,12 +2,13 @@
 import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 import '@veltra/styles/normalize'
-import { loadTheme } from '@veltra/styles/theme'
 
 import App from './App.vue'
 import { router } from './router'
+import { initTheme } from './theme'
 
-loadTheme()
+// mount 前恢复持久化并 loadTheme，首帧即正确主题（内部遵循 normalize 先于 loadTheme 的硬规则）
+initTheme()
 
 const app = createApp(App)
 app.use(createPinia())
