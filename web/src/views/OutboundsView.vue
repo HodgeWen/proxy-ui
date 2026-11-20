@@ -9,8 +9,6 @@ import {
   UCard,
   UCardContent,
   UCardHeader,
-  UCollapse,
-  UCollapseItem,
   UDialog,
   UForm,
   UFormItem,
@@ -26,9 +24,10 @@ import {
   messageConfirm,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
-import { computed, onMounted, reactive, shallowRef } from 'vue'
+import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
 
 import EmptyState from '../components/EmptyState.vue'
+import FormGroupCard from '../components/FormGroupCard.vue'
 
 const outbounds = shallowRef<Outbound[]>([])
 const loading = shallowRef(false)
@@ -62,7 +61,8 @@ const formVisible = shallowRef(false)
 const saving = shallowRef(false)
 const editing = shallowRef<Outbound | null>(null)
 const formRef = shallowRef<FormExposed>()
-const expandedSections = shallowRef<string[]>([])
+/** 高级选项分组默认折叠（基础配置关键项默认展开） */
+const advancedCollapsed = ref(true)
 const form = reactive({
   name: '',
   type: '',
@@ -90,7 +90,7 @@ function validateExtra(value: string): string {
 function openCreate(): void {
   editing.value = null
   Object.assign(form, { name: '', type: '', server: '', serverPort: undefined, extraJson: '' })
-  expandedSections.value = []
+  advancedCollapsed.value = true
   formVisible.value = true
 }
 
@@ -105,7 +105,7 @@ function openEdit(row: Outbound): void {
     serverPort: typeof serverPort === 'number' ? serverPort : undefined,
     extraJson: Object.keys(extra).length ? JSON.stringify(extra, null, 2) : '',
   })
-  expandedSections.value = []
+  advancedCollapsed.value = true
   formVisible.value = true
 }
 
@@ -198,10 +198,11 @@ onMounted(refresh)
 </script>
 
 <template>
-  <u-alert v-if="!hasDirect && !loading" class="direct-alert" type="info" title="direct 出站">
+  <!-- 标题不可交互故不走 UAlert 彩色标题，正文加粗引导；添加动作为次级 plain，主操作留给「新建自定义出站」 -->
+  <u-alert v-if="!hasDirect && !loading" class="direct-alert" type="info">
     <div class="direct-row">
-      <span>direct 为 sing-box 内置直连出站，作为未命中规则的默认出口，通常保持添加即可。</span>
-      <u-button type="primary" @click="addDirect">添加 direct 出站</u-button>
+      <span><strong>direct 出站：</strong>sing-box 内置直连出站，作为未命中规则的默认出口，通常保持添加即可。</span>
+      <u-button type="primary" plain @click="addDirect">添加 direct 出站</u-button>
     </div>
   </u-alert>
 
@@ -211,17 +212,20 @@ onMounted(refresh)
         <span>出站管理</span>
         <div class="page-ops">
           <u-button :loading="applying" @click="handleApply">应用配置</u-button>
-          <u-button type="primary" @click="openCreate">新建自定义出站</u-button>
+          <!-- 列表为空时主入口由空状态 CTA 承担，保持每屏 primary ≤1 -->
+          <u-button v-if="outbounds.length" type="primary" @click="openCreate">新建自定义出站</u-button>
         </div>
       </div>
     </u-card-header>
     <u-card-content>
-      <u-table :columns="columns" :data="outbounds" row-key="id" border :loading="loading">
+      <u-table :columns="columns" :data="outbounds" row-key="id" border stripe :loading="loading">
         <template #empty>
           <EmptyState
             v-if="!loading"
             title="暂无出站"
             description="可先添加 direct 内置直连出站作为兜底，再按需新建自定义出站"
+            cta-text="新建自定义出站"
+            @cta="openCreate"
           />
         </template>
         <template #column:type="{ rowData }">
@@ -251,34 +255,47 @@ onMounted(refresh)
     </u-card-content>
   </u-card>
 
-  <u-dialog v-model="formVisible" :title="editing ? `编辑出站 · ${editing.name}` : '新建自定义出站'" style="width: 620px; max-width: 96vw">
-    <u-form ref="formRef" :model="form" :cols="1" label-width="92px">
-      <u-input label="名称" field="name" placeholder="出站 tag，供规则引用" :rules="{ required: '请输入名称' }" />
-      <u-select
-        label="类型"
-        field="type"
-        :options="typeOptions"
-        placeholder="选择或输入出站类型"
-        filterable
-        creatable
-        :rules="{ required: '请选择类型' }"
-      />
-      <u-input label="服务器" field="server" placeholder="远端服务器地址" />
-      <u-number-input label="服务器端口" field="serverPort" :min="1" :max="65535" />
+  <u-dialog v-model="formVisible" :title="editing ? `编辑出站 · ${editing.name}` : '新建自定义出站'" style="width: 1120px; max-width: 96vw">
+    <div class="dialog-scroll">
+      <u-form ref="formRef" :model="form" :cols="1" label-width="92px">
+        <FormGroupCard title="基础配置">
+          <u-form-item
+            label="名称"
+            field="name"
+            :rules="{ required: '请输入名称' }"
+            tips="出站 tag，供路由规则与策略组引用；需与其它出站、策略组名不重复"
+          >
+            <u-input v-model="form.name" placeholder="出站 tag，供规则引用" clearable />
+          </u-form-item>
+          <u-form-item
+            label="类型"
+            field="type"
+            :rules="{ required: '请选择类型' }"
+            tips="出站协议类型；下拉含常见类型，也可输入其它 sing-box 出站类型"
+          >
+            <u-select v-model="form.type" :options="typeOptions" placeholder="选择或输入出站类型" filterable creatable />
+          </u-form-item>
+          <u-form-item label="服务器" field="server" tips="远端代理服务器地址（域名或 IP）；direct 等无服务器概念的类型可留空">
+            <u-input v-model="form.server" placeholder="远端服务器地址" clearable />
+          </u-form-item>
+          <u-form-item label="服务器端口" field="serverPort" tips="远端代理服务器端口，1-65535">
+            <u-number-input v-model="form.serverPort" :min="1" :max="65535" />
+          </u-form-item>
+        </FormGroupCard>
 
-      <u-collapse v-model="expandedSections" default-collapse-all>
-        <u-collapse-item value="advanced" title="高级选项">
+        <FormGroupCard v-model:collapsed="advancedCollapsed" title="高级选项">
           <u-form-item
             label="附加配置"
             field="extraJson"
+            span="full"
             tips="JSON 对象，与服务器地址一起合并进出站配置（如密码、传输层等协议字段）"
             :rules="{ validator: validateExtra }"
           >
             <u-textarea v-model="form.extraJson" :rows="6" placeholder='例如 { "password": "..." }' />
           </u-form-item>
-        </u-collapse-item>
-      </u-collapse>
-    </u-form>
+        </FormGroupCard>
+      </u-form>
+    </div>
     <template #footer="{ close }">
       <u-button text @click="close()">取消</u-button>
       <u-button type="primary" :loading="saving" @click="handleSave">保存</u-button>
@@ -308,5 +325,11 @@ onMounted(refresh)
 .page-ops {
   display: flex;
   gap: 8px;
+}
+
+/* 弹框表单超出可视高度时内部滚动，footer 常驻 */
+.dialog-scroll {
+  max-height: calc(90vh - 160px);
+  overflow-y: auto;
 }
 </style>

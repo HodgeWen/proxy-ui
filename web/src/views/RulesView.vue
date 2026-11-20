@@ -21,6 +21,7 @@ import {
   UCardHeader,
   UInput,
   USelect,
+  UTag,
   message,
   messageConfirm,
 } from '@veltra/desktop'
@@ -55,6 +56,25 @@ async function refresh(): Promise<void> {
 
 // ---------- 预设模板 ----------
 
+/** 模板生成结果签名（与后端 HandleRuleTemplateApply 的规则/策略组/兜底一一对应） */
+const ANTI_AD_RULE = 'rule_set|anti-ad|block'
+
+/** 当前规则/策略组/兜底出站与某模板生成结果完全一致时视为「当前已应用」；任一改动即失效 */
+const appliedTemplate = computed<string | null>(() => {
+  const seq = rules.value.map((r) => `${r.type}|${r.value}|${r.outbound}`).join(';')
+  const proxyOnly = groups.value.length === 1 && groups.value[0].name === 'proxy' && groups.value[0].mode === 'auto'
+  if (seq === ANTI_AD_RULE && !groups.value.length && finalOutbound.value === 'direct') return 'direct-adblock'
+  if (seq === ANTI_AD_RULE && proxyOnly && finalOutbound.value === 'proxy') return 'global-proxy-adblock'
+  if (
+    seq === `${ANTI_AD_RULE};geosite|cn|direct;geoip|cn|direct` &&
+    proxyOnly &&
+    finalOutbound.value === 'proxy'
+  ) {
+    return 'cn-direct-adblock'
+  }
+  return null
+})
+
 async function handleApplyTemplate(tpl: RuleTemplate): Promise<void> {
   const action = await messageConfirm({
     title: '应用预设模板',
@@ -67,6 +87,8 @@ async function handleApplyTemplate(tpl: RuleTemplate): Promise<void> {
   try {
     const res = await applyRuleTemplate(tpl.id)
     message.success(`模板已应用：${res.rules} 条规则、${res.groups} 个策略组，可在上方继续修改后应用配置`)
+    // 模板会重写兜底出站，同步本地值供「当前已应用」标记即时判定
+    finalOutbound.value = res.final
     await refresh()
   } catch {
     // 错误已由请求封装统一提示
@@ -123,11 +145,16 @@ onMounted(async () => {
       <div class="templates">
         <div v-for="tpl in templates" :key="tpl.id" class="template-item">
           <div class="template-info">
-            <div class="template-name">{{ tpl.name }}</div>
+            <div class="template-name">
+              {{ tpl.name }}
+              <u-tag v-if="appliedTemplate === tpl.id" type="success">当前已应用</u-tag>
+            </div>
             <div class="template-desc">{{ tpl.description }}</div>
           </div>
+          <!-- 次级 plain 形态：页面主操作让位给下方列表卡的新建入口 -->
           <u-button
             type="primary"
+            plain
             :loading="applyingTemplate === tpl.id"
             @click="handleApplyTemplate(tpl)"
           >
@@ -166,7 +193,8 @@ onMounted(async () => {
         </div>
       </div>
       <div class="card-actions">
-        <u-button type="primary" :loading="globalSaving" @click="handleSaveGlobal">保存</u-button>
+        <!-- 实心主按钮额度留给「新建规则」，本卡保存降次级 -->
+        <u-button :loading="globalSaving" @click="handleSaveGlobal">保存</u-button>
       </div>
     </u-card-content>
   </u-card>
@@ -200,6 +228,9 @@ onMounted(async () => {
 }
 
 .template-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 600;
 }
 

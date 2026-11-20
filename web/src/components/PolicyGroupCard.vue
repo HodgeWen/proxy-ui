@@ -21,9 +21,10 @@ import {
   messageConfirm,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
-import { computed, reactive, shallowRef } from 'vue'
+import { computed, reactive, ref, shallowRef } from 'vue'
 
 import EmptyState from './EmptyState.vue'
+import FormGroupCard from './FormGroupCard.vue'
 
 const props = defineProps<{
   groups: PolicyGroup[]
@@ -87,6 +88,8 @@ const formVisible = shallowRef(false)
 const saving = shallowRef(false)
 const editing = shallowRef<PolicyGroup | null>(null)
 const formRef = shallowRef<FormExposed>()
+/** 分组卡片默认展开，重开弹框时复位 */
+const memberCollapsed = ref(false)
 const form = reactive<{ name: string; mode: PolicyGroupPayload['mode']; members: string[] }>({
   name: '',
   mode: 'auto',
@@ -101,12 +104,14 @@ const memberOptions = computed(() =>
 function openCreate(): void {
   editing.value = null
   Object.assign(form, { name: '', mode: 'auto', members: [] })
+  memberCollapsed.value = false
   formVisible.value = true
 }
 
 function openEdit(row: PolicyGroup): void {
   editing.value = row
   Object.assign(form, { name: row.name, mode: row.mode, members: [...row.members] })
+  memberCollapsed.value = false
   formVisible.value = true
 }
 
@@ -132,13 +137,20 @@ async function handleSave(): Promise<void> {
     <u-card-header>
       <div class="page-header">
         <span>策略组</span>
-        <u-button type="primary" @click="openCreate">新建策略组</u-button>
+        <!-- 规则页实心主按钮固定留给「新建规则」，此处降次级并常驻 -->
+        <u-button @click="openCreate">新建策略组</u-button>
       </div>
     </u-card-header>
     <u-card-content>
-      <u-table :columns="columns" :data="groups" row-key="id" border>
+      <u-table :columns="columns" :data="groups" row-key="id" border stripe>
         <template #empty>
-          <EmptyState title="暂无策略组" description="策略组可聚合多个出站做故障转移或自动选择，可应用预设模板或点击右上角新建" />
+          <EmptyState
+            title="暂无策略组"
+            description="策略组可聚合多个出站做故障转移或自动选择；可应用上方预设模板生成，或新建一个"
+            cta-text="新建策略组"
+            cta-plain
+            @cta="openCreate"
+          />
         </template>
         <template #column:mode="{ rowData }">
           <u-tag type="info">{{ modeLabel(rowData.mode) }}</u-tag>
@@ -162,20 +174,45 @@ async function handleSave(): Promise<void> {
     </u-card-content>
   </u-card>
 
-  <u-dialog v-model="formVisible" :title="editing ? `编辑策略组 · ${editing.name}` : '新建策略组'" style="width: 560px; max-width: 96vw">
-    <u-form ref="formRef" :model="form" :cols="1" label-width="92px">
-      <u-input label="名称" field="name" placeholder="策略组 tag，供规则引用" :rules="{ required: '请输入名称' }" />
-      <u-select label="模式" field="mode" :options="modeOptions" :rules="{ required: '请选择模式' }" />
-      <u-form-item label="成员出站" tips="成员按选择顺序生效；故障转移模式下靠前者优先">
-        <u-multi-select
-          v-model="form.members"
-          :options="memberOptions"
-          placeholder="选择成员（出站或其它策略组）"
-          clearable
-          filterable
-        />
-      </u-form-item>
-    </u-form>
+  <u-dialog v-model="formVisible" :title="editing ? `编辑策略组 · ${editing.name}` : '新建策略组'" style="width: 1120px; max-width: 96vw">
+    <div class="dialog-scroll">
+      <u-form ref="formRef" :model="form" :cols="1" label-width="92px">
+        <FormGroupCard title="基础配置">
+          <u-form-item
+            label="名称"
+            field="name"
+            :rules="{ required: '请输入名称' }"
+            tips="策略组 tag，供路由规则与兜底出站引用；需与出站名不重复"
+          >
+            <u-input v-model="form.name" placeholder="策略组 tag，供规则引用" clearable />
+          </u-form-item>
+          <u-form-item
+            label="模式"
+            field="mode"
+            :rules="{ required: '请选择模式' }"
+            tips="组内成员的选择策略：故障转移按顺序自动切换、固定代理始终用首个成员、自动选择定时测速选最快"
+          >
+            <u-select v-model="form.mode" :options="modeOptions" />
+          </u-form-item>
+        </FormGroupCard>
+
+        <FormGroupCard v-model:collapsed="memberCollapsed" title="成员出站">
+          <u-form-item
+            label="成员出站"
+            span="full"
+            tips="成员按选择顺序生效，故障转移模式下靠前者优先；可选自定义出站或其它策略组，不可选拦截"
+          >
+            <u-multi-select
+              v-model="form.members"
+              :options="memberOptions"
+              placeholder="选择成员（出站或其它策略组）"
+              clearable
+              filterable
+            />
+          </u-form-item>
+        </FormGroupCard>
+      </u-form>
+    </div>
     <template #footer="{ close }">
       <u-button text @click="close()">取消</u-button>
       <u-button type="primary" :loading="saving" @click="handleSave">保存</u-button>
@@ -189,5 +226,11 @@ async function handleSave(): Promise<void> {
   align-items: center;
   justify-content: space-between;
   flex: 1;
+}
+
+/* 弹框表单超出可视高度时内部滚动，footer 常驻 */
+.dialog-scroll {
+  max-height: calc(90vh - 160px);
+  overflow-y: auto;
 }
 </style>

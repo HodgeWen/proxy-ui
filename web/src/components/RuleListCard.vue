@@ -10,6 +10,7 @@ import {
   UCardHeader,
   UDialog,
   UForm,
+  UFormItem,
   UInput,
   USelect,
   USwitch,
@@ -173,14 +174,20 @@ async function handleApply(): Promise<void> {
         <span>路由规则</span>
         <div class="page-ops">
           <u-button :loading="applying" @click="handleApply">应用配置</u-button>
-          <u-button type="primary" @click="openCreate">新建规则</u-button>
+          <!-- 列表为空时主入口由空状态 CTA 承担，保持每屏 primary ≤1 -->
+          <u-button v-if="rules.length" type="primary" @click="openCreate">新建规则</u-button>
         </div>
       </div>
     </u-card-header>
     <u-card-content>
-      <u-table :columns="columns" :data="rules" row-key="id" border>
+      <u-table :columns="columns" :data="rules" row-key="id" border stripe>
         <template #empty>
-          <EmptyState title="暂无规则" description="可先应用上方预设模板，或点击右上角「新建规则」逐条添加" />
+          <EmptyState
+            title="暂无规则"
+            description="可先应用上方预设模板快速生成，或逐条添加自定义规则"
+            cta-text="新建规则"
+            @cta="openCreate"
+          />
         </template>
         <template #column:sort="{ rowData, rowIndex }">
           <u-button text size="small" :disabled="moving || rowIndex === 0" @click="move(rowData, -1)">上移</u-button>
@@ -210,22 +217,30 @@ async function handleApply(): Promise<void> {
 
   <u-dialog v-model="formVisible" :title="editing ? '编辑规则' : '新建规则'" style="width: 560px; max-width: 96vw">
     <u-form ref="formRef" :model="form" :cols="1" label-width="92px">
-      <u-select label="类型" field="type" :options="ruleTypeOptions" :rules="{ required: '请选择类型' }" />
-      <u-input
+      <u-form-item
+        label="类型"
+        field="type"
+        :rules="{ required: '请选择类型' }"
+        tips="匹配方式：域名类按域名命中，IP-CIDR 按 IP 段，geosite/geoip/rule_set 引用远程规则集"
+      >
+        <u-select v-model="form.type" :options="ruleTypeOptions" />
+      </u-form-item>
+      <u-form-item
         label="匹配值"
         field="value"
-        placeholder="如 google.com；多个用英文逗号分隔"
         :rules="{ required: '请输入匹配值' }"
-      />
-      <u-select
+        tips="按类型填写域名/后缀/关键字、IP 段或规则集名；多个值用英文逗号分隔，任一命中即生效"
+      >
+        <u-input v-model="form.value" placeholder="如 google.com；多个用英文逗号分隔" clearable />
+      </u-form-item>
+      <u-form-item
         label="出站"
         field="outbound"
-        :options="outboundOptions"
-        placeholder="选择或输入出站 tag"
-        filterable
-        creatable
         :rules="{ required: '请选择出站' }"
-      />
+        tips="命中后流量的出口：direct 直连、block 拦截，或选择自定义出站与策略组"
+      >
+        <u-select v-model="form.outbound" :options="outboundOptions" placeholder="选择或输入出站 tag" filterable creatable />
+      </u-form-item>
     </u-form>
     <template #footer="{ close }">
       <u-button text @click="close()">取消</u-button>
