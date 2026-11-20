@@ -2,12 +2,14 @@
 <script setup lang="ts">
 import type { ChatTool, OpenAITransport } from '@veltra/ai'
 import { UAiChat, createOpenAITransport } from '@veltra/ai'
-import { UButton, UCard, UCardContent, UCardHeader, UEmpty, message } from '@veltra/desktop'
+import { UButton, UCard, UCardContent, UCardHeader, message } from '@veltra/desktop'
+import { AiChat, TriangleAlert } from '@veltra/icons/normal'
 import { computed, onMounted, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { callAITool, fetchAIConfig, fetchAITools } from '../api/ai'
 import type { AiToolSchema } from '../api/ai'
+import EmptyState from '../components/EmptyState.vue'
 
 const router = useRouter()
 
@@ -93,16 +95,21 @@ onMounted(init)
   <div class="ai-page">
     <u-card v-if="loading" class="ai-status-card">
       <u-card-content>
-        <u-empty text="正在加载 AI 配置…" block />
+        <EmptyState title="正在加载 AI 配置…" />
       </u-card-content>
     </u-card>
 
     <u-card v-else-if="configError" class="ai-status-card">
       <u-card-header>AI 助手</u-card-header>
       <u-card-content>
-        <u-empty :text="`加载 AI 配置失败：${configError}`" block />
+        <EmptyState
+          :icon="TriangleAlert"
+          title="AI 配置加载失败"
+          :description="configError"
+          cta-text="重试"
+          @cta="retry"
+        />
         <div class="ai-status-ops">
-          <u-button type="primary" @click="retry">重试</u-button>
           <u-button @click="gotoSettings">前往设置</u-button>
         </div>
       </u-card-content>
@@ -111,12 +118,14 @@ onMounted(init)
     <u-card v-else-if="!ready" class="ai-status-card">
       <u-card-header>AI 助手</u-card-header>
       <u-card-content>
-        <u-empty
-          text="尚未配置 AI 供应商：请在设置页填写 OpenAI 兼容供应商的接口地址、模型与 API Key 后开始对话"
-          block
+        <EmptyState
+          :icon="AiChat"
+          title="尚未配置 AI 供应商"
+          description="请在设置页填写 OpenAI 兼容供应商的接口地址、模型与 API Key 后开始对话"
+          cta-text="前往设置配置 AI 供应商"
+          @cta="gotoSettings"
         />
         <div class="ai-status-ops">
-          <u-button type="primary" @click="gotoSettings">前往设置配置 AI 供应商</u-button>
           <u-button @click="retry">我已配置，刷新</u-button>
         </div>
       </u-card-content>

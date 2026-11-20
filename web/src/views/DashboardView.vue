@@ -6,16 +6,17 @@ import {
   UCard,
   UCardContent,
   UCardHeader,
-  UEmpty,
   UTable,
   UTag,
   defineTableColumns,
   message,
 } from '@veltra/desktop'
+import { Download } from '@veltra/icons/normal'
 import { onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { fetchKernelStatus, kernelAction } from '../api/kernel'
+import EmptyState from '../components/EmptyState.vue'
 import type { KernelStatus } from '../api/kernel'
 import { getSubscription, subscriptionLink } from '../api/subscription'
 import { fetchConnections, fetchInboundTraffic, fetchRealtimeStats } from '../api/stats'
@@ -178,16 +179,23 @@ function formatUptime(seconds?: number): string {
         <div class="card-header-row">
           <span>内核状态</span>
           <div class="quick-actions">
-            <u-button size="small" :disabled="!status?.running" :loading="acting === 'restart'" @click="handleKernelAction('restart')">
+            <u-button :disabled="!status?.running" :loading="acting === 'restart'" @click="handleKernelAction('restart')">
               重启内核
             </u-button>
-            <u-button size="small" @click="copySubscriptionLink">复制订阅链接</u-button>
-            <u-button size="small" @click="router.push({ name: 'subscription' })">前往订阅页</u-button>
+            <u-button @click="copySubscriptionLink">复制订阅链接</u-button>
+            <u-button @click="router.push({ name: 'subscription' })">前往订阅页</u-button>
           </div>
         </div>
       </u-card-header>
       <u-card-content>
-        <u-empty v-if="status && !status.installed" text="尚未安装 sing-box 内核，请到设置页下载安装" block />
+        <EmptyState
+          v-if="status && !status.installed"
+          :icon="Download"
+          title="尚未安装 sing-box 内核"
+          description="内核未安装时面板仅能管理配置，前往设置页下载安装后即可启动"
+          cta-text="前往设置安装"
+          @cta="router.push('/settings')"
+        />
         <template v-else>
           <div class="kernel-meta">
             <u-tag :type="status?.running ? 'success' : 'info'">
@@ -198,7 +206,6 @@ function formatUptime(seconds?: number): string {
             <span v-if="status?.running">运行时长：{{ formatUptime(status.uptimeSeconds) }}</span>
             <div class="kernel-actions">
               <u-button
-                size="small"
                 type="primary"
                 :disabled="status?.running"
                 :loading="acting === 'start'"
@@ -207,7 +214,6 @@ function formatUptime(seconds?: number): string {
                 启动
               </u-button>
               <u-button
-                size="small"
                 type="error"
                 :disabled="!status?.running"
                 :loading="acting === 'stop'"
@@ -216,7 +222,6 @@ function formatUptime(seconds?: number): string {
                 停止
               </u-button>
               <u-button
-                size="small"
                 :disabled="!status?.running"
                 :loading="acting === 'restart'"
                 @click="handleKernelAction('restart')"
@@ -266,7 +271,7 @@ function formatUptime(seconds?: number): string {
       <u-card-header>
         <div class="card-header-row">
           <span>按入站累计流量</span>
-          <u-button size="small" @click="refreshTraffic">刷新</u-button>
+          <u-button @click="refreshTraffic">刷新</u-button>
         </div>
       </u-card-header>
       <u-card-content>
@@ -288,7 +293,7 @@ function formatUptime(seconds?: number): string {
       <u-card-header>
         <div class="card-header-row">
           <span>当前连接</span>
-          <u-button size="small" @click="refreshConnections">刷新</u-button>
+          <u-button @click="refreshConnections">刷新</u-button>
         </div>
       </u-card-header>
       <u-card-content>
@@ -358,14 +363,14 @@ function formatUptime(seconds?: number): string {
   flex-direction: column;
   gap: 6px;
   padding: 14px 16px;
-  border: 1px solid var(--u-border-color, #e4e4e7);
-  border-radius: 8px;
-  background: var(--u-bg-color-middle, #fafafa);
+  border: 1px solid var(--u-border-color);
+  border-radius: var(--u-radius-default);
+  background: var(--u-bg-color-middle);
 }
 
 .stat-label {
-  font-size: 12px;
-  color: var(--u-text-color-second, #71717a);
+  font-size: var(--u-font-size-main-small);
+  color: var(--u-text-color-second);
 }
 
 .stat-value {
@@ -375,16 +380,16 @@ function formatUptime(seconds?: number): string {
 }
 
 .stat-value.is-up {
-  color: var(--u-color-success, #16a34a);
+  color: var(--u-color-success);
 }
 
 .stat-value.is-down {
-  color: var(--u-color-primary, #2563eb);
+  color: var(--u-color-primary);
 }
 
 .hint {
   margin: 10px 0 0;
-  font-size: 12px;
-  color: var(--u-text-color-second, #71717a);
+  font-size: var(--u-font-size-main-small);
+  color: var(--u-text-color-second);
 }
 </style>

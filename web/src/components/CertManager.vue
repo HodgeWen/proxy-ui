@@ -147,8 +147,8 @@ defineExpose({ open, refresh })
         <span class="cert-paths">{{ rowData.certPath }}<br />{{ rowData.keyPath }}</span>
       </template>
       <template #column:actions="{ rowData }">
-        <u-button text type="primary" @click="openEdit(rowData)">编辑</u-button>
-        <u-button text type="error" @click="handleDelete(rowData)">删除</u-button>
+        <u-button text size="small" type="primary" @click="openEdit(rowData)">编辑</u-button>
+        <u-button text size="small" type="error" @click="handleDelete(rowData)">删除</u-button>
       </template>
     </u-table>
 
@@ -165,12 +165,12 @@ defineExpose({ open, refresh })
         <template v-if="form.mode === 'managed'">
           <u-form-item label="证书 PEM" field="certPem" :rules="{ required: editing ? undefined : '请粘贴或上传证书 PEM' }">
             <u-textarea v-model="form.certPem" :rows="4" placeholder="-----BEGIN CERTIFICATE-----" />
-            <u-button size="small" class="pem-upload" @click="certFileInput?.click()">上传证书文件</u-button>
+            <u-button class="pem-upload" @click="certFileInput?.click()">上传证书文件</u-button>
             <input ref="certFileInput" type="file" accept=".pem,.crt,.cer,text/plain" hidden @change="pickPem('certPem', $event)" />
           </u-form-item>
           <u-form-item label="私钥 PEM" field="keyPem" :rules="{ required: editing ? undefined : '请粘贴或上传私钥 PEM' }">
             <u-textarea v-model="form.keyPem" :rows="4" placeholder="-----BEGIN PRIVATE KEY-----" />
-            <u-button size="small" class="pem-upload" @click="keyFileInput?.click()">上传私钥文件</u-button>
+            <u-button class="pem-upload" @click="keyFileInput?.click()">上传私钥文件</u-button>
             <input ref="keyFileInput" type="file" accept=".pem,.key,text/plain" hidden @change="pickPem('keyPem', $event)" />
           </u-form-item>
         </template>
@@ -199,12 +199,12 @@ defineExpose({ open, refresh })
 
 .cert-hint {
   margin: 0;
-  font-size: 13px;
-  color: var(--u-text-color-second, #71717a);
+  font-size: var(--u-font-size-main-small);
+  color: var(--u-text-color-second);
 }
 
 .cert-paths {
-  font-size: 12px;
+  font-size: var(--u-font-size-main-small);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   word-break: break-all;
 }
@@ -215,7 +215,7 @@ defineExpose({ open, refresh })
 
 .pem-hint {
   margin: 8px 0 0;
-  font-size: 12px;
-  color: var(--u-text-color-second, #71717a);
+  font-size: var(--u-font-size-main-small);
+  color: var(--u-text-color-second);
 }
 </style>

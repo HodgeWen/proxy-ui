@@ -8,7 +8,6 @@ import {
   UCardContent,
   UCardHeader,
   UDialog,
-  UEmpty,
   UForm,
   UFormItem,
   UInput,
@@ -23,6 +22,8 @@ import {
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
 import { computed, reactive, shallowRef } from 'vue'
+
+import EmptyState from './EmptyState.vue'
 
 const props = defineProps<{
   groups: PolicyGroup[]
@@ -131,12 +132,14 @@ async function handleSave(): Promise<void> {
     <u-card-header>
       <div class="page-header">
         <span>策略组</span>
-        <u-button size="small" type="primary" @click="openCreate">新建策略组</u-button>
+        <u-button type="primary" @click="openCreate">新建策略组</u-button>
       </div>
     </u-card-header>
     <u-card-content>
-      <u-empty v-if="!groups.length" text="暂无策略组，可应用预设模板或新建策略组" block />
-      <u-table v-else :columns="columns" :data="groups" row-key="id" border>
+      <u-table :columns="columns" :data="groups" row-key="id" border>
+        <template #empty>
+          <EmptyState title="暂无策略组" description="策略组可聚合多个出站做故障转移或自动选择，可应用预设模板或点击右上角新建" />
+        </template>
         <template #column:mode="{ rowData }">
           <u-tag type="info">{{ modeLabel(rowData.mode) }}</u-tag>
         </template>
@@ -152,8 +155,8 @@ async function handleSave(): Promise<void> {
           />
         </template>
         <template #column:actions="{ rowData }">
-          <u-button text type="primary" @click="openEdit(rowData)">编辑</u-button>
-          <u-button text type="error" @click="handleDelete(rowData)">删除</u-button>
+          <u-button text size="small" type="primary" @click="openEdit(rowData)">编辑</u-button>
+          <u-button text size="small" type="error" @click="handleDelete(rowData)">删除</u-button>
         </template>
       </u-table>
     </u-card-content>

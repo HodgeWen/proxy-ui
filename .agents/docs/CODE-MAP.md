@@ -26,7 +26,7 @@ proxy-ui/
     │   ├── api/          # 请求封装（envelope 解包、401 跳登录、错误提示）与鉴权、内核管理、面板版本/一键更新、统计（实时/连接/按入站累计）、入站/出站/证书、规则模板/规则/策略组/anti-AD、订阅令牌/服务器地址、应用配置、AI（供应商配置/工具描述与执行）接口
     │   ├── stores/       # Pinia：auth 鉴权状态（初始化/会话/登录/登出/改密）
     │   ├── views/        # 页面：向导/登录/仪表盘（内核状态与启停、实时速率/内存、按入站累计、连接列表、快捷操作）/入站（协议分组新建与列表）/出站（direct 与自定义）/规则（模板/规则/策略组/anti-AD 源）/订阅（令牌管理与链接二维码）/AI 助手（@veltra/ai 流式对话、面板工具调用）/设置（账号/内核/面板与内核在线更新/AI 供应商）
-    │   ├── components/   # 通用组件：AppLayout 侧边导航布局、InboundForm 声明式入站表单引擎、CertManager 证书管理、RuleListCard 规则列表、PolicyGroupCard 策略组列表
+    │   ├── components/   # 通用组件：AppLayout 侧边导航布局（nav 令牌侧栏）、EmptyState 全站空状态（图标/说明/CTA）、InboundForm 声明式入站表单引擎、CertManager 证书管理、RuleListCard 规则列表、PolicyGroupCard 策略组列表
     │   ├── inbound-schema.ts # 八协议入站字段 schema、默认值生成（含纯 JS X25519 密钥对）与弱配置警示
     │   └── router/       # 路由与守卫（未登录重定向、已初始化后向导不可达）
     └── package.json      # bun + Vite + TS + Vue3 + @veltra/desktop + etiket（订阅二维码）+ Pinia + Vue Router

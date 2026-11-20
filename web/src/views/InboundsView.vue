@@ -11,7 +11,6 @@ import {
   UCardContent,
   UCardHeader,
   UDialog,
-  UEmpty,
   USwitch,
   UTable,
   UTag,
@@ -21,6 +20,7 @@ import {
 } from '@veltra/desktop'
 import { computed, onMounted, shallowRef } from 'vue'
 
+import EmptyState from '../components/EmptyState.vue'
 import { PROTOCOL_DEFS, protocolDef } from '../inbound-schema'
 
 const inbounds = shallowRef<Inbound[]>([])
@@ -114,15 +114,21 @@ onMounted(refresh)
       <div class="page-header">
         <span>入站管理</span>
         <div class="page-ops">
-          <u-button size="small" :loading="applying" @click="handleApply">应用配置</u-button>
-          <u-button size="small" @click="certManager?.open()">证书管理</u-button>
-          <u-button size="small" type="primary" @click="pickerVisible = true">新建入站</u-button>
+          <u-button :loading="applying" @click="handleApply">应用配置</u-button>
+          <u-button @click="certManager?.open()">证书管理</u-button>
+          <u-button type="primary" @click="pickerVisible = true">新建入站</u-button>
         </div>
       </div>
     </u-card-header>
     <u-card-content>
-      <u-empty v-if="!inbounds.length && !loading" text="暂无入站，点击右上角「新建入站」创建" block />
-      <u-table v-else :columns="columns" :data="inbounds" row-key="id" border :loading="loading">
+      <u-table :columns="columns" :data="inbounds" row-key="id" border :loading="loading">
+        <template #empty>
+          <EmptyState
+            v-if="!loading"
+            title="暂无入站"
+            description="点击右上角「新建入站」创建第一个入站，配置完成后需应用配置生效"
+          />
+        </template>
         <template #column:protocol="{ rowData }">
           <u-tag :type="protocolDef(rowData.protocol)?.recommended ? 'success' : 'info'">
             {{ protocolDef(rowData.protocol)?.name ?? rowData.protocol }}
@@ -143,8 +149,8 @@ onMounted(refresh)
           />
         </template>
         <template #column:actions="{ rowData }">
-          <u-button text type="primary" @click="inboundForm?.openEdit(rowData)">编辑</u-button>
-          <u-button text type="error" @click="handleDelete(rowData)">删除</u-button>
+          <u-button text size="small" type="primary" @click="inboundForm?.openEdit(rowData)">编辑</u-button>
+          <u-button text size="small" type="error" @click="handleDelete(rowData)">删除</u-button>
         </template>
       </u-table>
     </u-card-content>
@@ -190,7 +196,7 @@ onMounted(refresh)
 }
 
 .cell-dim {
-  color: var(--u-text-color-fourth, #a1a1aa);
+  color: var(--u-text-color-assist);
 }
 
 .proto-group {
@@ -199,9 +205,9 @@ onMounted(refresh)
 
 .proto-group-title {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-size: var(--u-font-size-main-small);
   font-weight: 600;
-  color: var(--u-text-color-second, #71717a);
+  color: var(--u-text-color-second);
 }
 
 .proto-grid {
@@ -217,27 +223,27 @@ onMounted(refresh)
   gap: 4px;
   padding: 12px 14px;
   text-align: left;
-  border: 1px solid var(--u-border-color, #e4e4e7);
-  border-radius: 8px;
-  background: var(--u-bg-color, #fff);
+  border: 1px solid var(--u-border-color);
+  border-radius: var(--u-radius-default);
+  background: var(--u-bg-color-top);
   cursor: pointer;
-  transition: border-color 0.15s ease;
+  transition: border-color var(--u-transition-fast) var(--u-transition-ease-out);
 }
 
 .proto-card:hover {
-  border-color: var(--u-color-primary, #2563eb);
+  border-color: var(--u-color-primary);
 }
 
 .proto-name {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
+  font-size: var(--u-font-size-main-default);
   font-weight: 600;
 }
 
 .proto-desc {
-  font-size: 12px;
-  color: var(--u-text-color-second, #71717a);
+  font-size: var(--u-font-size-main-small);
+  color: var(--u-text-color-second);
 }
 </style>

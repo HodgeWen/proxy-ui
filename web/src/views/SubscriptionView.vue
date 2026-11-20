@@ -8,12 +8,13 @@ import {
   UCard,
   UCardContent,
   UCardHeader,
-  UEmpty,
   UInput,
   message,
   messageConfirm,
 } from '@veltra/desktop'
 import { computed, onMounted, shallowRef } from 'vue'
+
+import EmptyState from '../components/EmptyState.vue'
 import {
   createSubscriptionToken,
   getSubscription,
@@ -163,10 +164,12 @@ onMounted(async () => {
           placeholder="留空按客户端访问面板的 Host 自动推断"
           class="server-input"
         />
-        <u-button size="small" :loading="serverSaving" @click="handleSaveServer">保存</u-button>
       </div>
       <div class="server-tip">
         订阅内节点（入站）的服务器地址取该设置；使用域名或公网 IP，客户端才能跨网络连接。
+      </div>
+      <div class="card-actions">
+        <u-button type="primary" :loading="serverSaving" @click="handleSaveServer">保存</u-button>
       </div>
     </u-card-content>
   </u-card>
@@ -176,9 +179,13 @@ onMounted(async () => {
     <u-card-content>
       <div class="create-row">
         <u-input v-model="newName" placeholder="备注（如：我的手机）" class="create-input" @keyup.enter="handleCreate" />
-        <u-button type="primary" size="small" :loading="creating" @click="handleCreate">生成令牌</u-button>
+        <u-button type="primary" :loading="creating" @click="handleCreate">生成令牌</u-button>
       </div>
-      <u-empty v-if="tokens.length === 0" text="尚无订阅令牌，先生成一个" block />
+      <EmptyState
+        v-if="tokens.length === 0"
+        title="尚无订阅令牌"
+        description="输入备注后点击「生成令牌」，即可获得供客户端订阅的链接与二维码"
+      />
       <div v-for="t in tokens" v-else :key="t.id" class="token-item" :class="{ revoked: t.revoked }">
         <div class="token-info">
           <div class="token-name">
@@ -251,8 +258,15 @@ onMounted(async () => {
 
 .server-tip {
   margin-top: 8px;
-  color: var(--u-text-color-second, #71717a);
-  font-size: 13px;
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+}
+
+/* 页面级表单操作区：卡片底部右侧 */
+.card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 
 .create-row {
@@ -272,8 +286,8 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 16px;
   padding: 12px 16px;
-  border: 1px solid var(--u-border-color, #e4e4e7);
-  border-radius: 8px;
+  border: 1px solid var(--u-border-color);
+  border-radius: var(--u-radius-default);
   margin-bottom: 8px;
 }
 
@@ -296,23 +310,23 @@ onMounted(async () => {
 }
 
 .token-badge {
-  font-size: 12px;
+  font-size: var(--u-font-size-main-small);
   font-weight: 400;
-  color: #fff;
-  background: var(--u-color-danger, #ef4444);
-  border-radius: 4px;
+  color: var(--u-text-color-white);
+  background: var(--u-color-danger);
+  border-radius: var(--u-radius-small);
   padding: 1px 6px;
 }
 
 .token-value {
-  font-family: var(--u-font-family-mono, monospace);
-  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--u-font-size-main-small);
   word-break: break-all;
 }
 
 .token-meta {
-  color: var(--u-text-color-second, #71717a);
-  font-size: 12px;
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
 }
 
 .token-actions {
@@ -337,17 +351,17 @@ onMounted(async () => {
 .link-label {
   width: 110px;
   flex-shrink: 0;
-  color: var(--u-text-color-second, #71717a);
+  color: var(--u-text-color-second);
 }
 
 .link-value {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--u-font-size-main-small);
   word-break: break-all;
   padding: 6px 10px;
-  border: 1px solid var(--u-border-color, #e4e4e7);
-  border-radius: 6px;
+  border: 1px solid var(--u-border-color);
+  border-radius: var(--u-radius-small);
 }
 
 .qr {
@@ -374,7 +388,7 @@ onMounted(async () => {
 }
 
 .qr-tip {
-  color: var(--u-text-color-second, #71717a);
-  font-size: 13px;
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
 }
 </style>

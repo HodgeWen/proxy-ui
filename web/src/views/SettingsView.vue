@@ -5,7 +5,6 @@ import {
   UCard,
   UCardContent,
   UCardHeader,
-  UEmpty,
   UForm,
   UInput,
   UPasswordInput,
@@ -18,6 +17,8 @@ import {
 } from '@veltra/desktop'
 import type { FormExposed, TabItem } from '@veltra/desktop'
 import { computed, nextTick, onBeforeUnmount, reactive, shallowRef, watch } from 'vue'
+
+import EmptyState from '../components/EmptyState.vue'
 
 import { fetchAIConfig, saveAIConfig } from '../api/ai'
 import { fetchHealth } from '../api/auth'
@@ -339,7 +340,7 @@ onBeforeUnmount(stopPolling)
 
 <template>
   <u-tabs v-model="active" :items="tabs">
-    <template #account>
+    <template v-slot:account>
       <u-card>
         <u-card-header>管理员账号</u-card-header>
         <u-card-content>
@@ -367,7 +368,9 @@ onBeforeUnmount(stopPolling)
               }"
             />
           </u-form>
-          <u-button type="primary" :loading="saving" @click="handleSave">保存密码</u-button>
+          <div class="card-actions">
+            <u-button type="primary" :loading="saving" @click="handleSave">保存密码</u-button>
+          </div>
         </u-card-content>
       </u-card>
     </template>
@@ -382,19 +385,21 @@ onBeforeUnmount(stopPolling)
               placeholder="镜像前缀，如 https://ghproxy.example；留空直连 GitHub"
               clearable
             />
-            <u-button type="primary" :loading="savingMirror" @click="saveMirror">保存</u-button>
           </div>
           <p class="hint">配置后所有 GitHub 请求（版本查询与内核下载）均经该前缀代理。</p>
+          <div class="card-actions">
+            <u-button type="primary" :loading="savingMirror" @click="saveMirror">保存</u-button>
+          </div>
         </u-card-content>
       </u-card>
 
       <u-card class="kernel-card">
         <u-card-header>sing-box 内核</u-card-header>
         <u-card-content>
-          <u-empty
+          <EmptyState
             v-if="status && !status.installed"
-            text="尚未安装 sing-box 内核，请在下方版本列表选择版本一键安装"
-            block
+            title="尚未安装 sing-box 内核"
+            description="在下方版本列表选择版本一键安装，安装后即可在此启动内核"
           />
           <template v-else>
             <div class="kernel-meta">
@@ -435,9 +440,8 @@ onBeforeUnmount(stopPolling)
           <div class="card-header-row">
             <span>可用版本</span>
             <div class="card-header-ops">
-              <u-button size="small" :loading="loadingVersions" @click="refreshVersions">刷新版本</u-button>
+              <u-button :loading="loadingVersions" @click="refreshVersions">刷新版本</u-button>
               <u-button
-                size="small"
                 type="primary"
                 :loading="installing === 'LATEST'"
                 @click="handleInstall()"
@@ -468,6 +472,7 @@ onBeforeUnmount(stopPolling)
               <u-button
                 v-else
                 text
+                size="small"
                 type="primary"
                 :loading="installing === rowData.tag"
                 @click="handleInstall(rowData.tag)"
@@ -483,11 +488,11 @@ onBeforeUnmount(stopPolling)
         <u-card-header>
           <div class="card-header-row">
             <span>内核日志</span>
-            <u-button size="small" @click="refreshLogs(false)">刷新日志</u-button>
+            <u-button @click="refreshLogs(false)">刷新日志</u-button>
           </div>
         </u-card-header>
         <u-card-content>
-          <u-empty v-if="!logs.length" text="暂无内核日志" block />
+          <EmptyState v-if="!logs.length" title="暂无内核日志" />
           <div v-else ref="logBox" class="kernel-log">
             <div v-for="(item, index) in logs" :key="index" class="kernel-log-line">
               <span class="kernel-log-time">{{ new Date(item.time).toLocaleTimeString() }}</span>
@@ -569,7 +574,9 @@ onBeforeUnmount(stopPolling)
             />
             <u-select label="推理强度" field="reasoningEffort" :options="reasoningOptions" />
           </u-form>
-          <u-button type="primary" :loading="aiSaving" @click="saveAI">保存配置</u-button>
+          <div class="card-actions">
+            <u-button type="primary" :loading="aiSaving" @click="saveAI">保存配置</u-button>
+          </div>
           <p class="hint">
             Key 只保存在面板服务端，对话经面板代理流式转发；配置后可在「AI 助手」页对话并让 AI
             协助查询与修改面板配置。
@@ -602,8 +609,15 @@ onBeforeUnmount(stopPolling)
 
 .hint {
   margin: 8px 0 0;
-  font-size: 12px;
-  color: var(--u-text-color-second, #71717a);
+  font-size: var(--u-font-size-main-small);
+  color: var(--u-text-color-second);
+}
+
+/* 页面级表单操作区：卡片底部右侧 */
+.card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 
 .kernel-meta {
@@ -636,11 +650,11 @@ onBeforeUnmount(stopPolling)
   height: 320px;
   overflow: auto;
   padding: 10px 12px;
-  border-radius: 6px;
-  background: var(--u-bg-color-middle, #fafafa);
-  border: 1px solid var(--u-border-color, #e4e4e7);
+  border-radius: var(--u-radius-small);
+  background: var(--u-bg-color-middle);
+  border: 1px solid var(--u-border-color);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--u-font-size-main-small);
   line-height: 1.7;
 }
 
@@ -652,20 +666,20 @@ onBeforeUnmount(stopPolling)
 }
 
 .kernel-log-time {
-  color: var(--u-text-color-second, #71717a);
+  color: var(--u-text-color-second);
   flex-shrink: 0;
 }
 
 .kernel-log-stream {
   flex-shrink: 0;
-  color: var(--u-color-primary, #2563eb);
+  color: var(--u-color-primary);
 }
 
 .kernel-log-stream.is-stderr {
-  color: var(--u-color-error, #dc2626);
+  color: var(--u-color-danger);
 }
 
 .kernel-log-stream.is-panel {
-  color: var(--u-color-warning, #d97706);
+  color: var(--u-color-warning);
 }
 </style>

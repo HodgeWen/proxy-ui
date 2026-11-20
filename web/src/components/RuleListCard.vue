@@ -9,7 +9,6 @@ import {
   UCardContent,
   UCardHeader,
   UDialog,
-  UEmpty,
   UForm,
   UInput,
   USelect,
@@ -22,6 +21,8 @@ import {
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
 import { reactive, shallowRef } from 'vue'
+
+import EmptyState from './EmptyState.vue'
 
 const props = defineProps<{
   rules: RuleRecord[]
@@ -171,14 +172,16 @@ async function handleApply(): Promise<void> {
       <div class="page-header">
         <span>路由规则</span>
         <div class="page-ops">
-          <u-button size="small" :loading="applying" @click="handleApply">应用配置</u-button>
-          <u-button size="small" type="primary" @click="openCreate">新建规则</u-button>
+          <u-button :loading="applying" @click="handleApply">应用配置</u-button>
+          <u-button type="primary" @click="openCreate">新建规则</u-button>
         </div>
       </div>
     </u-card-header>
     <u-card-content>
-      <u-empty v-if="!rules.length" text="暂无规则，可先应用预设模板或新建规则" block />
-      <u-table v-else :columns="columns" :data="rules" row-key="id" border>
+      <u-table :columns="columns" :data="rules" row-key="id" border>
+        <template #empty>
+          <EmptyState title="暂无规则" description="可先应用上方预设模板，或点击右上角「新建规则」逐条添加" />
+        </template>
         <template #column:sort="{ rowData, rowIndex }">
           <u-button text size="small" :disabled="moving || rowIndex === 0" @click="move(rowData, -1)">上移</u-button>
           <u-button text size="small" :disabled="moving || rowIndex === rules.length - 1" @click="move(rowData, 1)">下移</u-button>
@@ -198,8 +201,8 @@ async function handleApply(): Promise<void> {
           />
         </template>
         <template #column:actions="{ rowData }">
-          <u-button text type="primary" @click="openEdit(rowData)">编辑</u-button>
-          <u-button text type="error" @click="handleDelete(rowData)">删除</u-button>
+          <u-button text size="small" type="primary" @click="openEdit(rowData)">编辑</u-button>
+          <u-button text size="small" type="error" @click="handleDelete(rowData)">删除</u-button>
         </template>
       </u-table>
     </u-card-content>

@@ -79,9 +79,8 @@ async function handleApplyTemplate(tpl: RuleTemplate): Promise<void> {
 
 const antiADURL = shallowRef('')
 const antiADDefault = shallowRef('')
-const antiADSaving = shallowRef(false)
 const finalOutbound = shallowRef('')
-const finalSaving = shallowRef(false)
+const globalSaving = shallowRef(false)
 
 /** 兜底出站候选：direct + 自定义出站 + 策略组 */
 const finalOptions = computed(() => [
@@ -90,28 +89,17 @@ const finalOptions = computed(() => [
   ...groups.value.map((g) => ({ label: `${g.name}（策略组）`, value: g.name })),
 ])
 
-async function handleSaveAntiAD(): Promise<void> {
-  antiADSaving.value = true
+/** 页面级表单统一保存：anti-AD 源与兜底出站一并提交 */
+async function handleSaveGlobal(): Promise<void> {
+  globalSaving.value = true
   try {
-    const res = await setAntiAD(antiADURL.value.trim())
-    antiADURL.value = res.url
-    message.success(res.url ? 'anti-AD 规则源已保存' : '已恢复 anti-AD 官方默认源')
+    const [antiAD] = await Promise.all([setAntiAD(antiADURL.value.trim()), setRouteFinal(finalOutbound.value)])
+    antiADURL.value = antiAD.url
+    message.success('广告拦截与兜底出站已保存')
   } catch {
     // 错误已由请求封装统一提示
   } finally {
-    antiADSaving.value = false
-  }
-}
-
-async function handleSaveFinal(): Promise<void> {
-  finalSaving.value = true
-  try {
-    await setRouteFinal(finalOutbound.value)
-    message.success('兜底出站已保存')
-  } catch {
-    // 错误已由请求封装统一提示
-  } finally {
-    finalSaving.value = false
+    globalSaving.value = false
   }
 }
 
@@ -139,7 +127,6 @@ onMounted(async () => {
             <div class="template-desc">{{ tpl.description }}</div>
           </div>
           <u-button
-            size="small"
             type="primary"
             :loading="applyingTemplate === tpl.id"
             @click="handleApplyTemplate(tpl)"
@@ -165,7 +152,6 @@ onMounted(async () => {
             :placeholder="`默认官方源 ${antiADDefault}`"
             class="settings-input"
           />
-          <u-button size="small" :loading="antiADSaving" @click="handleSaveAntiAD">保存</u-button>
         </div>
         <div class="settings-field">
           <div class="settings-label">未匹配规则的流量走</div>
@@ -177,8 +163,10 @@ onMounted(async () => {
             filterable
             class="settings-input"
           />
-          <u-button size="small" :loading="finalSaving" @click="handleSaveFinal">保存</u-button>
         </div>
+      </div>
+      <div class="card-actions">
+        <u-button type="primary" :loading="globalSaving" @click="handleSaveGlobal">保存</u-button>
       </div>
     </u-card-content>
   </u-card>
@@ -201,8 +189,8 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 16px;
   padding: 12px 16px;
-  border: 1px solid var(--u-border, #e5e7eb);
-  border-radius: 8px;
+  border: var(--u-border);
+  border-radius: var(--u-radius-default);
 }
 
 .template-info {
@@ -216,8 +204,8 @@ onMounted(async () => {
 }
 
 .template-desc {
-  color: var(--u-text-secondary, #6b7280);
-  font-size: 13px;
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
 }
 
 .settings-row {
@@ -239,5 +227,12 @@ onMounted(async () => {
 
 .settings-input {
   flex: 1;
+}
+
+/* 页面级表单操作区：卡片底部右侧 */
+.card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
 }
 </style>

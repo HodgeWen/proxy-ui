@@ -12,7 +12,6 @@ import {
   UCollapse,
   UCollapseItem,
   UDialog,
-  UEmpty,
   UForm,
   UFormItem,
   UInput,
@@ -28,6 +27,8 @@ import {
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
 import { computed, onMounted, reactive, shallowRef } from 'vue'
+
+import EmptyState from '../components/EmptyState.vue'
 
 const outbounds = shallowRef<Outbound[]>([])
 const loading = shallowRef(false)
@@ -200,7 +201,7 @@ onMounted(refresh)
   <u-alert v-if="!hasDirect && !loading" class="direct-alert" type="info" title="direct 出站">
     <div class="direct-row">
       <span>direct 为 sing-box 内置直连出站，作为未命中规则的默认出口，通常保持添加即可。</span>
-      <u-button size="small" type="primary" @click="addDirect">添加 direct 出站</u-button>
+      <u-button type="primary" @click="addDirect">添加 direct 出站</u-button>
     </div>
   </u-alert>
 
@@ -209,14 +210,20 @@ onMounted(refresh)
       <div class="page-header">
         <span>出站管理</span>
         <div class="page-ops">
-          <u-button size="small" :loading="applying" @click="handleApply">应用配置</u-button>
-          <u-button size="small" type="primary" @click="openCreate">新建自定义出站</u-button>
+          <u-button :loading="applying" @click="handleApply">应用配置</u-button>
+          <u-button type="primary" @click="openCreate">新建自定义出站</u-button>
         </div>
       </div>
     </u-card-header>
     <u-card-content>
-      <u-empty v-if="!outbounds.length && !loading" text="暂无出站" block />
-      <u-table v-else :columns="columns" :data="outbounds" row-key="id" border :loading="loading">
+      <u-table :columns="columns" :data="outbounds" row-key="id" border :loading="loading">
+        <template #empty>
+          <EmptyState
+            v-if="!loading"
+            title="暂无出站"
+            description="可先添加 direct 内置直连出站作为兜底，再按需新建自定义出站"
+          />
+        </template>
         <template #column:type="{ rowData }">
           <u-tag :type="rowData.type === 'direct' ? 'success' : 'info'">{{ rowData.type }}</u-tag>
         </template>
@@ -233,11 +240,11 @@ onMounted(refresh)
         </template>
         <template #column:actions="{ rowData }">
           <template v-if="rowData.type !== 'direct'">
-            <u-button text type="primary" @click="openEdit(rowData)">编辑</u-button>
-            <u-button text type="error" @click="handleDelete(rowData)">删除</u-button>
+            <u-button text size="small" type="primary" @click="openEdit(rowData)">编辑</u-button>
+            <u-button text size="small" type="error" @click="handleDelete(rowData)">删除</u-button>
           </template>
           <template v-else>
-            <u-button text type="error" @click="handleDelete(rowData)">删除</u-button>
+            <u-button text size="small" type="error" @click="handleDelete(rowData)">删除</u-button>
           </template>
         </template>
       </u-table>

@@ -37,7 +37,7 @@ async function handleSubmit() {
         <div class="setup-subtitle">首次访问请创建管理员账号，面板无任何默认账号口令</div>
       </u-card-header>
       <u-card-content>
-        <u-form ref="formRef" :model="form" :cols="1" label-width="88px">
+        <u-form ref="formRef" :model="form" :cols="1" label-position="top">
           <u-input
             label="用户名"
             field="username"
@@ -65,7 +65,7 @@ async function handleSubmit() {
             }"
           />
         </u-form>
-        <u-button type="primary" :loading="submitting" style="width: 100%" @click="handleSubmit">
+        <u-button type="primary" class="setup-submit" :loading="submitting" @click="handleSubmit">
           创建管理员并进入面板
         </u-button>
       </u-card-content>
@@ -79,17 +79,23 @@ async function handleSubmit() {
   align-items: center;
   justify-content: center;
   height: 100vh;
-  background: var(--u-bg-color-middle, #fafafa);
+  background: var(--u-bg-color-middle);
 }
 
 .setup-title {
-  font-size: 20px;
+  font-size: var(--u-font-size-title-large);
   font-weight: 600;
 }
 
 .setup-subtitle {
   margin-top: 4px;
-  color: var(--u-text-color-second, #71717a);
-  font-size: 13px;
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+}
+
+/* 顶部标签形态下输入框通栏，提交按钮同宽对齐 */
+.setup-submit {
+  width: 100%;
+  margin-top: 4px;
 }
 </style>

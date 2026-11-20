@@ -177,7 +177,7 @@ defineExpose({ openCreate, openEdit, reloadCerts })
     <div v-if="warnings.length" class="form-warnings">
       <div v-for="w in warnings" :key="w.text" class="form-warning">
         <span class="form-warning-text">⚠ {{ w.text }}</span>
-        <u-button v-if="w.jump === 'tls'" text type="primary" size="small" @click="jumpToTls">去配置 TLS</u-button>
+        <u-button v-if="w.jump === 'tls'" text type="primary" @click="jumpToTls">去配置 TLS</u-button>
       </div>
     </div>
 
@@ -202,7 +202,7 @@ defineExpose({ openCreate, openEdit, reloadCerts })
           <div ref="tlsSection" class="tls-section">
             <p v-if="!certs.length" class="tls-empty">
               暂无面板存储证书，可引用服务器本地路径，或
-              <u-button text type="primary" size="small" @click="emit('manage-certs')">打开证书管理</u-button>
+              <u-button text type="primary" @click="emit('manage-certs')">打开证书管理</u-button>
               上传/粘贴证书。
             </p>
             <SchemaField v-for="d in TLS_FIELDS" :key="d.field" :def="d" :model="form" :certs="certs" />
@@ -227,9 +227,9 @@ defineExpose({ openCreate, openEdit, reloadCerts })
   gap: 6px;
   margin-bottom: 14px;
   padding: 10px 12px;
-  border: 1px solid var(--u-color-warning, #d97706);
-  border-radius: 6px;
-  background: rgba(217, 119, 6, 0.08);
+  border: 1px solid var(--u-color-warning);
+  border-radius: var(--u-radius-small);
+  background: var(--u-color-warning-a-8);
 }
 
 .form-warning {
@@ -240,9 +240,9 @@ defineExpose({ openCreate, openEdit, reloadCerts })
 }
 
 .form-warning-text {
-  font-size: 13px;
+  font-size: var(--u-font-size-main-small);
   line-height: 1.6;
-  color: var(--u-color-warning, #b45309);
+  color: var(--u-color-warning);
 }
 
 .form-collapse {
@@ -251,7 +251,7 @@ defineExpose({ openCreate, openEdit, reloadCerts })
 
 .tls-empty {
   margin: 0 0 10px;
-  font-size: 13px;
-  color: var(--u-text-color-second, #71717a);
+  font-size: var(--u-font-size-main-small);
+  color: var(--u-text-color-second);
 }
 </style>

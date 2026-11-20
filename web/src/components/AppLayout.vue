@@ -1,8 +1,8 @@
-<!-- 应用布局：左侧品牌 + 侧边导航，右侧顶栏（版本 / 用户 / 登出）与内容区 -->
+<!-- 应用布局：左侧整列 nav 表面侧栏（品牌 / 导航 / 用户底部区），右侧顶栏（版本 / 主题切换）与内容区 -->
 <script setup lang="ts">
 import { UButton, UNav, USegment } from '@veltra/desktop'
 import type { NavItem } from '@veltra/desktop'
-import { AiChat, Download, Filter, Monitor, Setting, Share, Upload } from '@veltra/icons/normal'
+import { AiChat, Download, Filter, Monitor, Setting, Share, Terminal, Upload, UserCircle } from '@veltra/icons/normal'
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -45,14 +45,21 @@ async function handleLogout() {
 
 <template>
   <div class="app-shell">
-    <aside class="app-aside">
-      <div class="app-brand">proxy-ui</div>
-      <u-nav
-        :menus="menus"
-        :current-path="currentPath"
-        style="flex: 1; min-height: 0"
-        @item-click="onItemClick"
-      />
+    <aside class="app-aside" data-nav-variant="dark">
+      <div class="app-brand">
+        <span class="app-brand-mark">
+          <Terminal class="app-brand-icon" />
+        </span>
+        <span class="app-brand-name">proxy-ui</span>
+      </div>
+      <u-nav class="app-nav" :menus="menus" :current-path="currentPath" @item-click="onItemClick" />
+      <div class="app-aside-footer">
+        <div class="app-user">
+          <UserCircle class="app-user-icon" />
+          <span class="app-user-name">{{ auth.user?.username }}</span>
+        </div>
+        <u-button @click="handleLogout">退出</u-button>
+      </div>
     </aside>
     <div class="app-main">
       <header class="app-header">
@@ -64,8 +71,6 @@ async function handleLogout() {
           size="small"
           @update:model-value="setThemeMode"
         />
-        <span class="app-user">{{ auth.user?.username }}</span>
-        <u-button size="small" @click="handleLogout">退出登录</u-button>
       </header>
       <main class="app-content">
         <router-view />
@@ -80,21 +85,97 @@ async function handleLogout() {
   height: 100vh;
 }
 
+/* 侧栏整列即 nav 表面：底色 / 叠层渐变 / 右缘发丝线全取 nav 令牌，data-nav-variant 驱动深浅联动 */
 .app-aside {
   display: flex;
   flex-direction: column;
   width: 232px;
   flex-shrink: 0;
-  border-right: 1px solid var(--u-border-color, #e4e4e7);
+  color: var(--u-nav-color);
+  background-color: var(--u-nav-bg-color);
+  background-image: var(--u-nav-surface-overlay), var(--u-nav-bg-image);
+  background-repeat: no-repeat;
+  border-right: 1px solid var(--u-nav-surface-hairline);
 }
 
 .app-brand {
   height: 56px;
   display: flex;
   align-items: center;
-  padding: 0 20px;
-  font-size: 18px;
+  gap: 10px;
+  padding: 0 16px;
+  flex-shrink: 0;
+}
+
+.app-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--u-nav-surface-mark-ring);
+  border-radius: var(--u-radius-default);
+}
+
+.app-brand-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--u-nav-strong-color);
+}
+
+.app-brand-name {
+  font-size: var(--u-font-size-title-default);
   font-weight: 600;
+  color: var(--u-nav-strong-color);
+}
+
+.app-nav {
+  flex: 1;
+  min-height: 0;
+}
+
+/* UNav 自带浮起卡片外观（边框 / 大圆角 / 阴影 / 底色），侧栏内铺平与容器同面 */
+.app-aside :deep(.u-nav) {
+  background-color: transparent;
+  background-image: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.app-aside-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px;
+  padding: 8px 10px;
+  flex-shrink: 0;
+  background: var(--u-nav-surface-chip-bg);
+  border: 1px solid var(--u-nav-surface-chip-border);
+  border-radius: var(--u-radius-default);
+}
+
+.app-user {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.app-user-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--u-nav-second-color);
+}
+
+.app-user-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--u-font-size-main-default);
 }
 
 .app-main {
@@ -110,20 +191,17 @@ async function handleLogout() {
   align-items: center;
   gap: 12px;
   padding: 0 20px;
-  border-bottom: 1px solid var(--u-border-color, #e4e4e7);
+  background-color: var(--u-bg-color-top);
+  border-bottom: var(--u-border);
 }
 
 .app-version {
-  color: var(--u-text-color-second, #71717a);
-  font-size: 13px;
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
 }
 
 .app-header .app-theme-switch {
   margin-left: auto;
-}
-
-.app-header .app-user {
-  font-size: 14px;
 }
 
 .app-content {
@@ -131,6 +209,6 @@ async function handleLogout() {
   min-height: 0;
   overflow: auto;
   padding: 20px;
-  background: var(--u-bg-color-middle, #fafafa);
+  background: var(--u-bg-color-middle);
 }
 </style>
