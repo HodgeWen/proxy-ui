@@ -89,28 +89,3 @@ func (a *API) HandleKernelInstall(c *gin.Context) {
 	a.core.InvalidateVersion()
 	OK(c, gin.H{"version": tag, "status": a.kernelStatusOf(c.Request.Context())})
 }
-
-// HandleMirrorGet GET /api/kernel/mirror 下载镜像前缀设置。
-func (a *API) HandleMirrorGet(c *gin.Context) {
-	OK(c, gin.H{"prefix": a.updates.MirrorPrefix()})
-}
-
-// mirrorReq 镜像前缀设置请求。
-type mirrorReq struct {
-	Prefix string `json:"prefix"` // 镜像前缀，空表示直连
-}
-
-// HandleMirrorSet PUT /api/kernel/mirror 保存下载镜像前缀设置。
-func (a *API) HandleMirrorSet(c *gin.Context) {
-	var req mirrorReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
-		return
-	}
-	prefix, err := a.updates.SetMirrorPrefix(req.Prefix)
-	if err != nil {
-		Fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	OK(c, gin.H{"prefix": prefix})
-}

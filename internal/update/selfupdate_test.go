@@ -12,56 +12,48 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 )
 
-// newMockPanelGitHub 起本地服务器模拟面板自身 GitHub Releases（API 与下载均按 ghproxy 式镜像路径访问），返回基址。
-// 调用方将其设为镜像前缀后，全部请求经 <base>/<原始URL> 转发到本地。
+// newMockPanelGitHub 起本地服务器模拟面板自身 GitHub Releases（API 与资产下载），返回 API 基址。
 func newMockPanelGitHub(t *testing.T, tags []string, assetContent []byte, digest string) string {
 	t.Helper()
 	name := panelAssetName()
+	var server *httptest.Server
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		switch p := r.URL.Path; {
-		case strings.HasSuffix(p, "/repos/"+panelRepo+"/releases"):
-			rels := make([]ghRelease, 0, len(tags))
-			for _, tag := range tags {
-				rels = append(rels, ghRelease{
-					TagName:     tag,
-					PublishedAt: time.Now(),
-					Assets: []ghAsset{{
-						Name:               name,
-						Digest:             digest,
-						BrowserDownloadURL: "https://github.com/" + panelRepo + "/releases/download/" + tag + "/" + name,
-					}},
-				})
-			}
-			_ = json.NewEncoder(w).Encode(rels)
-		case strings.Contains(p, "/"+panelRepo+"/releases/download/"):
-			_, _ = w.Write(assetContent)
-		default:
-			http.NotFound(w, r)
+	mux.HandleFunc("/repos/"+panelRepo+"/releases", func(w http.ResponseWriter, r *http.Request) {
+		rels := make([]ghRelease, 0, len(tags))
+		for _, tag := range tags {
+			rels = append(rels, ghRelease{
+				TagName:     tag,
+				PublishedAt: time.Now(),
+				Assets: []ghAsset{{
+					Name:               name,
+					Digest:             digest,
+					BrowserDownloadURL: server.URL + "/download/" + tag + "/" + name,
+				}},
+			})
 		}
+		_ = json.NewEncoder(w).Encode(rels)
 	})
-	server := httptest.NewServer(mux)
+	mux.HandleFunc("/download/", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(assetContent)
+	})
+	server = httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 	return server.URL
 }
 
-// newSelfUpdaterForTest 构造注入假二进制路径、重启钩子与本地镜像前缀的面板更新器。
+// newSelfUpdaterForTest 构造注入假二进制路径、重启钩子与本地 GitHub 基址的面板更新器。
 func newSelfUpdaterForTest(t *testing.T, version, mockBase string) *SelfUpdater {
 	t.Helper()
 	exe := filepath.Join(t.TempDir(), "proxy-ui")
 	if err := os.WriteFile(exe, []byte("old binary"), 0o755); err != nil {
 		t.Fatalf("写入假二进制失败: %v", err)
 	}
-	database := testDB(t)
-	if err := setSetting(database, settingMirror, mockBase); err != nil {
-		t.Fatalf("设置镜像前缀失败: %v", err)
-	}
-	u := NewSelfUpdate(database, version)
+	u := NewSelfUpdate(version)
+	u.apiBase = mockBase
 	u.exePath = exe
 	u.restart = func(string) error { return nil }
 	return u

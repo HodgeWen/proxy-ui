@@ -180,11 +180,12 @@ async function handleApply(): Promise<void> {
       </div>
     </u-card-header>
     <u-card-content>
+      <div class="card-desc">每条规则 = 匹配条件 + 出站去向，流量自上而下逐条匹配、命中即走对应出站；顺序影响结果，可用「上移 / 下移」调整。</div>
       <u-table :columns="columns" :data="rules" row-key="id" border stripe>
         <template #empty>
           <EmptyState
             title="暂无规则"
-            description="可先应用上方预设模板快速生成，或逐条添加自定义规则"
+            description="规则决定什么流量走哪个出站。可先应用上方预设模板一键生成常用规则（会覆盖现有），再逐条增改"
             cta-text="新建规则"
             @cta="openCreate"
           />
@@ -221,7 +222,7 @@ async function handleApply(): Promise<void> {
         label="类型"
         field="type"
         :rules="{ required: '请选择类型' }"
-        tips="匹配方式：域名类按域名命中，IP-CIDR 按 IP 段，geosite/geoip/rule_set 引用远程规则集"
+        tips="怎么匹配流量：域名=完整域名精确匹配；域名后缀=该域名及其所有子域（如 google.com 含 mail.google.com）；域名关键字=域名含该词即命中；IP-CIDR=按 IP 段；规则集类=引用外部维护的域名 / IP 库（如 anti-AD 广告库、geosite-cn 国内站点）"
       >
         <u-select v-model="form.type" :options="ruleTypeOptions" />
       </u-form-item>
@@ -229,7 +230,7 @@ async function handleApply(): Promise<void> {
         label="匹配值"
         field="value"
         :rules="{ required: '请输入匹配值' }"
-        tips="按类型填写域名/后缀/关键字、IP 段或规则集名；多个值用英文逗号分隔，任一命中即生效"
+        tips="按类型填写，如域名 google.com、IP 段 192.168.0.0/16、规则集 anti-ad；多个值用英文逗号分隔，任一命中即生效"
       >
         <u-input v-model="form.value" placeholder="如 google.com；多个用英文逗号分隔" clearable />
       </u-form-item>
@@ -237,7 +238,7 @@ async function handleApply(): Promise<void> {
         label="出站"
         field="outbound"
         :rules="{ required: '请选择出站' }"
-        tips="命中后流量的出口：direct 直连、block 拦截，或选择自定义出站与策略组"
+        tips="命中后流量从哪出去：direct=直连不走代理；block=拒绝连接（广告拦截就是它）；其余为自定义出站或策略组"
       >
         <u-select v-model="form.outbound" :options="outboundOptions" placeholder="选择或输入出站 tag" filterable creatable />
       </u-form-item>
@@ -250,6 +251,12 @@ async function handleApply(): Promise<void> {
 </template>
 
 <style scoped>
+.card-desc {
+  margin-bottom: 12px;
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+}
+
 .page-header {
   display: flex;
   align-items: center;

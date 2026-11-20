@@ -82,8 +82,8 @@ func (s *Service) Handle(c *gin.Context) {
 	c.Data(http.StatusOK, "application/json; charset=utf-8", content)
 }
 
-// Fetch 校验匿名令牌并组装订阅数据；节点服务器地址取面板设置，未设置时用请求 Host，
-// 成功时更新令牌最近使用时间。
+// Fetch 校验匿名令牌并组装订阅数据；节点服务器地址取客户端拉取订阅的请求 Host
+// （去端口），反代或改端口部署天然适配，成功时更新令牌最近使用时间。
 func (s *Service) Fetch(token, requestHost string) (Data, error) {
 	var record db.SubscriptionToken
 	if err := s.db.First(&record, "token = ?", token).Error; err != nil {
@@ -125,10 +125,7 @@ func (s *Service) Fetch(token, requestHost string) (Data, error) {
 	for _, r := range rules {
 		ruleEntries = append(ruleEntries, singbox.RuleEntry{Type: r.Type, Value: r.Value, Outbound: r.Outbound})
 	}
-	server := strings.TrimSpace(getSetting(s.db, db.SettingSubServer))
-	if server == "" {
-		server = hostOnly(requestHost)
-	}
+	server := hostOnly(requestHost)
 	return Assemble(server, specs, groupEntries, ruleEntries,
 		getSetting(s.db, db.SettingRouteFinal), getSetting(s.db, db.SettingAntiADSource))
 }

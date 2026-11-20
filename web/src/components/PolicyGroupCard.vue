@@ -36,7 +36,7 @@ const togglingId = shallowRef(0)
 
 /** 策略组模式选项 */
 const modeOptions = [
-  { label: '故障转移（按顺序优先，近似）', value: 'failover' },
+  { label: '故障转移（自动切换可用节点）', value: 'failover' },
   { label: '固定代理（默认首个成员）', value: 'fixed' },
   { label: '自动选择（测速择优）', value: 'auto' },
 ]
@@ -142,11 +142,14 @@ async function handleSave(): Promise<void> {
       </div>
     </u-card-header>
     <u-card-content>
+      <div class="card-desc">
+        策略组是随订阅下发到客户端的分组选择器（客户端上的「节点选择 / 自动选择」），聚合多个成员供规则与兜底出站引用。三种模式：固定=固定用一个节点、自动=自动测延迟选最快、故障转移=自动测速切换到可用节点（带容差防抖，恢复后切回）。
+      </div>
       <u-table :columns="columns" :data="groups" row-key="id" border stripe>
         <template #empty>
           <EmptyState
             title="暂无策略组"
-            description="策略组可聚合多个出站做故障转移或自动选择；可应用上方预设模板生成，或新建一个"
+            description="策略组会随订阅下发，在手机/电脑客户端上呈现为「节点选择 / 自动选择」这类分组；可应用上方预设模板生成，或新建一个"
             cta-text="新建策略组"
             cta-plain
             @cta="openCreate"
@@ -190,7 +193,7 @@ async function handleSave(): Promise<void> {
             label="模式"
             field="mode"
             :rules="{ required: '请选择模式' }"
-            tips="组内成员的选择策略：故障转移按顺序自动切换、固定代理始终用首个成员、自动选择定时测速选最快"
+            tips="组内成员的选择方式：固定=手动固定一个节点（默认用首个成员）；自动=定时测延迟、自动选最快；故障转移=自动测速切换到可用节点，带容差防抖、节点恢复后自动切回"
           >
             <u-select v-model="form.mode" :options="modeOptions" />
           </u-form-item>
@@ -200,7 +203,7 @@ async function handleSave(): Promise<void> {
           <u-form-item
             label="成员出站"
             span="full"
-            tips="成员按选择顺序生效，故障转移模式下靠前者优先；可选自定义出站或其它策略组，不可选拦截"
+            tips="成员顺序决定固定模式的默认节点；可选 direct、自定义出站或其它策略组（不可选拦截）。客户端订阅实际使用入站节点、direct 与其它组，自定义出站仅在服务端配置生效"
           >
             <u-multi-select
               v-model="form.members"
@@ -221,6 +224,12 @@ async function handleSave(): Promise<void> {
 </template>
 
 <style scoped>
+.card-desc {
+  margin-bottom: 12px;
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+}
+
 .page-header {
   display: flex;
   align-items: center;

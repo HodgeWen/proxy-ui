@@ -1,4 +1,4 @@
-<!-- 出站管理：direct 出站说明与添加、自定义出站表单（高级项折叠）增删改、应用配置入口 -->
+<!-- 出站管理：页顶出站说明卡、direct 出站说明与添加、自定义出站表单（高级项折叠）增删改、应用配置入口 -->
 <script setup lang="ts">
 import { createOutbound, deleteOutbound, listOutbounds, setOutboundEnabled, updateOutbound } from '../api/outbound'
 import type { Outbound, OutboundPayload } from '../api/outbound'
@@ -198,6 +198,19 @@ onMounted(refresh)
 </script>
 
 <template>
+  <!-- 说明卡 size=small 紧凑呈现，不与 direct 缺失提醒、主卡抢视觉 -->
+  <u-card size="small" class="intro-card">
+    <u-card-header>出站是什么</u-card-header>
+    <u-card-content>
+      <div>出站是流量的出口、路由规则的最终去向：规则命中后从对应出站转发，未命中的流量也走兜底出站，因此这里至少要有一个可用出口。</div>
+      <ul class="intro-list">
+        <li><strong>direct</strong>：内置直连出口，不走代理，通常作为兜底默认保留。</li>
+        <li><strong>自定义出站</strong>：服务器作为客户端连接上游代理服务器（链式转发），让本服务器的出海流量经上游代理出去；仅在服务端生效。</li>
+      </ul>
+      <div class="intro-note">客户端订阅里的节点来自「入站」页，与本页的自定义出站无关。</div>
+    </u-card-content>
+  </u-card>
+
   <!-- 标题不可交互故不走 UAlert 彩色标题，正文加粗引导；添加动作为次级 plain，主操作留给「新建自定义出站」 -->
   <u-alert v-if="!hasDirect && !loading" class="direct-alert" type="info">
     <div class="direct-row">
@@ -304,6 +317,22 @@ onMounted(refresh)
 </template>
 
 <style scoped>
+.intro-card {
+  margin-bottom: 16px;
+}
+
+.intro-list {
+  margin: 8px 0;
+  padding-left: 18px;
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+}
+
+.intro-note {
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+}
+
 .direct-alert {
   margin-bottom: 16px;
 }

@@ -4,10 +4,11 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { setUnauthorizedHandler } from '../api/http'
 import { useAuthStore } from '../stores/auth'
 
-// 路由 meta 类型：title 用于页面标题
+// 路由 meta 类型：title 用于页面标题；subtitle 为页面一句话副标题（供顶栏消费）
 declare module 'vue-router' {
   interface RouteMeta {
     title?: string
+    subtitle?: string
   }
 }
 
@@ -23,43 +24,43 @@ export const router = createRouter({
           path: 'dashboard',
           name: 'dashboard',
           component: () => import('../views/DashboardView.vue'),
-          meta: { title: '仪表盘' },
+          meta: { title: '仪表盘', subtitle: '内核运行状态、实时流量与连接总览' },
         },
         {
           path: 'inbounds',
           name: 'inbounds',
           component: () => import('../views/InboundsView.vue'),
-          meta: { title: '入站' },
+          meta: { title: '入站', subtitle: '服务端协议监听，客户端订阅里的节点来源' },
         },
         {
           path: 'outbounds',
           name: 'outbounds',
           component: () => import('../views/OutboundsView.vue'),
-          meta: { title: '出站' },
+          meta: { title: '出站', subtitle: '流量的出口与路由规则的最终去向，未命中规则的流量也走这里的兜底出站' },
         },
         {
           path: 'rules',
           name: 'rules',
           component: () => import('../views/RulesView.vue'),
-          meta: { title: '规则' },
+          meta: { title: '规则', subtitle: '决定什么流量走哪个出站：自上而下逐条匹配，未命中走兜底出站' },
         },
         {
           path: 'subscription',
           name: 'subscription',
           component: () => import('../views/SubscriptionView.vue'),
-          meta: { title: '订阅' },
+          meta: { title: '订阅', subtitle: '为每台设备创建订阅用户，导出客户端订阅链接' },
         },
         {
           path: 'ai',
           name: 'ai',
           component: () => import('../views/AiChatView.vue'),
-          meta: { title: 'AI 助手' },
+          meta: { title: 'AI 助手', subtitle: '可调用面板工具的对话助手，辅助配置与解惑' },
         },
         {
           path: 'settings',
           name: 'settings',
           component: () => import('../views/SettingsView.vue'),
-          meta: { title: '设置' },
+          meta: { title: '设置', subtitle: '外观、账号、内核与面板更新、AI 供应商' },
         },
       ],
     },

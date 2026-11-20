@@ -248,7 +248,7 @@ func TestRestartPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := gormDB.Create(&db.Setting{Key: "download_mirror", Value: "https://gh.example.com"}).Error; err != nil {
+	if err := gormDB.Create(&db.Setting{Key: "sample_setting", Value: "https://gh.example.com"}).Error; err != nil {
 		t.Fatal(err)
 	}
 

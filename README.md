@@ -4,7 +4,7 @@
 
 - 单文件二进制（linux/amd64、darwin/arm64，禁 CGO），SQLite 落盘，无外部依赖
 - 面板自身只起 HTTP，TLS 交给反向代理
-- 面板与 sing-box 内核均支持面板内在线更新（GitHub Releases，可配镜像前缀）
+- 面板与 sing-box 内核均支持面板内在线更新（GitHub Releases）
 
 ## 下载
 
@@ -74,10 +74,10 @@ panel.example.com {
 
 ## 客户端订阅
 
-1. 「设置 → 内核」：下载安装 sing-box 内核（网络受限时先配置下载镜像前缀），启动内核
+1. 「设置 → 内核」：下载安装 sing-box 内核，启动内核
 2. 「入站」页创建入站（推荐协议：VLESS+Reality、Hysteria2、TUIC v5、AnyTLS；经典协议：Trojan、VMess+WS+TLS、Shadowsocks-2022、Direct）
 3. 「订阅」页生成匿名 token 订阅链接，扫码或复制到客户端
-4. 客户端按 User-Agent 自动适配格式：sing-box 客户端拿到 sing-box 配置，clash/mihomo 客户端拿到 clash(mihomo) 配置；也可用 `?target=sing-box|clash` 参数显式指定
+4. 客户端按 User-Agent 自动适配格式：sing-box 客户端拿到 sing-box 配置，clash/mihomo 客户端拿到 clash(mihomo) 配置；也可用 `?format=sing-box|clash` 参数显式指定
 
 ## 在线更新
 
@@ -85,7 +85,6 @@ panel.example.com {
 
 - **面板**：检查新版本后一键更新，面板会下载替换自身二进制并自动重启（systemd 下进程同 PID 换入，服务不中断；数据保留）
 - **内核**：一键更新到最新稳定版 sing-box（内核运行中需先停止）
-- GitHub 访问受限时，在「设置 → 内核 → 下载镜像」配置镜像前缀（如 `https://ghproxy.example`），面板与内核的所有 GitHub 请求（版本查询与下载）均经该前缀代理
 
 ## 从源码构建
 

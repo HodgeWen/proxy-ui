@@ -10,23 +10,24 @@ proxy-ui/
 ├── embed.go              # //go:embed all:web/dist 嵌入前端构建产物
 ├── internal/
 │   ├── server/           # Gin 路由装配、会话中间件与统一守卫、SPA 静态资源回退；构造 singbox 内核/统计采集与 update 管理器（内核 + 面板自更新）注入 api，注册匿名订阅端点 /sub/:token
-│   ├── api/              # REST handlers，按资源分文件；已落：首次设置/登录/登出/me/改密、内核状态/启停/日志/版本/安装/镜像前缀/应用配置、面板版本查询与一键更新（替换二进制后自动重启）、统计（实时速率内存/连接列表/按入站累计）、入站/出站/证书 CRUD、规则模板一键应用/规则/策略组/anti-AD 源与兜底出站、订阅令牌生成/吊销/重置与节点服务器地址、AI 配置读写/流式对话代理（SSE）/面板工具注册与执行
+│   ├── api/              # REST handlers，按资源分文件；已落：首次设置/登录/登出/me/改密、内核状态/启停/日志/版本/安装/应用配置、面板版本查询与一键更新（替换二进制后自动重启）、统计（实时速率内存/连接列表/按入站累计）、入站/出站/证书 CRUD、规则模板一键应用/规则/策略组/anti-AD 源与兜底出站、订阅用户新建/停用/重置/删除、AI 配置读写/流式对话代理（SSE）/面板工具注册与执行
 │   ├── db/               # SQLite（glebarez+GORM）连接、全量模型（含证书）、启动自动迁移
 │   ├── singbox/          # sing-box 内核：八协议入站/出站字段模型与配置映射、路由规则/规则集（anti-AD 等）/策略组（selector/urltest）映射、聚合生成（BuildConfig）、check 校验、子进程启停/重启、状态与 stdout/stderr 日志采集、Clash API 客户端与统计采集（实时速率/连接快照/按入站差分累计落库）
 │   ├── subscription/     # 订阅导出：数据组装（启用入站→节点、策略组/规则映射到客户端 tag）、sing-box 与 clash(mihomo) 双格式渲染、UA/参数格式选择、匿名 token 端点
-│   ├── update/           # GitHub Releases 更新：共享访问底座（镜像前缀/sha256 校验下载）；sing-box 内核版本查询与解压安装 + 面板自身版本查询、二进制替换与同 PID 重启（syscall.Exec）
+│   ├── update/           # GitHub Releases 更新：共享访问底座（sha256 校验下载）；sing-box 内核版本查询（各大版本线最新稳定版降序 + 尝鲜预发布策展）与解压安装 + 面板自身版本查询、二进制替换与同 PID 重启（syscall.Exec）
 │   └── ai/               # AI 供应商配置存取（key 不回显）、OpenAI 兼容 SSE 流式对话代理、面板工具注册表（工具由 api 注册回落业务模块）
 ├── README.md             # 运行说明：下载、systemd 安装、反代 TLS、首次向导、客户端订阅、在线更新
+├── Makefile              # 开发/构建快捷命令：dev（前后端同起，.devdata 独立数据）、run（交付形态运行）、build（发布构建）
 ├── scripts/
 │   ├── build.sh          # 一键构建：前端（web 包存在时）+ linux/amd64、darwin/arm64 交叉编译（禁 CGO，git describe 注入版本号）
 │   └── install.sh        # linux systemd 安装脚本：install（安装/升级+启动+开机自启）/ status / uninstall
 └── web/                  # Vue3 SPA（独立 npm 包，bun + Vite）
     ├── dist/             # 前端构建产物（bun run build 生成），go:embed 嵌入；.gitkeep 占位保底
     ├── src/
-    │   ├── api/          # 请求封装（envelope 解包、401 跳登录、错误提示）与鉴权、内核管理、面板版本/一键更新、统计（实时/连接/按入站累计）、入站/出站/证书、规则模板/规则/策略组/anti-AD、订阅令牌/服务器地址、应用配置、AI（供应商配置/工具描述与执行）接口
+    │   ├── api/          # 请求封装（envelope 解包、401 跳登录、错误提示）与鉴权、内核管理、面板版本/一键更新、统计（实时/连接/按入站累计）、入站/出站/证书、规则模板/规则/策略组/anti-AD、订阅用户、应用配置、AI（供应商配置/工具描述与执行）接口
     │   ├── stores/       # Pinia：auth 鉴权状态（初始化/会话/登录/登出/改密）
-    │   ├── views/        # 页面：向导/登录/仪表盘（内核状态与启停、实时速率/内存、按入站累计、连接列表、快捷操作）/入站（协议分组新建与列表）/出站（direct 与自定义）/规则（模板/规则/策略组/anti-AD 源）/订阅（令牌管理与链接二维码）/AI 助手（@veltra/ai 流式对话、面板工具调用）/设置（主题三态与 12 预设及 UTheme 编辑器/账号/内核/面板与内核在线更新/AI 供应商）
-    │   ├── components/   # 通用组件：AppLayout 应用壳（nav 令牌侧栏、顶栏页面标题与内核状态标签）、EmptyState 全站空状态（图标/说明/CTA）、FormGroupCard 表单分组卡片（标题栏折叠 + 内置断点栅格，弹框与设置页主题卡复用）、InboundForm 声明式入站表单引擎、CertManager 证书管理、RuleListCard 规则列表、PolicyGroupCard 策略组列表
+    │   ├── views/        # 页面：向导/登录/仪表盘（内核状态与启停、实时速率/内存、按入站累计、连接列表、快捷操作）/入站（协议分组新建与列表）/出站（direct 与自定义）/规则（模板/规则/策略组/anti-AD 源）/订阅（订阅用户管理与链接二维码）/AI 助手（@veltra/ai 流式对话、面板工具调用）/设置（主题三态与 12 预设及 UTheme 编辑器/账号/内核/面板与内核在线更新/AI 供应商）
+    │   ├── components/   # 通用组件：AppLayout 应用壳（nav 令牌侧栏、渐变品牌区、顶栏标题+副标题+内核状态胶囊+主题单按钮循环切换）、EmptyState 全站空状态（图标/说明/CTA）、FormGroupCard 表单分组卡片（标题栏折叠 + 内置断点栅格，弹框与设置页主题卡复用）、InboundForm 声明式入站表单引擎、CertManager 证书管理、RuleListCard 规则列表（含字段说明）、PolicyGroupCard 策略组列表（含模式说明）
     │   ├── inbound-schema.ts # 八协议入站字段 schema、默认值生成（含纯 JS X25519 密钥对）与弱配置警示
     │   └── router/       # 路由与守卫（未登录重定向、已初始化后向导不可达）
     └── package.json      # bun + Vite + TS + Vue3 + @veltra/desktop + etiket（订阅二维码）+ Pinia + Vue Router
@@ -37,13 +38,13 @@ proxy-ui/
 | 模块 | 路径 | 职责 | 主要入口 |
 | --- | --- | --- | --- |
 | server | `internal/server/` | 路由装配、会话守卫、SPA 静态资源、匿名订阅端点注册 | `New(Options)` |
-| api | `internal/api/` | REST handlers，按资源分文件；已落鉴权、首次设置、内核管理、面板版本查询与一键更新（替换二进制后自动重启）、统计（实时速率内存、连接列表、按入站累计）、入站/出站/证书管理、全局规则（模板一键应用、规则、策略组、anti-AD 源）、订阅令牌与节点服务器地址、应用配置、AI（配置读写、SSE 对话代理端点、面板工具注册与执行） | `New(db, sessions, core, updates, selfUpdates, stats, dataDir)` |
+| api | `internal/api/` | REST handlers，按资源分文件；已落鉴权、首次设置、内核管理、面板版本查询与一键更新（替换二进制后自动重启）、统计（实时速率内存、连接列表、按入站累计）、入站/出站/证书管理、全局规则（模板一键应用、规则、策略组、anti-AD 源）、订阅用户管理（新建/停用/重置/删除）、应用配置、AI（配置读写、SSE 对话代理端点、面板工具注册与执行） | `New(db, sessions, core, updates, selfUpdates, stats, dataDir)` |
 | db | `internal/db/` | SQLite 连接、全量模型、自动迁移 | `Open(path)` |
 | singbox | `internal/singbox/` | 八协议入站/出站/路由（规则、规则集、策略组）配置映射与聚合生成、内核子进程生命周期、状态与日志采集、Clash API 客户端与统计采集（实时速率、连接快照、按入站差分累计落库） | `New(dir)` / `NewStatsMonitor(mgr, db)` |
 | subscription | `internal/subscription/` | 订阅数据组装（启用入站→节点、策略组/规则映射到客户端 tag）、sing-box 与 clash(mihomo) 双格式渲染、UA/参数格式选择、匿名 token 订阅端点 | `New(db)` |
-| update | `internal/update/` | GitHub Releases 共享访问底座（镜像前缀、sha256 校验下载）；sing-box 内核版本查询与安装、面板自身二进制替换与同 PID 重启 | `New(db, dir)` / `NewSelfUpdate(db, version)` |
+| update | `internal/update/` | GitHub Releases 共享访问底座（sha256 校验下载）；sing-box 内核版本查询（各大版本线最新稳定版降序 + 尝鲜预发布策展）与安装、面板自身二进制替换与同 PID 重启 | `New(db, dir)` / `NewSelfUpdate(version)` |
 | ai | `internal/ai/` | AI 供应商配置存取（key 不回显）、OpenAI 兼容 SSE 流式对话代理（补齐缺省模型/推理强度）、面板工具注册表；面板工具由 api 注册，执行回落业务模块 | `New(db)` |
-| web | `web/` | Vue3 SPA：底座、布局导航、登录/向导、仪表盘（内核状态与启停、流量概览、按入站累计、连接列表、快捷操作）、设置页（主题三态与 12 预设及 UTheme 编辑器、账号/内核管理/面板与内核在线更新/AI 供应商）、入站/出站管理页（声明式协议表单、弱配置警示与 TLS 跳转、证书管理、应用配置）、规则页（模板一键应用、规则与策略组编辑、anti-AD 源与兜底出站配置）、订阅页（令牌管理、订阅链接与 etiket 二维码）、AI 助手页（@veltra/ai 流式对话、面板工具调用过程可见） | `src/main.ts` |
+| web | `web/` | Vue3 SPA：底座、布局导航、登录/向导、仪表盘（内核状态与启停、流量概览、按入站累计、连接列表、快捷操作）、设置页（主题三态与 12 预设及 UTheme 编辑器、账号/内核管理/面板与内核在线更新/AI 供应商）、入站/出站管理页（声明式协议表单、弱配置警示与 TLS 跳转、证书管理、应用配置）、规则页（模板一键应用、规则与策略组编辑、anti-AD 源与兜底出站配置）、订阅页（订阅用户管理、订阅链接与 etiket 二维码）、AI 助手页（@veltra/ai 流式对话、面板工具调用过程可见） | `src/main.ts` |
 
 ## 依赖
 
@@ -68,6 +69,6 @@ graph TD
 
 - **启动**：`main.go` → `db.Open` 初始化/迁移 → `server.New` 装配路由、内核管理器与嵌入资源 → HTTP 服务（sing-box 子进程由设置页手动启动）
 - **订阅拉取**：客户端 GET 订阅链接（匿名 token）→ server 分流 → subscription 按 UA/参数渲染 sing-box / clash(mihomo) 配置返回
-- **在线更新**：内核与面板均在设置页更新：内核经镜像前缀从 GitHub Releases 下载校验安装到 `<data>/core`；面板下载替换自身二进制后停内核并 syscall.Exec 同 PID 换入新程序（systemd 服务不中断）
+- **在线更新**：内核与面板均在设置页更新：内核从 GitHub Releases 下载校验安装到 `<data>/core`；面板下载替换自身二进制后停内核并 syscall.Exec 同 PID 换入新程序（systemd 服务不中断）
 - **流量统计**：singbox StatsMonitor 每秒经 Clash API（地址/认证取自 config.json）采样速率与连接快照 → 缓存供仪表盘轮询查询，并按连接差分把各入站累计流量落库（面板重启不丢）
 - **AI 工具调用**：前端 `@veltra/ai` 编排工具循环（工具卡片过程可见）→ 工具 execute POST `/api/ai/tools/call` → api 按名回落业务模块执行 → 结果回灌模型继续生成；对话本体经 `/api/ai/chat` 由 ai 模块注入 key 后代理上游 SSE

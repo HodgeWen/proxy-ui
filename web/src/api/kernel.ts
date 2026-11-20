@@ -1,4 +1,4 @@
-// 内核管理相关接口：状态 / 启停重启 / 日志 / 版本列表 / 安装 / 镜像前缀设置。
+// 内核管理相关接口：状态 / 启停重启 / 日志 / 版本列表 / 安装。
 import { request } from './http'
 
 /** 内核运行状态 */
@@ -56,16 +56,6 @@ export function fetchKernelVersions(): Promise<{ versions: ReleaseVersion[] }> {
 /** 下载并安装内核；version 为空表示最新稳定版 */
 export function installKernel(version = ''): Promise<KernelInstallResult> {
   return request<KernelInstallResult>('/api/kernel/install', { method: 'POST', body: { version } })
-}
-
-/** 查询下载镜像前缀 */
-export function fetchMirrorPrefix(): Promise<{ prefix: string }> {
-  return request<{ prefix: string }>('/api/kernel/mirror')
-}
-
-/** 保存下载镜像前缀（空表示直连 GitHub） */
-export function updateMirrorPrefix(prefix: string): Promise<{ prefix: string }> {
-  return request<{ prefix: string }>('/api/kernel/mirror', { method: 'PUT', body: { prefix } })
 }
 
 /** 应用配置：聚合全部启用入站/出站重新生成并校验内核配置；内核运行中则按新配置重启 */

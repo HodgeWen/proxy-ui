@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"syscall"
-
-	"gorm.io/gorm"
 )
 
 // panelRepo 面板自身 GitHub 仓库。
@@ -16,21 +14,21 @@ const panelRepo = "HodgeWen/proxy-ui"
 
 // SelfUpdater 面板自身更新：查询面板 Releases、下载替换当前二进制并重启进程。
 type SelfUpdater struct {
-	ghClient                        // GitHub Releases 访问底座（镜像前缀与下载校验共享）
+	ghClient                        // GitHub Releases 访问底座（请求与下载校验共享）
 	version  string                 // 当前面板版本（构建时 ldflags 注入，dev 表示未注入）
 	exePath  string                 // 当前面板二进制路径（空表示运行时探测，测试可替换）
 	restart  func(exe string) error // 换入新二进制的重启实现（默认 syscall.Exec，测试可替换）
 }
 
 // NewSelfUpdate 构造面板自身更新器；version 为构建注入的当前面板版本。
-func NewSelfUpdate(database *gorm.DB, version string) *SelfUpdater {
-	return &SelfUpdater{ghClient: newGHClient(database), version: version, restart: execRestart}
+func NewSelfUpdate(version string) *SelfUpdater {
+	return &SelfUpdater{ghClient: newGHClient(), version: version, restart: execRestart}
 }
 
 // CurrentVersion 当前面板版本号。
 func (u *SelfUpdater) CurrentVersion() string { return u.version }
 
-// ListVersions 查询面板可用版本列表，按版本号降序。
+// ListVersions 查询面板可用版本列表（各大版本线最新稳定版降序，另附更新预发布线的尝鲜项）。
 func (u *SelfUpdater) ListVersions(ctx context.Context) ([]Version, error) {
 	return u.listVersions(ctx, panelRepo, u.version)
 }

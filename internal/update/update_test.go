@@ -88,24 +88,6 @@ func TestCompareVersion(t *testing.T) {
 	}
 }
 
-func TestMirrorURL(t *testing.T) {
-	tests := []struct {
-		name              string
-		mirror, raw, want string
-	}{
-		{"空前缀原样返回", "", "https://github.com/a/b.tar.gz", "https://github.com/a/b.tar.gz"},
-		{"镜像前缀拼接", "https://ghproxy.example", "https://github.com/a/b.tar.gz", "https://ghproxy.example/https://github.com/a/b.tar.gz"},
-		{"尾斜杠不重复拼接", "https://ghproxy.example/", "https://api.github.com/releases", "https://ghproxy.example/https://api.github.com/releases"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := MirrorURL(tt.mirror, tt.raw); got != tt.want {
-				t.Fatalf("MirrorURL(%q, %q) = %q, 期望 %q", tt.mirror, tt.raw, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestVerifyDigestHex(t *testing.T) {
 	sum := sha256.Sum256([]byte("payload"))
 	local := hex.EncodeToString(sum[:])
@@ -155,23 +137,6 @@ func TestPickRelease(t *testing.T) {
 				t.Fatalf("pickRelease(rels, %q) = %q ok=%v, 期望 %q ok=%v", tt.version, r.TagName, ok, tt.wantTag, tt.wantOK)
 			}
 		})
-	}
-}
-
-func TestSetMirrorPrefix(t *testing.T) {
-	m := New(testDB(t), t.TempDir())
-	if _, err := m.SetMirrorPrefix("ftp://bad"); err == nil {
-		t.Error("非 http(s) 前缀应报错")
-	}
-	got, err := m.SetMirrorPrefix(" https://ghproxy.example/ ")
-	if err != nil {
-		t.Fatalf("保存镜像前缀失败: %v", err)
-	}
-	if got != "https://ghproxy.example" {
-		t.Errorf("镜像前缀应去除首尾空白与尾部斜杠, got %q", got)
-	}
-	if m.MirrorPrefix() != "https://ghproxy.example" {
-		t.Errorf("镜像前缀应已持久化, got %q", m.MirrorPrefix())
 	}
 }
 

@@ -19,9 +19,8 @@ type Setting struct {
 
 // 面板设置键（跨 api / subscription 读写，键名以此为准）。
 const (
-	SettingAntiADSource = "anti_ad_source"      // anti-AD 规则源地址，空用官方默认源
-	SettingRouteFinal   = "route_final"         // 未命中规则的兜底出站 tag，空用内核默认
-	SettingSubServer    = "subscription_server" // 订阅节点服务器地址，空按请求 Host 推断
+	SettingAntiADSource = "anti_ad_source" // anti-AD 规则源地址，空用官方默认源
+	SettingRouteFinal   = "route_final"    // 未命中规则的兜底出站 tag，空用内核默认
 )
 
 // Inbound 入站配置；协议特定参数（密码/UUID/Reality/TLS/证书引用等）统一存 Config JSON。

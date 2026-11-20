@@ -135,14 +135,6 @@ func parseNonNegative(s string) (int, error) {
 	return strconv.Atoi(s)
 }
 
-// MirrorURL 拼接镜像前缀：mirror 为空返回原 URL，否则 <mirror>/<rawURL>。
-func MirrorURL(mirror, rawURL string) string {
-	if mirror == "" {
-		return rawURL
-	}
-	return strings.TrimSuffix(mirror, "/") + "/" + rawURL
-}
-
 // verifyDigestHex 比对 sha256 十六进制摘要与 GitHub 资产 digest（"sha256:<hex>"）；
 // digest 为空时跳过校验（依赖解压时的 gzip CRC 兜底）。
 func verifyDigestHex(got, digest string) error {
@@ -202,24 +194,20 @@ func findAsset(rel ghRelease, name string) *ghAsset {
 	return nil
 }
 
-// ghClient 内核与面板更新共用的 GitHub Releases 访问底座：镜像前缀、请求、下载校验与版本列表。
+// ghClient 内核与面板更新共用的 GitHub Releases 访问底座：请求、下载校验与版本列表。
 type ghClient struct {
-	db      *gorm.DB // 读镜像前缀设置
-	apiBase string   // GitHub API 基址（测试可替换）
+	apiBase string // GitHub API 基址（测试可替换）
 	client  *http.Client
 }
 
 // newGHClient 构建默认 GitHub 访问底座。
-func newGHClient(database *gorm.DB) ghClient {
-	return ghClient{db: database, apiBase: defaultAPIBase, client: &http.Client{Timeout: 10 * time.Minute}}
+func newGHClient() ghClient {
+	return ghClient{apiBase: defaultAPIBase, client: &http.Client{Timeout: 10 * time.Minute}}
 }
 
-// mirror 读取下载镜像前缀设置（空表示直连 GitHub）。
-func (g *ghClient) mirror() string { return getSetting(g.db, settingMirror) }
-
-// get 发起 GET 请求并校验状态码，URL 先经镜像前缀拼接。
+// get 发起 GET 请求并校验状态码。
 func (g *ghClient) get(ctx context.Context, url string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, MirrorURL(g.mirror(), url), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +215,7 @@ func (g *ghClient) get(ctx context.Context, url string) (*http.Response, error) 
 	req.Header.Set("Accept", "application/vnd.github+json")
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("请求 GitHub 失败（网络不通时可在设置页配置镜像前缀）: %w", err)
+		return nil, fmt.Errorf("请求 GitHub 失败: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
@@ -237,7 +225,7 @@ func (g *ghClient) get(ctx context.Context, url string) (*http.Response, error) 
 	return resp, nil
 }
 
-// fetchReleases 拉取指定仓库的 Releases 列表（经镜像前缀）。
+// fetchReleases 拉取指定仓库的 Releases 列表。
 func (g *ghClient) fetchReleases(ctx context.Context, repo string) ([]ghRelease, error) {
 	resp, err := g.get(ctx, g.apiBase+"/repos/"+repo+"/releases?per_page=100")
 	if err != nil {
@@ -251,33 +239,87 @@ func (g *ghClient) fetchReleases(ctx context.Context, repo string) ([]ghRelease,
 	return rels, nil
 }
 
-// listVersions 查询仓库可用版本列表，按版本号降序；installedTag 归一化命中当前版本。
+// listVersions 查询仓库可用版本列表（策展规则见 curateVersions）；installedTag 归一化命中当前版本。
 func (g *ghClient) listVersions(ctx context.Context, repo, installedTag string) ([]Version, error) {
 	rels, err := g.fetchReleases(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
+	return curateVersions(rels, installedTag), nil
+}
+
+// maxCuratedVersions 策展后版本列表的最大条数。
+const maxCuratedVersions = 10
+
+// versionLine 大版本线（major.minor）。
+type versionLine struct{ major, minor int }
+
+// curateVersions 策展版本列表：每个大版本线取最新稳定版（tag 无预发布段）作代表，按线降序；
+// 若最高的大版本线只有预发布（即比所有稳定线都新），取其最新预发布作「尝鲜」项排在稳定列表之后，
+// 稳定线自身的预发布不展示；总条数不超过 maxCuratedVersions，稳定代表优先占位。
+func curateVersions(rels []ghRelease, installedTag string) []Version {
 	installed := strings.TrimPrefix(installedTag, "v")
-	versions := make([]Version, 0, len(rels))
+	type entry struct {
+		rel ghRelease
+		v   parsedVersion
+	}
+	var entries []entry
 	for _, r := range rels {
-		v, ok := parseVersionTag(r.TagName)
-		if !ok || r.Draft {
+		if r.Draft {
 			continue
 		}
-		versions = append(versions, Version{
-			Tag:         r.TagName,
-			Version:     v.String(),
-			Prerelease:  r.Prerelease || v.pre != "",
-			PublishedAt: r.PublishedAt.Format(time.RFC3339),
-			Installed:   strings.TrimPrefix(r.TagName, "v") == installed,
+		if v, ok := parseVersionTag(r.TagName); ok {
+			entries = append(entries, entry{rel: r, v: v})
+		}
+	}
+	type lineInfo struct {
+		latest *entry // 线内最新版本
+		stable *entry // 线内最新稳定版
+	}
+	lines := make(map[versionLine]*lineInfo)
+	for i := range entries {
+		e := &entries[i]
+		key := versionLine{major: e.v.major, minor: e.v.minor}
+		info := lines[key]
+		if info == nil {
+			info = &lineInfo{}
+			lines[key] = info
+		}
+		if info.latest == nil || e.v.compare(info.latest.v) > 0 {
+			info.latest = e
+		}
+		if e.v.pre == "" && (info.stable == nil || e.v.compare(info.stable.v) > 0) {
+			info.stable = e
+		}
+	}
+	keys := make([]versionLine, 0, len(lines))
+	for k := range lines {
+		keys = append(keys, k)
+	}
+	slices.SortFunc(keys, func(a, b versionLine) int {
+		return cmp.Or(cmp.Compare(a.major, b.major), cmp.Compare(a.minor, b.minor))
+	})
+	out := make([]Version, 0, min(len(keys), maxCuratedVersions))
+	add := func(e *entry) {
+		out = append(out, Version{
+			Tag:         e.rel.TagName,
+			Version:     e.v.String(),
+			Prerelease:  e.rel.Prerelease || e.v.pre != "",
+			PublishedAt: e.rel.PublishedAt.Format(time.RFC3339),
+			Installed:   strings.TrimPrefix(e.rel.TagName, "v") == installed,
 		})
 	}
-	slices.SortFunc(versions, func(a, b Version) int {
-		va, _ := parseVersionTag(a.Tag)
-		vb, _ := parseVersionTag(b.Tag)
-		return vb.compare(va) // 降序：新版本在前
-	})
-	return versions, nil
+	for i := len(keys) - 1; i >= 0 && len(out) < maxCuratedVersions; i-- {
+		if info := lines[keys[i]]; info.stable != nil {
+			add(info.stable)
+		}
+	}
+	if len(out) < maxCuratedVersions && len(keys) > 0 {
+		if top := lines[keys[len(keys)-1]]; top.stable == nil {
+			add(top.latest)
+		}
+	}
+	return out
 }
 
 // downloadFile 下载 url 到 tmpDir 下临时文件并按 digest 校验完整性，返回临时文件路径（调用方负责删除）。

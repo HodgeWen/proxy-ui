@@ -140,29 +140,26 @@ func TestSubscriptionTokenRevoke(t *testing.T) {
 		t.Fatalf("登录失败: %s", env.Msg)
 	}
 
-	// 查询令牌列表拿到 ID 后吊销
+	// 查询订阅用户列表拿到 ID 后停用
 	code, env := doJSON(t, client, http.MethodGet, srvURL+"/api/subscription", nil)
 	if code != http.StatusOK {
-		t.Fatalf("订阅设置查询失败: %s", env.Msg)
+		t.Fatalf("订阅用户列表查询失败: %s", env.Msg)
 	}
-	var sub struct {
-		Server string `json:"server"`
-		Tokens []struct {
-			ID    int    `json:"id"`
-			Token string `json:"token"`
-		} `json:"tokens"`
+	var tokens []struct {
+		ID    int    `json:"id"`
+		Token string `json:"token"`
 	}
-	if err := json.Unmarshal(env.Data, &sub); err != nil {
+	if err := json.Unmarshal(env.Data, &tokens); err != nil {
 		t.Fatal(err)
 	}
 	var id int
-	for _, tk := range sub.Tokens {
+	for _, tk := range tokens {
 		if tk.Token == token {
 			id = tk.ID
 		}
 	}
 	if id == 0 {
-		t.Fatalf("令牌列表中未找到 %s: %+v", token, sub.Tokens)
+		t.Fatalf("订阅用户列表中未找到 %s: %+v", token, tokens)
 	}
 
 	// 吊销后订阅返回 404
@@ -196,14 +193,19 @@ func TestSubscriptionTokenRevoke(t *testing.T) {
 		t.Fatalf("重置后旧令牌状态码 = %d, want 404", resp.StatusCode)
 	}
 
-	// 服务器地址设置保存后节点地址随之使用
-	if code, env := doJSON(t, client, http.MethodPut, srvURL+"/api/subscription/server",
-		map[string]string{"server": "vpn.example.com"}); code != http.StatusOK {
-		t.Fatalf("保存服务器地址失败: %s", env.Msg)
-	}
+	// 节点服务器地址取客户端拉取订阅的请求 Host（httptest 服务即 127.0.0.1）
 	_, body := getSub(t, srvURL+"/sub/"+reset.Token, "SFM")
-	if !strings.Contains(body, `"server": "vpn.example.com"`) {
-		t.Fatalf("节点服务器地址应取面板设置:\n%s", body)
+	if !strings.Contains(body, `"server": "127.0.0.1"`) {
+		t.Fatalf("节点服务器地址应取请求 Host:\n%s", body)
+	}
+
+	// 删除订阅用户后订阅返回 404
+	if code, env := doJSON(t, client, http.MethodDelete,
+		srvURL+"/api/subscription/tokens/"+itoa(id), nil); code != http.StatusOK {
+		t.Fatalf("删除订阅用户失败: %s", env.Msg)
+	}
+	if resp, body := getSub(t, srvURL+"/sub/"+reset.Token, "SFM"); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("删除后订阅状态码 = %d, want 404: %s", resp.StatusCode, body)
 	}
 }
 

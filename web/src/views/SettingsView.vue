@@ -1,4 +1,4 @@
-<!-- 设置页：主题（三态/12 预设/UTheme 编辑器）；账号改密；内核（镜像前缀/版本/启停/日志）；面板与内核在线更新；AI 供应商配置 -->
+<!-- 设置页：主题（三态/12 预设/UTheme 编辑器）；账号改密；内核（版本/启停/日志）；面板与内核在线更新；AI 供应商配置 -->
 <script setup lang="ts">
 import {
   UButton,
@@ -30,10 +30,8 @@ import {
   fetchKernelLogs,
   fetchKernelStatus,
   fetchKernelVersions,
-  fetchMirrorPrefix,
   installKernel,
   kernelAction,
-  updateMirrorPrefix,
 } from '../api/kernel'
 import type { KernelLogLine, KernelStatus, ReleaseVersion } from '../api/kernel'
 import { fetchPanelVersions, updatePanel } from '../api/panel'
@@ -134,10 +132,6 @@ async function handleSave() {
 
 // ---------- 内核管理 ----------
 
-/** 镜像前缀 */
-const mirrorForm = reactive({ prefix: '' })
-const savingMirror = shallowRef(false)
-
 /** 内核状态与日志 */
 const status = shallowRef<KernelStatus | null>(null)
 const logs = shallowRef<KernelLogLine[]>([])
@@ -198,28 +192,6 @@ async function refreshVersions() {
     // 网络错误已由请求封装统一提示
   } finally {
     loadingVersions.value = false
-  }
-}
-
-async function loadMirror() {
-  try {
-    const { prefix } = await fetchMirrorPrefix()
-    mirrorForm.prefix = prefix
-  } catch {
-    // 静默：下次保存会重新拉起错误
-  }
-}
-
-async function saveMirror() {
-  savingMirror.value = true
-  try {
-    const { prefix } = await updateMirrorPrefix(mirrorForm.prefix)
-    mirrorForm.prefix = prefix
-    message.success('镜像前缀已保存')
-  } catch {
-    // 错误已由请求封装统一提示
-  } finally {
-    savingMirror.value = false
   }
 }
 
@@ -404,7 +376,6 @@ watch(
       void refreshStatus(false)
       void refreshLogs()
       void refreshVersions()
-      void loadMirror()
       startPolling()
       return
     }
@@ -550,25 +521,6 @@ onBeforeUnmount(stopPolling)
 
     <template #kernel>
       <u-card class="kernel-card">
-        <u-card-header>下载镜像</u-card-header>
-        <u-card-content>
-          <u-form :model="mirrorForm" :cols="2" label-width="96px" class="settings-form">
-            <u-input
-              label="镜像前缀"
-              field="prefix"
-              :span="1"
-              placeholder="镜像前缀，如 https://ghproxy.example；留空直连 GitHub"
-              clearable
-              tips="配置后所有 GitHub 请求（版本查询与内核下载）均经该前缀代理；面板与内核更新共用"
-            />
-          </u-form>
-          <div class="card-actions">
-            <u-button :loading="savingMirror" @click="saveMirror">保存</u-button>
-          </div>
-        </u-card-content>
-      </u-card>
-
-      <u-card class="kernel-card">
         <u-card-header>sing-box 内核</u-card-header>
         <u-card-content>
           <EmptyState
@@ -706,10 +658,7 @@ onBeforeUnmount(stopPolling)
           </div>
           <p v-if="panelState === 'unchecked'" class="hint">尚未获取可用版本，「一键更新」待「检查更新」完成后可用。</p>
           <p v-if="panelPhase" class="hint">{{ panelPhase }}</p>
-          <p class="hint">
-            更新会替换面板二进制并自动重启进程，数据与配置保留；GitHub
-            下载镜像前缀在「内核」分区配置，面板与内核更新共用。
-          </p>
+          <p class="hint">更新会替换面板二进制并自动重启进程，数据与配置保留。</p>
         </u-card-content>
       </u-card>
 

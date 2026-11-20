@@ -243,7 +243,7 @@ func (a *API) registerAIQueryTools() {
 	})
 	a.ai.Register(ai.Tool{
 		Name:        "list_subscription_tokens",
-		Description: "列出全部订阅令牌（含匿名 token、备注、吊销状态与订阅服务器地址设置）",
+		Description: "列出全部订阅用户（含匿名 token、名称、停用状态与最近使用时间）",
 		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
 		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
 			var records []db.SubscriptionToken
@@ -254,7 +254,7 @@ func (a *API) registerAIQueryTools() {
 			for i := range records {
 				views[i] = tokenView(records[i])
 			}
-			return gin.H{"server": a.getSetting(db.SettingSubServer), "tokens": views}, nil
+			return views, nil
 		},
 	})
 	a.ai.Register(ai.Tool{
@@ -316,15 +316,13 @@ func (a *API) registerAIQueryTools() {
 	})
 	a.ai.Register(ai.Tool{
 		Name:        "get_settings",
-		Description: "查询面板全局设置：anti-AD 规则源、未命中规则兜底出站、订阅节点服务器地址与下载镜像前缀",
+		Description: "查询面板全局设置：anti-AD 规则源与未命中规则兜底出站",
 		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
 		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
 			return gin.H{
 				"antiAdSource":        a.getSetting(settingAntiAD),
 				"antiAdSourceDefault": singbox.DefaultAntiADURL,
 				"routeFinal":          a.getSetting(settingRouteFinal),
-				"subscriptionServer":  a.getSetting(db.SettingSubServer),
-				"mirrorPrefix":        a.updates.MirrorPrefix(),
 			}, nil
 		},
 	})
@@ -721,22 +719,20 @@ func (a *API) registerAIModifyTools() {
 	})
 	a.ai.Register(ai.Tool{
 		Name:        "set_settings",
-		Description: "更新面板全局设置（至少提供一项）：anti-AD 规则源地址、未命中规则兜底出站 tag、订阅节点服务器地址",
+		Description: "更新面板全局设置（至少提供一项）：anti-AD 规则源地址、未命中规则兜底出站 tag",
 		Parameters: toolParams(map[string]any{
-			"antiAdSource":       toolProp("string", "anti-AD 规则源地址，空恢复官方默认源"),
-			"routeFinal":         toolProp("string", "未命中规则的兜底出站 tag，空用内核默认"),
-			"subscriptionServer": toolProp("string", "订阅节点服务器地址（域名或 IP），空按请求 Host 推断"),
+			"antiAdSource": toolProp("string", "anti-AD 规则源地址，空恢复官方默认源"),
+			"routeFinal":   toolProp("string", "未命中规则的兜底出站 tag，空用内核默认"),
 		}),
 		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
 			var arg struct {
-				AntiAdSource       *string `json:"antiAdSource"`
-				RouteFinal         *string `json:"routeFinal"`
-				SubscriptionServer *string `json:"subscriptionServer"`
+				AntiAdSource *string `json:"antiAdSource"`
+				RouteFinal   *string `json:"routeFinal"`
 			}
 			if err := decodeToolArgs(args, &arg); err != nil {
 				return nil, err
 			}
-			if arg.AntiAdSource == nil && arg.RouteFinal == nil && arg.SubscriptionServer == nil {
+			if arg.AntiAdSource == nil && arg.RouteFinal == nil {
 				return nil, fmt.Errorf("至少提供一项设置")
 			}
 			updated := gin.H{}
@@ -756,13 +752,6 @@ func (a *API) registerAIModifyTools() {
 					return nil, err
 				}
 				updated["routeFinal"] = final
-			}
-			if arg.SubscriptionServer != nil {
-				server := strings.TrimSpace(*arg.SubscriptionServer)
-				if err := a.setSetting(db.SettingSubServer, server); err != nil {
-					return nil, err
-				}
-				updated["subscriptionServer"] = server
 			}
 			return updated, nil
 		},

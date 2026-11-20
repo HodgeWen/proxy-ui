@@ -291,7 +291,7 @@ func TestFetch(t *testing.T) {
 		t.Fatalf("吊销令牌应返回 ErrInvalidToken, got %v", err)
 	}
 
-	// 未设置服务器地址：取请求 Host（含端口时去端口）
+	// 服务器地址取请求 Host（含端口时去端口）
 	data, err := s.Fetch("tok-active", "panel.example.com:8080")
 	if err != nil {
 		t.Fatal(err)
@@ -301,18 +301,6 @@ func TestFetch(t *testing.T) {
 	}
 	if len(data.Nodes) != 2 {
 		t.Fatalf("节点数 = %d, want 2（停用入站不计）", len(data.Nodes))
-	}
-
-	// 设置服务器地址后优先使用
-	if err := s.db.Save(&db.Setting{Key: db.SettingSubServer, Value: "vpn.example.com"}).Error; err != nil {
-		t.Fatal(err)
-	}
-	data, err = s.Fetch("tok-active", "panel.example.com")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if data.Server != "vpn.example.com" {
-		t.Fatalf("服务器地址 = %q, want vpn.example.com", data.Server)
 	}
 
 	// 最近使用时间被更新

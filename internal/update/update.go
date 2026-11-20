@@ -9,27 +9,24 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"gorm.io/gorm"
 )
 
-// 设置键。
-const (
-	settingMirror      = "mirror_prefix" // GitHub 下载镜像前缀
-	settingCoreVersion = "core_version"  // 已安装内核版本 tag
-)
+// settingCoreVersion 已安装内核版本 tag 设置键。
+const settingCoreVersion = "core_version"
 
-// Manager sing-box 内核更新管理：版本查询、镜像下载、完整性校验与安装。
+// Manager sing-box 内核更新管理：版本查询、下载、完整性校验与安装。
 type Manager struct {
-	ghClient        // GitHub Releases 访问底座（镜像前缀与下载校验共享）
-	dir      string // 内核安装目录
+	ghClient          // GitHub Releases 访问底座（请求与下载校验共享）
+	db       *gorm.DB // 设置存储（已装内核版本）
+	dir      string   // 内核安装目录
 }
 
 // New 构造内核更新管理器；dir 为内核安装目录（自动创建）。
 func New(database *gorm.DB, dir string) *Manager {
 	_ = os.MkdirAll(dir, 0o755)
-	return &Manager{ghClient: newGHClient(database), dir: dir}
+	return &Manager{ghClient: newGHClient(), db: database, dir: dir}
 }
 
 // CorePath 内核可执行文件路径。
@@ -44,22 +41,7 @@ func (m *Manager) Installed() bool {
 // InstalledVersion 已安装内核版本 tag（未记录返回空）。
 func (m *Manager) InstalledVersion() string { return getSetting(m.db, settingCoreVersion) }
 
-// MirrorPrefix 读取下载镜像前缀设置（空表示直连 GitHub）。
-func (m *Manager) MirrorPrefix() string { return m.mirror() }
-
-// SetMirrorPrefix 保存镜像前缀；非空须为 http(s):// 地址，返回去掉尾部斜杠后的规范化值。
-func (m *Manager) SetMirrorPrefix(prefix string) (string, error) {
-	prefix = strings.TrimSuffix(strings.TrimSpace(prefix), "/")
-	if prefix != "" && !strings.HasPrefix(prefix, "http://") && !strings.HasPrefix(prefix, "https://") {
-		return "", errors.New("镜像前缀须以 http:// 或 https:// 开头")
-	}
-	if err := setSetting(m.db, settingMirror, prefix); err != nil {
-		return "", err
-	}
-	return prefix, nil
-}
-
-// ListVersions 查询 GitHub 可用内核版本列表，按版本号降序返回。
+// ListVersions 查询 GitHub 可用内核版本列表（各大版本线最新稳定版降序，另附更新预发布线的尝鲜项）。
 func (m *Manager) ListVersions(ctx context.Context) ([]Version, error) {
 	return m.listVersions(ctx, repo, m.InstalledVersion())
 }

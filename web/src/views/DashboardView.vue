@@ -63,13 +63,13 @@ async function handleKernelAction(action: 'start' | 'stop' | 'restart') {
 async function copySubscriptionLink() {
   let token: string | undefined
   try {
-    const info = await getSubscription()
-    token = info.tokens.find((t) => !t.revoked)?.token
+    const users = await getSubscription()
+    token = users.find((u) => !u.revoked)?.token
   } catch {
     return // 错误已由请求封装统一提示
   }
   if (!token) {
-    message.warn('暂无可用订阅令牌，请先在订阅页生成')
+    message.warn('暂无启用中的订阅用户，请先在订阅页创建')
     return
   }
   try {

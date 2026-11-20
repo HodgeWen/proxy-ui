@@ -1,4 +1,4 @@
-<!-- 全局规则：预设模板一键应用（覆盖前确认）、路由规则与策略组编辑、anti-AD 源与兜底出站配置 -->
+<!-- 全局规则：页顶规则引导卡、预设模板一键应用（覆盖前确认）、路由规则与策略组编辑、anti-AD 源与兜底出站配置 -->
 <script setup lang="ts">
 import PolicyGroupCard from '../components/PolicyGroupCard.vue'
 import RuleListCard from '../components/RuleListCard.vue'
@@ -139,9 +139,29 @@ onMounted(async () => {
 </script>
 
 <template>
+  <!-- 引导卡 size=small 收紧内边距与字号，不与下方业务卡抢视觉 -->
+  <u-card size="small" class="guide-card">
+    <u-card-header>规则是如何工作的</u-card-header>
+    <u-card-content>
+      <div>规则决定「什么流量走哪个出站」：每条规则由匹配条件与出站去向组成。</div>
+      <div class="guide-flow">
+        <span class="flow-step">流量</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">自上而下逐条匹配</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-result">命中：走对应出站</span>
+        <span class="flow-result flow-result-dim">全部未命中：走兜底出站</span>
+      </div>
+      <div class="guide-note">
+        这份规则双端生效：既写入服务端 sing-box 配置（服务器自身转发的流量），也随订阅下发到客户端（手机/电脑上的代理客户端本地分流），两层用的是同一份规则。
+      </div>
+    </u-card-content>
+  </u-card>
+
   <u-card class="templates-card">
     <u-card-header>预设模板</u-card-header>
     <u-card-content>
+      <div class="section-desc">常用规则的起点：一键生成一组规则、策略组与兜底出站，应用会覆盖现有全部规则与策略组，之后可继续修改。</div>
       <div class="templates">
         <div v-for="tpl in templates" :key="tpl.id" class="template-item">
           <div class="template-info">
@@ -174,22 +194,32 @@ onMounted(async () => {
       <div class="settings-row">
         <div class="settings-field">
           <div class="settings-label">anti-AD 规则源</div>
-          <u-input
-            v-model="antiADURL"
-            :placeholder="`默认官方源 ${antiADDefault}`"
-            class="settings-input"
-          />
+          <div class="settings-body">
+            <u-input
+              v-model="antiADURL"
+              :placeholder="`默认官方源 ${antiADDefault}`"
+              class="settings-input"
+            />
+            <div class="settings-desc">
+              广告拦截在客户端本地生效：sing-box 客户端按此地址自动下载并更新规则集（clash 客户端固定使用 anti-ad 官方 clash 源），在手机/电脑上拦广告；服务端配置同时也会拒绝这些广告域名（双端拦截）。
+            </div>
+          </div>
         </div>
         <div class="settings-field">
           <div class="settings-label">未匹配规则的流量走</div>
-          <u-select
-            v-model="finalOutbound"
-            :options="finalOptions"
-            placeholder="内核默认（首个出站）"
-            clearable
-            filterable
-            class="settings-input"
-          />
+          <div class="settings-body">
+            <u-select
+              v-model="finalOutbound"
+              :options="finalOptions"
+              placeholder="内核默认（首个出站）"
+              clearable
+              filterable
+              class="settings-input"
+            />
+            <div class="settings-desc">
+              兜底出站：未命中任何规则的流量的最终去向，可选直连、自定义出站或策略组；不确定时保持 direct 即可。
+            </div>
+          </div>
         </div>
       </div>
       <div class="card-actions">
@@ -201,8 +231,52 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.guide-card {
+  margin-bottom: 16px;
+}
+
+/* 极简流量路径示意：步骤块 + 箭头 + 两种结果 */
+.guide-flow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.flow-step {
+  padding: 2px 10px;
+  border: var(--u-border);
+  border-radius: var(--u-radius-default);
+  background: var(--u-bg-color-hover);
+}
+
+.flow-arrow {
+  color: var(--u-text-color-assist);
+}
+
+.flow-result {
+  color: var(--u-text-color-main);
+}
+
+.flow-result-dim {
+  color: var(--u-text-color-second);
+}
+
+.guide-note {
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+}
+
 .templates-card {
   margin-bottom: 16px;
+}
+
+/* 区块说明行：统一次级文案形态 */
+.section-desc {
+  margin-bottom: 12px;
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
 }
 
 .templates {
@@ -247,17 +321,30 @@ onMounted(async () => {
 
 .settings-field {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
 }
 
 .settings-label {
   width: 150px;
   flex-shrink: 0;
+  line-height: 32px;
+}
+
+.settings-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-desc {
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
 }
 
 .settings-input {
-  flex: 1;
+  width: 100%;
 }
 
 /* 页面级表单操作区：卡片底部右侧 */
