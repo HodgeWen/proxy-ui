@@ -17,6 +17,7 @@ import {
   UPasswordInput,
   USelect,
   USwitch,
+  UTextarea,
   message,
 } from '@veltra/desktop'
 import type { Component, PropType } from 'vue'
@@ -47,6 +48,7 @@ const CONTROLS: Record<FieldType, Component> = {
   select: USelect,
   multiselect: UMultiSelect,
   switch: USwitch,
+  textarea: UTextarea,
 }
 
 /** 声明式字段渲染：UFormItem 包裹控件（description → tips、span → 栅格占位），经 o() 按点号路径读写表单模型 */
@@ -78,6 +80,7 @@ const SchemaField = defineComponent({
         if (d.min !== undefined) controlProps.min = d.min
         if (d.max !== undefined) controlProps.max = d.max
       }
+      if (d.type === 'textarea') controlProps.rows = 3
       return h(
         UFormItem,
         { label: d.label, tips: d.description, span: d.span },
@@ -136,8 +139,13 @@ function openEdit(row: Inbound): void {
   def.value = target
   editing.value = row
   resetForm()
-  const cfg = structuredClone(row.config ?? {})
+  const cfg = structuredClone(row.config ?? {}) as Record<string, any>
   if (target.tls && !cfg.tls) cfg.tls = { enabled: false }
+  // 旧记录缺少新字段的嵌套结构：只补「功能关闭」的空壳，不套用新建默认值
+  // （Hysteria2 混淆默认开只作用于新建，编辑已有入站必须保持原值）
+  if (!cfg.multiplex) cfg.multiplex = { enabled: false, padding: false }
+  if (cfg.tls && !cfg.tls.ech) cfg.tls.ech = { enabled: false }
+  if (row.protocol === 'hysteria2' && !cfg.masquerade) cfg.masquerade = { type: '' }
   Object.assign(form, { name: row.name, listen: row.listen, listenPort: row.listenPort }, cfg)
   if (target.tls) void reloadCerts()
   visible.value = true

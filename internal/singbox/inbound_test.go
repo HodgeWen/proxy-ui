@@ -573,3 +573,387 @@ func containsSubstring(list []string, sub string) bool {
 	}
 	return false
 }
+
+// inboundWith 用给定配置构造单用户入站条目（渲染断言用）。
+func inboundWith(protocol string, port int, cfg any) InboundEntry {
+	cred := Credential{Password: "pw"}
+	switch protocol {
+	case ProtoVLESS, ProtoVMess:
+		cred = Credential{UUID: uuid.NewString()}
+	case ProtoTUIC:
+		cred = Credential{UUID: uuid.NewString(), Password: "pw"}
+	}
+	return InboundEntry{
+		Tag: protocol + "-in", Protocol: protocol, Port: port, Cert: stubResolver,
+		Users: []InboundUserEntry{{Name: "u1", Credential: cred}},
+	}
+}
+
+// connectConfig 各协议的监听层选项（新字段渲染断言用）。
+func connectConfig() ConnectConfig {
+	return ConnectConfig{TCPFastOpen: true, Multiplex: MultiplexConfig{Enabled: true, Padding: true}}
+}
+
+// TestInboundJSONConnectFields 监听层选项（多路复用 / TCP Fast Open）按协议支持情况写入。
+func TestInboundJSONConnectFields(t *testing.T) {
+	// 支持 multiplex 的四个协议都要写出 multiplex 与 tcp_fast_open
+	for _, protocol := range []string{ProtoVLESS, ProtoTrojan, ProtoVMess, ProtoShadowsocks} {
+		var cfg any
+		switch protocol {
+		case ProtoVLESS:
+			cfg = &VLESSConfig{
+				Reality:       RealityConfig{Enabled: true, PrivateKey: "pk"},
+				ConnectConfig: connectConfig(),
+			}
+		case ProtoTrojan:
+			cfg = &TrojanConfig{TLS: TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 1}, ConnectConfig: connectConfig()}
+		case ProtoVMess:
+			cfg = &VMessConfig{TLS: TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 1}, ConnectConfig: connectConfig()}
+		default:
+			psk, err := NewSSKey("2022-blake3-aes-128-gcm")
+			if err != nil {
+				t.Fatalf("生成 PSK 失败: %v", err)
+			}
+			cfg = &ShadowsocksConfig{Method: "2022-blake3-aes-128-gcm", PSK: psk, ConnectConfig: connectConfig()}
+		}
+		in, err := inboundJSON(inboundWith(protocol, 10001, cfg), cfg)
+		if err != nil {
+			t.Fatalf("%s 生成入站失败: %v", protocol, err)
+		}
+		multiplex, ok := in["multiplex"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s 应输出 multiplex 段: %v", protocol, in)
+		}
+		if multiplex["enabled"] != true || multiplex["padding"] != true {
+			t.Errorf("%s multiplex 段不符: %v", protocol, multiplex)
+		}
+		if in["tcp_fast_open"] != true {
+			t.Errorf("%s 应输出 tcp_fast_open: %v", protocol, in)
+		}
+	}
+
+	// 内核没有 multiplex 字段的协议：多路复用不写入，TFO 仍透传
+	for _, protocol := range []string{ProtoHysteria2, ProtoTUIC, ProtoAnyTLS} {
+		var cfg any
+		tlsCfg := TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 1}
+		switch protocol {
+		case ProtoHysteria2:
+			cfg = &Hysteria2Config{TLS: tlsCfg, ConnectConfig: connectConfig()}
+		case ProtoTUIC:
+			cfg = &TUICConfig{TLS: tlsCfg, ConnectConfig: connectConfig()}
+		default:
+			cfg = &AnyTLSConfig{TLS: tlsCfg, ConnectConfig: connectConfig()}
+		}
+		in, err := inboundJSON(inboundWith(protocol, 10002, cfg), cfg)
+		if err != nil {
+			t.Fatalf("%s 生成入站失败: %v", protocol, err)
+		}
+		if _, ok := in["multiplex"]; ok {
+			t.Errorf("%s 不应输出 multiplex 段: %v", protocol, in)
+		}
+		if in["tcp_fast_open"] != true {
+			t.Errorf("%s 应输出 tcp_fast_open: %v", protocol, in)
+		}
+	}
+}
+
+// TestInboundJSONTLSAdvanced TLS 版本与 ECH 渲染为内核字段名。
+func TestInboundJSONTLSAdvanced(t *testing.T) {
+	cfg := &TrojanConfig{TLS: TLSConfig{
+		Enabled: true, CertMode: CertModeManaged, CertID: 1,
+		MinVersion: TLSVersion12, MaxVersion: TLSVersion13,
+		ECH: ECHConfig{Enabled: true, Key: "-----BEGIN ECH KEYS-----"},
+	}}
+	in, err := inboundJSON(inboundWith(ProtoTrojan, 10003, cfg), cfg)
+	if err != nil {
+		t.Fatalf("生成 Trojan 入站失败: %v", err)
+	}
+	tls, _ := in["tls"].(map[string]any)
+	if tls["min_version"] != TLSVersion12 || tls["max_version"] != TLSVersion13 {
+		t.Errorf("TLS 版本字段不符: %v", tls)
+	}
+	ech, _ := tls["ech"].(map[string]any)
+	if ech["enabled"] != true {
+		t.Errorf("ECH 段不符: %v", tls["ech"])
+	}
+	if key, _ := ech["key"].([]string); len(key) != 1 || key[0] != "-----BEGIN ECH KEYS-----" {
+		t.Errorf("ECH 密钥应渲染为字符串数组: %v", ech["key"])
+	}
+
+	// 密钥路径写法
+	cfg.TLS.ECH = ECHConfig{Enabled: true, KeyPath: "/data/ech.pem"}
+	in, err = inboundJSON(inboundWith(ProtoTrojan, 10004, cfg), cfg)
+	if err != nil {
+		t.Fatalf("生成 Trojan 入站失败: %v", err)
+	}
+	ech, _ = in["tls"].(map[string]any)["ech"].(map[string]any)
+	if ech["key_path"] != "/data/ech.pem" {
+		t.Errorf("ECH 密钥路径不符: %v", ech)
+	}
+
+	// 启用但既无密钥也无路径：不写 ech 段（内核会拒绝启动），由警示提示
+	cfg.TLS.ECH = ECHConfig{Enabled: true}
+	in, err = inboundJSON(inboundWith(ProtoTrojan, 10005, cfg), cfg)
+	if err != nil {
+		t.Fatalf("生成 Trojan 入站失败: %v", err)
+	}
+	if _, ok := in["tls"].(map[string]any)["ech"]; ok {
+		t.Errorf("缺密钥时不应写入 ech 段: %v", in["tls"])
+	}
+}
+
+// TestInboundJSONTUICAdvanced TUIC zeroRTT / 心跳渲染。
+func TestInboundJSONTUICAdvanced(t *testing.T) {
+	cfg := &TUICConfig{
+		ZeroRTTHandshake: true, Heartbeat: "10s",
+		TLS: TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 1},
+	}
+	in, err := inboundJSON(inboundWith(ProtoTUIC, 10006, cfg), cfg)
+	if err != nil {
+		t.Fatalf("生成 TUIC 入站失败: %v", err)
+	}
+	if in["zero_rtt_handshake"] != true || in["heartbeat"] != "10s" {
+		t.Errorf("TUIC 新字段不符: %v / %v", in["zero_rtt_handshake"], in["heartbeat"])
+	}
+}
+
+// TestInboundJSONMasquerade Hysteria2 masquerade 三种类型渲染。
+func TestInboundJSONMasquerade(t *testing.T) {
+	dir := t.TempDir()
+	tests := []struct {
+		name string
+		cfg  MasqueradeConfig
+		want map[string]any
+	}{
+		{"file", MasqueradeConfig{Type: MasqueradeFile, Directory: dir},
+			map[string]any{"type": MasqueradeFile, "directory": dir}},
+		{"proxy", MasqueradeConfig{Type: MasqueradeProxy, ProxyURL: "https://example.com"},
+			map[string]any{"type": MasqueradeProxy, "url": "https://example.com"}},
+		{"string", MasqueradeConfig{Type: MasqueradeString, Content: "<h1>hi</h1>"},
+			map[string]any{"type": MasqueradeString, "status_code": 200, "content": "<h1>hi</h1>"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Hysteria2Config{
+				Masquerade: tt.cfg,
+				TLS:        TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 1},
+			}
+			in, err := inboundJSON(inboundWith(ProtoHysteria2, 10007, cfg), cfg)
+			if err != nil {
+				t.Fatalf("生成 Hysteria2 入站失败: %v", err)
+			}
+			got, _ := in["masquerade"].(map[string]any)
+			for key, want := range tt.want {
+				if got[key] != want {
+					t.Errorf("masquerade[%s] = %v, want %v", key, got[key], want)
+				}
+			}
+		})
+	}
+
+	// 未配置时不写 masquerade 段
+	cfg := &Hysteria2Config{TLS: TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 1}}
+	in, err := inboundJSON(inboundWith(ProtoHysteria2, 10008, cfg), cfg)
+	if err != nil {
+		t.Fatalf("生成 Hysteria2 入站失败: %v", err)
+	}
+	if _, ok := in["masquerade"]; ok {
+		t.Errorf("未配置 masquerade 时不应写入: %v", in)
+	}
+}
+
+// TestInboundJSONShadowsocksNetwork Shadowsocks network 字段透传。
+func TestInboundJSONShadowsocksNetwork(t *testing.T) {
+	psk, err := NewSSKey("2022-blake3-aes-128-gcm")
+	if err != nil {
+		t.Fatalf("生成 PSK 失败: %v", err)
+	}
+	cfg := &ShadowsocksConfig{Method: "2022-blake3-aes-128-gcm", PSK: psk, Network: "tcp"}
+	in, err := inboundJSON(inboundWith(ProtoShadowsocks, 10009, cfg), cfg)
+	if err != nil {
+		t.Fatalf("生成 Shadowsocks 入站失败: %v", err)
+	}
+	if in["network"] != "tcp" {
+		t.Errorf("network = %v, want tcp", in["network"])
+	}
+	// 留空不写（内核默认 TCP + UDP）
+	cfg.Network = ""
+	in, err = inboundJSON(inboundWith(ProtoShadowsocks, 10010, cfg), cfg)
+	if err != nil {
+		t.Fatalf("生成 Shadowsocks 入站失败: %v", err)
+	}
+	if _, ok := in["network"]; ok {
+		t.Errorf("network 留空时不应写入: %v", in)
+	}
+}
+
+// TestTemplateConfigDefaults 新建默认值口径：多路复用默认关闭、Hysteria2 混淆默认开、
+// 拥塞控制与 BBR 档位按协议给默认。
+func TestTemplateConfigDefaults(t *testing.T) {
+	for _, protocol := range SupportedProtocols {
+		cfg, err := NewTemplateConfig(protocol)
+		if err != nil {
+			t.Fatalf("%s 生成默认配置失败: %v", protocol, err)
+		}
+		var connect ConnectConfig
+		switch c := cfg.(type) {
+		case *VLESSConfig:
+			connect = c.ConnectConfig
+		case *Hysteria2Config:
+			connect = c.ConnectConfig
+			if !c.ObfsEnabled {
+				t.Error("Hysteria2 新建默认应开启混淆")
+			}
+			if c.ObfsPassword == "" {
+				t.Error("Hysteria2 新建默认应有非空混淆密码")
+			}
+			if c.BBRProfile != BBRProfileStandard {
+				t.Errorf("Hysteria2 默认 BBR 档位 = %q, want %q", c.BBRProfile, BBRProfileStandard)
+			}
+		case *TUICConfig:
+			connect = c.ConnectConfig
+			if c.CongestionControl != CongestionBBR {
+				t.Errorf("TUIC 默认拥塞控制 = %q, want %q", c.CongestionControl, CongestionBBR)
+			}
+		case *AnyTLSConfig:
+			connect = c.ConnectConfig
+		case *TrojanConfig:
+			connect = c.ConnectConfig
+		case *VMessConfig:
+			connect = c.ConnectConfig
+		case *ShadowsocksConfig:
+			connect = c.ConnectConfig
+		default:
+			t.Fatalf("%s 配置类型不符: %T", protocol, cfg)
+		}
+		if connect.Multiplex.Enabled {
+			t.Errorf("%s 新建默认不应开启多路复用", protocol)
+		}
+	}
+}
+
+// TestParseInboundConfigPreservesStored 已有记录反序列化不受新默认值影响：
+// 旧配置 JSON 里没有的字段保持零值（不套用 NewTemplateConfig 的默认）。
+func TestParseInboundConfigPreservesStored(t *testing.T) {
+	// Hysteria2 旧记录：混淆关闭且密码为空，不得被"默认开启混淆"覆盖
+	legacy := `{"obfsEnabled":false,"upMbps":0,"downMbps":0,"bbrProfile":"standard","tls":{"enabled":true,"certMode":"managed","certId":7}}`
+	cfg, err := ParseInboundConfig(ProtoHysteria2, legacy)
+	if err != nil {
+		t.Fatalf("解析旧 Hysteria2 配置失败: %v", err)
+	}
+	hy2 := cfg.(*Hysteria2Config)
+	if hy2.ObfsEnabled || hy2.ObfsPassword != "" {
+		t.Errorf("已有记录不应套用新默认混淆: %+v", hy2)
+	}
+	if hy2.ConnectConfig.Multiplex.Enabled {
+		t.Error("已有记录不应自动开启多路复用")
+	}
+
+	// TUIC 旧记录：未指定拥塞控制时保持空（内核按自身默认），不套用 bbr
+	tuicCfg, err := ParseInboundConfig(ProtoTUIC, `{"tls":{"enabled":true,"certMode":"managed","certId":7}}`)
+	if err != nil {
+		t.Fatalf("解析旧 TUIC 配置失败: %v", err)
+	}
+	if got := tuicCfg.(*TUICConfig).CongestionControl; got != "" {
+		t.Errorf("已有记录不应套用默认拥塞控制, got %q", got)
+	}
+
+	// 往返：新字段落库后再解析保持不变
+	src := &Hysteria2Config{
+		ObfsEnabled: true, ObfsPassword: "secret",
+		Masquerade:    MasqueradeConfig{Type: MasqueradeString, Content: "hi"},
+		ConnectConfig: connectConfig(),
+		TLS:           TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 7, MinVersion: TLSVersion12},
+	}
+	round, err := ParseInboundConfig(ProtoHysteria2, configJSON(t, src))
+	if err != nil {
+		t.Fatalf("解析配置失败: %v", err)
+	}
+	if got, want := configJSON(t, round), configJSON(t, src); got != want {
+		t.Errorf("配置往返不一致:\n got %s\nwant %s", got, want)
+	}
+}
+
+// TestInboundWarningsAdvanced 新字段的弱配置判定。
+func TestInboundWarningsAdvanced(t *testing.T) {
+	// ECH 启用但无密钥
+	ech := &TrojanConfig{TLS: TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 1, ECH: ECHConfig{Enabled: true}}}
+	if list := InboundWarnings(ProtoTrojan, ech); !containsSubstring(list, "ECH") {
+		t.Errorf("ECH 缺密钥应给出警示: %v", list)
+	}
+	// TLS 版本非法 / 倒挂
+	bad := &TrojanConfig{TLS: TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 1, MinVersion: "1.3", MaxVersion: "1.2"}}
+	if list := InboundWarnings(ProtoTrojan, bad); !containsSubstring(list, "最低版本高于最高版本") {
+		t.Errorf("TLS 版本倒挂应给出警示: %v", list)
+	}
+	invalid := &TrojanConfig{TLS: TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 1, MinVersion: "2.0"}}
+	if list := InboundWarnings(ProtoTrojan, invalid); !containsSubstring(list, "合法值") {
+		t.Errorf("非法 TLS 版本应给出警示: %v", list)
+	}
+	// 协议不支持多路复用却开启了
+	unsupported := &AnyTLSConfig{
+		TLS:           TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 1},
+		ConnectConfig: ConnectConfig{Multiplex: MultiplexConfig{Enabled: true}},
+	}
+	if list := InboundWarnings(ProtoAnyTLS, unsupported); !containsSubstring(list, "多路复用") {
+		t.Errorf("不支持多路复用的协议开启多路复用应给出警示: %v", list)
+	}
+	// 支持多路复用的协议不警示
+	supported := &TrojanConfig{
+		TLS:           TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 1},
+		ConnectConfig: ConnectConfig{Multiplex: MultiplexConfig{Enabled: true}},
+	}
+	if list := InboundWarnings(ProtoTrojan, supported); len(list) != 0 {
+		t.Errorf("支持多路复用的协议不应警示: %v", list)
+	}
+	// masquerade 目录不存在
+	hy2 := &Hysteria2Config{
+		Masquerade: MasqueradeConfig{Type: MasqueradeFile, Directory: "/nonexistent-masquerade-dir"},
+		TLS:        TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 1, ALPN: []string{"h3"}},
+	}
+	if list := InboundWarnings(ProtoHysteria2, hy2); !containsSubstring(list, "masquerade 目录") {
+		t.Errorf("masquerade 目录不存在应给出警示: %v", list)
+	}
+	hy2.Masquerade = MasqueradeConfig{Type: MasqueradeProxy, ProxyURL: "ftp://example.com"}
+	if list := InboundWarnings(ProtoHysteria2, hy2); !containsSubstring(list, "http") {
+		t.Errorf("masquerade 反代 URL scheme 非法应给出警示: %v", list)
+	}
+	// Shadowsocks network 非法
+	ss := &ShadowsocksConfig{Method: "2022-blake3-aes-128-gcm", Network: "tcp,udp"}
+	if list := InboundWarnings(ProtoShadowsocks, ss); !containsSubstring(list, "network") && !containsSubstring(list, "网络") {
+		t.Errorf("非法 network 应给出警示: %v", list)
+	}
+	// TUIC 心跳间隔非法
+	tuicBeat := &TUICConfig{
+		Heartbeat: "10 秒",
+		TLS:       TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 1, ALPN: []string{"h3"}},
+	}
+	if list := InboundWarnings(ProtoTUIC, tuicBeat); !containsSubstring(list, "心跳间隔") {
+		t.Errorf("非法心跳间隔应给出警示: %v", list)
+	}
+}
+
+// TestVLESSRealityECH Reality 与 ECH 并存时以 Reality 优先（内核不允许两者并存）。
+func TestVLESSRealityECH(t *testing.T) {
+	cfg := &VLESSConfig{
+		Reality: RealityConfig{Enabled: true, PrivateKey: "pk"},
+		TLS: TLSConfig{
+			Enabled: true, MinVersion: TLSVersion12,
+			ECH: ECHConfig{Enabled: true, Key: "-----BEGIN ECH KEYS-----"},
+		},
+	}
+	in, err := inboundJSON(inboundWith(ProtoVLESS, 10011, cfg), cfg)
+	if err != nil {
+		t.Fatalf("生成 VLESS 入站失败: %v", err)
+	}
+	tls, _ := in["tls"].(map[string]any)
+	if _, ok := tls["ech"]; ok {
+		t.Errorf("Reality 启用时不应写入 ech 段: %v", tls)
+	}
+	if _, ok := tls["reality"]; !ok {
+		t.Errorf("Reality 段应存在: %v", tls)
+	}
+	if list := InboundWarnings(ProtoVLESS, cfg); !containsSubstring(list, "ECH") {
+		t.Errorf("Reality + ECH 应给出警示: %v", list)
+	}
+}

@@ -7,7 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -67,15 +71,68 @@ const (
 // SupportedCongestionControls TUIC 拥塞控制算法列表。
 var SupportedCongestionControls = []string{CongestionBBR, CongestionCubic, CongestionNewReno}
 
+// TLS 版本常量（与 sing-box option 的 min_version / max_version 枚举一致）。
+const (
+	TLSVersion10 = "1.0"
+	TLSVersion11 = "1.1"
+	TLSVersion12 = "1.2"
+	TLSVersion13 = "1.3"
+)
+
+// SupportedTLSVersions TLS 版本候选值。
+var SupportedTLSVersions = []string{TLSVersion10, TLSVersion11, TLSVersion12, TLSVersion13}
+
+// ECHConfig ECH（Encrypted Client Hello）配置；密钥二选一：内联 PEM（Key）或服务器路径（KeyPath）。
+type ECHConfig struct {
+	Enabled bool   `json:"enabled"`           // 是否启用 ECH
+	Key     string `json:"key,omitempty"`     // ECH KEYS PEM 文本
+	KeyPath string `json:"keyPath,omitempty"` // ECH KEYS PEM 文件路径
+}
+
 // TLSConfig TLS 类入站通用配置；证书二选一：面板存储证书（CertID）或服务器本地路径。
 type TLSConfig struct {
-	Enabled    bool     `json:"enabled"`              // 是否启用 TLS
-	ServerName string   `json:"serverName,omitempty"` // 服务器名称（SNI）
-	ALPN       []string `json:"alpn,omitempty"`       // ALPN 协议列表
-	CertMode   string   `json:"certMode,omitempty"`   // 证书引用方式：managed / path
-	CertID     uint     `json:"certId,omitempty"`     // managed：面板存储证书 ID
-	CertPath   string   `json:"certPath,omitempty"`   // path：证书文件路径
-	KeyPath    string   `json:"keyPath,omitempty"`    // path：私钥文件路径
+	Enabled    bool      `json:"enabled"`              // 是否启用 TLS
+	ServerName string    `json:"serverName,omitempty"` // 服务器名称（SNI）
+	ALPN       []string  `json:"alpn,omitempty"`       // ALPN 协议列表
+	MinVersion string    `json:"minVersion,omitempty"` // 最低 TLS 版本（如 1.2）
+	MaxVersion string    `json:"maxVersion,omitempty"` // 最高 TLS 版本（如 1.3）
+	ECH        ECHConfig `json:"ech"`                  // ECH 配置
+	CertMode   string    `json:"certMode,omitempty"`   // 证书引用方式：managed / path
+	CertID     uint      `json:"certId,omitempty"`     // managed：面板存储证书 ID
+	CertPath   string    `json:"certPath,omitempty"`   // path：证书文件路径
+	KeyPath    string    `json:"keyPath,omitempty"`    // path：私钥文件路径
+}
+
+// MultiplexConfig 入站多路复用（sing-box multiplex）：内核把多条流复用进一条 TCP 连接。
+type MultiplexConfig struct {
+	Enabled bool `json:"enabled"`           // 是否启用多路复用
+	Padding bool `json:"padding,omitempty"` // 是否对多路复用流量填充（抗流量特征识别）
+}
+
+// ConnectConfig 各协议共用的监听层选项（TCP Fast Open 与多路复用）。
+type ConnectConfig struct {
+	TCPFastOpen bool            `json:"tcpFastOpen,omitempty"` // TCP Fast Open（首包随 SYN 发送）
+	Multiplex   MultiplexConfig `json:"multiplex"`             // 多路复用（仅 VLESS/Trojan/VMess/Shadowsocks 生效）
+}
+
+// Masquerade 类型常量（与 sing-box Hysteria2 masquerade 一致）。
+const (
+	MasqueradeNone   = ""       // 不启用 masquerade
+	MasqueradeFile   = "file"   // 以本地目录的静态文件响应
+	MasqueradeProxy  = "proxy"  // 反向代理到指定站点
+	MasqueradeString = "string" // 固定状态码与正文
+)
+
+// SupportedMasqueradeTypes Hysteria2 masquerade 类型列表。
+var SupportedMasqueradeTypes = []string{MasqueradeFile, MasqueradeProxy, MasqueradeString}
+
+// MasqueradeConfig Hysteria2 masquerade 配置：伪装成普通 HTTPS 站点，抵御主动探测。
+type MasqueradeConfig struct {
+	Type       string `json:"type,omitempty"`       // file / proxy / string，空为不启用
+	Directory  string `json:"directory,omitempty"`  // file：静态目录（绝对路径）
+	ProxyURL   string `json:"proxyUrl,omitempty"`   // proxy：反代目标 URL
+	StatusCode int    `json:"statusCode,omitempty"` // string：HTTP 状态码，默认 200
+	Content    string `json:"content,omitempty"`    // string：响应正文
 }
 
 // RealityConfig Reality 配置（VLESS 专用，无需面板证书；入站级共享）。
@@ -93,39 +150,48 @@ type VLESSConfig struct {
 	Flow    string        `json:"flow,omitempty"` // 流控，默认 xtls-rprx-vision
 	Reality RealityConfig `json:"reality"`        // Reality 配置
 	TLS     TLSConfig     `json:"tls"`            // 普通 TLS（Reality 关闭时使用）
+	ConnectConfig
 }
 
 // Hysteria2Config Hysteria2 入站连接层配置。
 type Hysteria2Config struct {
-	ObfsEnabled           bool      `json:"obfsEnabled,omitempty"`           // 是否启用 salamander 混淆
-	ObfsPassword          string    `json:"obfsPassword,omitempty"`          // 混淆密码（入站级共享）
-	UpMbps                int       `json:"upMbps"`                          // 上行带宽上限（Mbps），0 为不限
-	DownMbps              int       `json:"downMbps"`                        // 下行带宽上限（Mbps），0 为不限
-	IgnoreClientBandwidth bool      `json:"ignoreClientBandwidth,omitempty"` // 忽略客户端带宽设置（要求客户端用 BBR）
-	BBRProfile            string    `json:"bbrProfile,omitempty"`            // BBR 档位，默认 standard
-	TLS                   TLSConfig `json:"tls"`                             // TLS（必须启用，ALPN 默认 h3）
+	ObfsEnabled           bool             `json:"obfsEnabled,omitempty"`           // 是否启用 salamander 混淆
+	ObfsPassword          string           `json:"obfsPassword,omitempty"`          // 混淆密码（入站级共享）
+	UpMbps                int              `json:"upMbps"`                          // 上行带宽上限（Mbps），0 为不限
+	DownMbps              int              `json:"downMbps"`                        // 下行带宽上限（Mbps），0 为不限
+	IgnoreClientBandwidth bool             `json:"ignoreClientBandwidth,omitempty"` // 忽略客户端带宽设置（要求客户端用 BBR）
+	BBRProfile            string           `json:"bbrProfile,omitempty"`            // BBR 档位，默认 standard
+	Masquerade            MasqueradeConfig `json:"masquerade"`                      // 伪装站点（抗主动探测）
+	TLS                   TLSConfig        `json:"tls"`                             // TLS（必须启用，ALPN 默认 h3）
+	ConnectConfig
 }
 
 // TUICConfig TUIC v5 入站连接层配置。
 type TUICConfig struct {
 	CongestionControl string    `json:"congestionControl,omitempty"` // 拥塞控制：bbr/cubic/new_reno，默认 bbr
+	ZeroRTTHandshake  bool      `json:"zeroRttHandshake,omitempty"`  // 允许 0-RTT 握手（省一个 RTT，牺牲前向安全）
+	Heartbeat         string    `json:"heartbeat,omitempty"`         // 心跳间隔（如 10s），空为内核默认
 	TLS               TLSConfig `json:"tls"`                         // TLS（必须启用，ALPN 默认 h3）
+	ConnectConfig
 }
 
 // AnyTLSConfig AnyTLS 入站连接层配置。
 type AnyTLSConfig struct {
 	TLS TLSConfig `json:"tls"` // TLS（必须启用）
+	ConnectConfig
 }
 
 // TrojanConfig Trojan 入站连接层配置。
 type TrojanConfig struct {
 	TLS TLSConfig `json:"tls"` // TLS
+	ConnectConfig
 }
 
 // VMessConfig VMess（WS + TLS）入站连接层配置。
 type VMessConfig struct {
 	WSPath string    `json:"wsPath,omitempty"` // WebSocket 路径，默认 /
 	TLS    TLSConfig `json:"tls"`              // TLS
+	ConnectConfig
 }
 
 // ShadowsocksConfig Shadowsocks-2022 入站连接层配置。
@@ -134,6 +200,9 @@ type ShadowsocksConfig struct {
 	// PSK 入站级预共享密钥（服务端身份）。Shadowsocks-2022 多用户模式下客户端密码为
 	// 「PSK:用户密钥」，因此它必须在入站上固定下来，而不能每次生成。
 	PSK string `json:"psk,omitempty"`
+	// Network 生效网络：空为 TCP + UDP，也可只开其一。
+	Network string `json:"network,omitempty"`
+	ConnectConfig
 }
 
 // Credential 入站内单用户凭据（按协议只填相关字段）。
@@ -141,6 +210,16 @@ type Credential struct {
 	UUID     string `json:"uuid,omitempty"`     // VLESS / TUIC / VMess
 	Password string `json:"password,omitempty"` // Hysteria2 / TUIC / AnyTLS / Trojan / Shadowsocks
 	Flow     string `json:"flow,omitempty"`     // VLESS 用户级流控（缺省用入站级）
+}
+
+// MultiplexSupported 协议是否支持入站多路复用（sing-box 仅在 VLESS / Trojan / VMess /
+// Shadowsocks 入站上提供 multiplex；QUIC 类与 AnyTLS 自身即多路复用）。
+func MultiplexSupported(protocol string) bool {
+	switch protocol {
+	case ProtoVLESS, ProtoTrojan, ProtoVMess, ProtoShadowsocks:
+		return true
+	}
+	return false
 }
 
 // NewTemplateConfig 生成协议默认连接层配置（TLS/Reality/混淆/算法），不含任何用户凭据。
@@ -326,6 +405,11 @@ func InboundWarnings(protocol string, cfg any) []string {
 		case !c.TLS.Enabled:
 			add("Reality 已启用，将忽略 TLS 开关强制启用 TLS（无需证书）")
 		}
+		if c.Reality.Enabled && c.TLS.ECH.Enabled {
+			add("Reality 已启用，ECH 不会写入内核配置（内核不允许两者并存），如需 ECH 请关闭 Reality")
+		}
+		c.TLS.advancedWarnings(add)
+		c.ConnectConfig.warnings(protocol, add)
 	case *Hysteria2Config:
 		if !c.TLS.Enabled {
 			add("Hysteria2 必须启用 TLS，当前已关闭")
@@ -333,12 +417,15 @@ func InboundWarnings(protocol string, cfg any) []string {
 			c.TLS.certWarnings(add)
 			c.TLS.alpnWarn(add)
 		}
+		c.TLS.advancedWarnings(add)
 		if c.ObfsEnabled && c.ObfsPassword == "" {
 			add("已启用混淆但混淆密码为空")
 		}
 		if c.UpMbps > 0 && c.DownMbps > 0 {
 			add("已设置带宽上限，客户端将无法使用 BBR（如需 BBR 请保持带宽不限）")
 		}
+		c.Masquerade.warnings(add)
+		c.ConnectConfig.warnings(protocol, add)
 	case *TUICConfig:
 		if !c.TLS.Enabled {
 			add("TUIC 必须启用 TLS，当前已关闭")
@@ -346,30 +433,112 @@ func InboundWarnings(protocol string, cfg any) []string {
 			c.TLS.certWarnings(add)
 			c.TLS.alpnWarn(add)
 		}
+		c.TLS.advancedWarnings(add)
+		if c.ZeroRTTHandshake && c.TLS.Enabled {
+			add("已启用 0-RTT 握手：可省一个 RTT，但会牺牲前向安全性")
+		}
+		if c.Heartbeat != "" && !validDuration(c.Heartbeat) {
+			add("心跳间隔 %q 不是合法时长（如 10s / 30s），内核将无法解析", c.Heartbeat)
+		}
+		c.ConnectConfig.warnings(protocol, add)
 	case *AnyTLSConfig:
 		if !c.TLS.Enabled {
 			add("AnyTLS 必须启用 TLS，当前已关闭")
 		} else {
 			c.TLS.certWarnings(add)
 		}
+		c.TLS.advancedWarnings(add)
+		c.ConnectConfig.warnings(protocol, add)
 	case *TrojanConfig:
 		if !c.TLS.Enabled {
 			add("Trojan 未启用 TLS，密码将明文传输")
 		} else {
 			c.TLS.certWarnings(add)
 		}
+		c.TLS.advancedWarnings(add)
+		c.ConnectConfig.warnings(protocol, add)
 	case *VMessConfig:
 		if !c.TLS.Enabled {
 			add("VMess 未启用 TLS，流量将明文传输")
 		} else {
 			c.TLS.certWarnings(add)
 		}
+		c.TLS.advancedWarnings(add)
+		c.ConnectConfig.warnings(protocol, add)
 	case *ShadowsocksConfig:
 		if !strings.HasPrefix(c.Method, "2022-") {
 			add("非 Shadowsocks-2022 加密方法，强度较弱")
 		}
+		if c.Network != "" && c.Network != "tcp" && c.Network != "udp" {
+			add("Shadowsocks 网络只能留空（TCP + UDP）、tcp 或 udp，当前值内核无法解析")
+		}
+		c.ConnectConfig.warnings(protocol, add)
 	}
 	return warnings
+}
+
+// validDuration 判断字符串是否为内核可解析的时长（Go duration 语法，如 10s / 500ms）。
+func validDuration(value string) bool {
+	d, err := time.ParseDuration(value)
+	return err == nil && d >= 0
+}
+
+// advancedWarnings TLS 高级字段（版本与 ECH）的弱配置判定。
+func (t *TLSConfig) advancedWarnings(add func(string, ...any)) {
+	if t.MinVersion != "" && !contains(SupportedTLSVersions, t.MinVersion) {
+		add("TLS 最低版本 %q 不是合法值（1.0/1.1/1.2/1.3）", t.MinVersion)
+	}
+	if t.MaxVersion != "" && !contains(SupportedTLSVersions, t.MaxVersion) {
+		add("TLS 最高版本 %q 不是合法值（1.0/1.1/1.2/1.3）", t.MaxVersion)
+	}
+	if t.MinVersion != "" && t.MaxVersion != "" && t.MinVersion > t.MaxVersion {
+		add("TLS 最低版本高于最高版本，握手将失败")
+	}
+	if t.ECH.Enabled && t.ECH.Key == "" && t.ECH.KeyPath == "" {
+		add("已启用 ECH 但未提供 ECH 密钥或密钥路径，内核将忽略该配置")
+	}
+}
+
+// warnings 监听层选项（TCP Fast Open / 多路复用）的弱配置判定。
+func (c ConnectConfig) warnings(protocol string, add func(string, ...any)) {
+	if c.TCPFastOpen && QUICProtocol(protocol) {
+		add("%s 走 QUIC（UDP），TCP Fast Open 对其无效，可关闭", protocol)
+	}
+	if c.Multiplex.Enabled && !MultiplexSupported(protocol) {
+		add("%s 入站不支持多路复用（内核会忽略该设置），QUIC/AnyTLS 自身已多路复用", protocol)
+	}
+}
+
+// warnings Hysteria2 masquerade 的弱配置判定（不阻断保存）。
+func (m MasqueradeConfig) warnings(add func(string, ...any)) {
+	switch m.Type {
+	case MasqueradeNone:
+	case MasqueradeFile:
+		if m.Directory == "" {
+			add("masquerade 类型为 file 但未填目录，内核将无法启动")
+			return
+		}
+		// 只校验绝对路径：相对路径由内核按自身数据目录解析，面板这边无法判定
+		if filepath.IsAbs(m.Directory) {
+			if info, err := os.Stat(m.Directory); err != nil || !info.IsDir() {
+				add("masquerade 目录 %s 不存在或不是目录，内核将无法启动", m.Directory)
+			}
+		}
+	case MasqueradeProxy:
+		if m.ProxyURL == "" {
+			add("masquerade 类型为 proxy 但未填反代 URL，内核将无法启动")
+			return
+		}
+		if u, err := url.Parse(m.ProxyURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+			add("masquerade 反代 URL 需以 http:// 或 https:// 开头：%s", m.ProxyURL)
+		}
+	case MasqueradeString:
+		if m.Content == "" {
+			add("masquerade 类型为 string 但正文为空，将返回空响应")
+		}
+	default:
+		add("masquerade 类型 %q 不受支持（可选：%s）", m.Type, strings.Join(SupportedMasqueradeTypes, " / "))
+	}
 }
 
 // alpnWarn QUIC 类协议配置了 ALPN 但不含 h3 时提示（内核会补默认值，但客户端未必对齐）。
@@ -424,6 +593,27 @@ func (t *TLSConfig) tlsJSON(forceEnabled, requireCert bool, resolve CertResolver
 	}
 	if len(t.ALPN) > 0 {
 		tls["alpn"] = t.ALPN
+	}
+	if t.MinVersion != "" {
+		tls["min_version"] = t.MinVersion
+	}
+	if t.MaxVersion != "" {
+		tls["max_version"] = t.MaxVersion
+	}
+	if t.ECH.Enabled {
+		// 内核缺 ECH 密钥会直接拒绝启动，故未填密钥时不写入 ech 段（由 InboundWarnings 提示）
+		ech := map[string]any{"enabled": true}
+		switch {
+		case t.ECH.Key != "":
+			ech["key"] = []string{t.ECH.Key}
+		case t.ECH.KeyPath != "":
+			ech["key_path"] = t.ECH.KeyPath
+		default:
+			ech = nil
+		}
+		if ech != nil {
+			tls["ech"] = ech
+		}
 	}
 	if requireCert {
 		certPath, keyPath, err := t.resolveCert(resolve)

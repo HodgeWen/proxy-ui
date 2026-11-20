@@ -6,7 +6,7 @@
 import type { Certificate } from './api/cert'
 
 /** 表单字段类型 */
-export type FieldType = 'input' | 'password' | 'number' | 'select' | 'multiselect' | 'switch'
+export type FieldType = 'input' | 'password' | 'number' | 'select' | 'multiselect' | 'switch' | 'textarea'
 
 /** 下拉选项 */
 export interface FieldOption {
@@ -120,6 +120,15 @@ const ALPN_OPTIONS: FieldOption[] = [
   { label: 'http/1.1', value: 'http/1.1' },
 ]
 
+/** TLS 版本选项（与 sing-box min_version / max_version 枚举一致） */
+const TLS_VERSION_OPTIONS: FieldOption[] = [
+  { label: '不限制（内核默认 1.2 起）', value: '' },
+  { label: '1.0', value: '1.0' },
+  { label: '1.1', value: '1.1' },
+  { label: '1.2', value: '1.2' },
+  { label: '1.3', value: '1.3' },
+]
+
 /** TLS 高级字段（归入高级选项折叠区） */
 export const TLS_ADVANCED: FieldDef[] = [
   {
@@ -130,7 +139,79 @@ export const TLS_ADVANCED: FieldDef[] = [
       'TLS ALPN 协商协议列表。QUIC 类协议（Hysteria2 / TUIC）必须含 h3（留空时内核会补 h3，但建议显式填上以便与客户端对齐）；普通 TLS 常用 h2 / http/1.1',
     options: ALPN_OPTIONS,
   },
+  {
+    field: 'tls.minVersion',
+    label: 'TLS 最低版本',
+    type: 'select',
+    description:
+      '握手可协商的最低 TLS 版本，挡住降级到老版本。留空沿用内核默认（1.2）；要求更严可设 1.3，老客户端将无法连接',
+    options: TLS_VERSION_OPTIONS,
+  },
+  {
+    field: 'tls.maxVersion',
+    label: 'TLS 最高版本',
+    type: 'select',
+    description: '握手可协商的最高 TLS 版本。留空不限制（推荐），仅在需要兼容特殊客户端下调低',
+    options: TLS_VERSION_OPTIONS,
+  },
+  {
+    field: 'tls.ech.enabled',
+    label: '启用 ECH',
+    type: 'switch',
+    description:
+      'ECH（Encrypted Client Hello）把 SNI 一并加密，避免中间人从握手看到访问域名。需域名已发布 ECH 配置且客户端支持，默认关闭',
+  },
+  {
+    field: 'tls.ech.key',
+    label: 'ECH 密钥',
+    type: 'textarea',
+    span: 'full',
+    placeholder: '-----BEGIN ECH KEYS-----',
+    description:
+      'ECH 密钥 PEM 文本（BEGIN ECH KEYS）。可用内核自带命令由域名生成；与「ECH 密钥路径」二选一，填了密钥内核才真正启用 ECH',
+    when: (cfg) => !!cfg.tls?.ech?.enabled,
+  },
+  {
+    field: 'tls.ech.keyPath',
+    label: 'ECH 密钥路径',
+    type: 'input',
+    span: 'full',
+    placeholder: '服务器上 ECH 密钥文件绝对路径',
+    description: '服务器上 ECH 密钥文件的绝对路径，适合密钥由外部工具轮换的场景；与内联密钥二选一',
+    when: (cfg) => !!cfg.tls?.ech?.enabled,
+  },
 ]
+
+/** 监听层选项：TCP Fast Open 全协议可用 */
+const TCP_FAST_OPEN_FIELD: FieldDef = {
+  field: 'tcpFastOpen',
+  label: 'TCP Fast Open',
+  type: 'switch',
+  description:
+    '首个数据随 SYN 包发出，省掉一次往返握手。需服务端与客户端内核都开启，部分中间设备会丢弃带数据的 SYN；高延迟链路收益明显，默认关闭',
+}
+
+/** 多路复用字段：sing-box 仅消费 VLESS / Trojan / VMess / Shadowsocks 入站的 multiplex，
+    其它协议（QUIC / AnyTLS 原生多路）仍保留开关，开启时由弱配置警示提示无效 */
+function multiplexFields(effective: boolean): FieldDef[] {
+  return [
+    {
+      field: 'multiplex.enabled',
+      label: '多路复用',
+      type: 'switch',
+      description: effective
+        ? '把多条连接复用进同一条 TCP 连接，减少反复握手；客户端也需开启同一选项，默认关闭（单连接场景无收益，长肥管道可能因队头阻塞变慢）'
+        : '该协议本身已在协议层多路复用（QUIC / AnyTLS 单连接承载多流），内核不接受额外 multiplex 配置；此开关留作统一表单，开启会被内核忽略',
+    },
+    {
+      field: 'multiplex.padding',
+      label: '多路复用填充',
+      type: 'switch',
+      description: '仅在启用多路复用后生效：随机化复用流的长度，降低按包长识别协议的概率，代价是少量带宽开销',
+      when: (cfg) => !!cfg.multiplex?.enabled,
+    },
+  ]
+}
 
 const FLOW_OPTIONS: FieldOption[] = [
   { label: 'xtls-rprx-vision', value: 'xtls-rprx-vision' },
@@ -152,6 +233,30 @@ const BBR_PROFILE_OPTIONS: FieldOption[] = [
 const SS_METHODS: FieldOption[] = [
   { label: '2022-blake3-aes-128-gcm', value: '2022-blake3-aes-128-gcm' },
   { label: '2022-blake3-aes-256-gcm', value: '2022-blake3-aes-256-gcm' },
+]
+
+/** Shadowsocks 生效网络（留空 = TCP + UDP） */
+const SS_NETWORK_OPTIONS: FieldOption[] = [
+  { label: 'TCP + UDP（默认）', value: '' },
+  { label: '仅 TCP', value: 'tcp' },
+  { label: '仅 UDP', value: 'udp' },
+]
+
+/** Hysteria2 masquerade 类型（留空 = 不启用） */
+const MASQUERADE_TYPE_OPTIONS: FieldOption[] = [
+  { label: '不启用', value: '' },
+  { label: '静态目录（file）', value: 'file' },
+  { label: '反代站点（proxy）', value: 'proxy' },
+  { label: '固定响应（string）', value: 'string' },
+]
+
+/** TUIC 心跳间隔（留空用内核默认 10s） */
+const HEARTBEAT_OPTIONS: FieldOption[] = [
+  { label: '内核默认（10s）', value: '' },
+  { label: '5s', value: '5s' },
+  { label: '10s', value: '10s' },
+  { label: '30s', value: '30s' },
+  { label: '60s', value: '60s' },
 ]
 
 /** 七协议定义，推荐组排前 */
@@ -178,6 +283,8 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
       },
     ],
     advanced: [
+      TCP_FAST_OPEN_FIELD,
+      ...multiplexFields(true),
       {
         field: 'reality.privateKey',
         label: 'Reality 私钥',
@@ -226,17 +333,21 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
         field: 'obfsEnabled',
         label: '启用混淆',
         type: 'switch',
-        description: 'salamander 混淆把 QUIC 流量伪装成普通 UDP，可降低被识别概率；密码为本入站所有用户共用，默认关闭',
+        description:
+          'salamander 混淆把 QUIC 流量伪装成普通 UDP，降低被识别概率；密码为本入站所有用户共用。新建入站默认开启并自动生成随机密码，客户端需填同一密码',
       },
       {
         field: 'obfsPassword',
         label: '混淆密码',
         type: 'password',
-        description: 'salamander 混淆密码，本入站所有用户共用；启用混淆时必填，需与客户端保持一致，建议用长随机串',
+        description:
+          'salamander 混淆密码，本入站所有用户共用；新建入站时已由面板生成随机值，编辑已有入站不会改动它，客户端需填同一密码',
         when: (cfg) => !!cfg.obfsEnabled,
       },
     ],
     advanced: [
+      TCP_FAST_OPEN_FIELD,
+      ...multiplexFields(false),
       {
         field: 'upMbps',
         label: '上行带宽上限 (Mbps)',
@@ -264,6 +375,50 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
         description: '内核 BBR 拥塞控制档位；不确定就用 standard，高带宽低丢包可试 aggressive',
         options: BBR_PROFILE_OPTIONS,
       },
+      {
+        field: 'masquerade.type',
+        label: '伪装站点',
+        type: 'select',
+        description:
+          'Hysteria2 的 HTTP/3 masquerade：被主动探测时返回一个正常站点，避免直接暴露协议。默认不启用；有静态站点可指向目录，也可反代到已有网站',
+        options: MASQUERADE_TYPE_OPTIONS,
+      },
+      {
+        field: 'masquerade.directory',
+        label: '静态目录',
+        type: 'input',
+        span: 'full',
+        placeholder: '服务器上静态站点目录绝对路径',
+        description: '该目录下的文件会作为 HTTP 响应返回；目录不存在时内核将无法启动',
+        when: (cfg) => cfg.masquerade?.type === 'file',
+      },
+      {
+        field: 'masquerade.proxyUrl',
+        label: '反代目标 URL',
+        type: 'input',
+        span: 'full',
+        placeholder: 'https://example.com',
+        description: '探测请求被反代到该站点，响应原样返回；需以 http:// 或 https:// 开头',
+        when: (cfg) => cfg.masquerade?.type === 'proxy',
+      },
+      {
+        field: 'masquerade.statusCode',
+        label: '响应状态码',
+        type: 'number',
+        min: 100,
+        max: 599,
+        description: '固定响应的 HTTP 状态码，留空按 200 处理',
+        when: (cfg) => cfg.masquerade?.type === 'string',
+      },
+      {
+        field: 'masquerade.content',
+        label: '响应正文',
+        type: 'textarea',
+        span: 'full',
+        placeholder: '<html><body>Not Found</body></html>',
+        description: '固定返回的 HTML 正文，留空会返回空响应，探测方易判定异常',
+        when: (cfg) => cfg.masquerade?.type === 'string',
+      },
     ],
   },
   {
@@ -274,12 +429,27 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     tls: true,
     basic: [],
     advanced: [
+      TCP_FAST_OPEN_FIELD,
+      ...multiplexFields(false),
       {
         field: 'congestionControl',
         label: '拥塞控制',
         type: 'select',
         description: 'QUIC 拥塞控制算法；bbr 在高丢包链路下表现最好，为面板默认值',
         options: CC_OPTIONS,
+      },
+      {
+        field: 'zeroRttHandshake',
+        label: '0-RTT 握手',
+        type: 'switch',
+        description: '允许恢复会话时在首个包里带数据，重连快一个 RTT；代价是失去前向安全性，默认关闭',
+      },
+      {
+        field: 'heartbeat',
+        label: '心跳间隔',
+        type: 'select',
+        description: '服务端心跳包间隔，用于及时发现死连接；留空用内核默认 10s，移动网络差时可放宽',
+        options: HEARTBEAT_OPTIONS,
       },
     ],
   },
@@ -290,7 +460,7 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     recommended: true,
     tls: true,
     basic: [],
-    advanced: [],
+    advanced: [TCP_FAST_OPEN_FIELD, ...multiplexFields(false)],
   },
   {
     protocol: 'trojan',
@@ -299,7 +469,7 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     recommended: false,
     tls: true,
     basic: [],
-    advanced: [],
+    advanced: [TCP_FAST_OPEN_FIELD, ...multiplexFields(true)],
   },
   {
     protocol: 'vmess',
@@ -316,7 +486,7 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
         description: 'WebSocket 路径，需以 / 开头（如 /ws）；套 CDN 时需与转发规则保持一致',
       },
     ],
-    advanced: [],
+    advanced: [TCP_FAST_OPEN_FIELD, ...multiplexFields(true)],
   },
   {
     protocol: 'shadowsocks',
@@ -332,8 +502,15 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
         description: 'Shadowsocks-2022 加密方法，决定各节点密钥长度；默认 128 位已足够安全且开销更低',
         options: SS_METHODS,
       },
+      {
+        field: 'network',
+        label: '生效网络',
+        type: 'select',
+        description: '该入站允许的流量类型：留空为 TCP + UDP（常规），也可只开其一以收窄暴露面',
+        options: SS_NETWORK_OPTIONS,
+      },
     ],
-    advanced: [],
+    advanced: [TCP_FAST_OPEN_FIELD, ...multiplexFields(true)],
   },
 ]
 
@@ -352,6 +529,11 @@ export function certOptions(certs: Certificate[]): FieldOption[] {
 /** n 字节安全随机数的 hex 串 */
 function randHex(n: number): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** n 字节安全随机数的 base64 串（与后端 randBase64 口径一致，Hysteria2 默认混淆密码用） */
+function randBase64(n: number): string {
+  return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(n))))
 }
 
 // ---------- X25519（RFC 7748 ladder 实现，纯 BigInt；不依赖 crypto.subtle 的安全上下文） ----------
@@ -451,11 +633,14 @@ function realityKeypair(): { privateKey: string; publicKey: string } {
 
 /**
  * 生成协议连接层默认配置，不含任何用户凭据（凭据由后端为入站内每个用户生成）。
- * QUIC 类协议默认 ALPN 含 h3、拥塞算法默认 bbr；Shadowsocks 的服务端 PSK 由后端补齐，
- * Hysteria2 混淆默认关闭（混淆密码是入站级共享密钥，由使用者自行填写，不在前端随机生成）。
+ * 口径与后端 NewTemplateConfig 一致：QUIC 类协议默认 ALPN 含 h3、TUIC 拥塞算法默认 bbr、
+ * Hysteria2 默认开启混淆并随机生成密码、BBR 档位默认 standard、多路复用默认关闭；
+ * Shadowsocks 的服务端 PSK 由后端补齐。
  */
 export function defaultInboundConfig(protocol: string): Record<string, any> {
   const managedTLS = { enabled: true, certMode: 'managed' }
+  /** 监听层选项默认值：TFO 与多路复用默认关闭，字段先占位，编辑时由已有记录覆盖 */
+  const connect = { tcpFastOpen: false, multiplex: { enabled: false, padding: false } }
   switch (protocol) {
     case 'vless': {
       const keypair = realityKeypair()
@@ -469,31 +654,38 @@ export function defaultInboundConfig(protocol: string): Record<string, any> {
           handshakeServer: 'www.microsoft.com',
           handshakePort: 443,
         },
-        tls: { enabled: true, serverName: 'www.microsoft.com' },
+        tls: { enabled: true, serverName: 'www.microsoft.com', ech: { enabled: false } },
+        ...connect,
       }
     }
     case 'hysteria2':
       return {
-        obfsEnabled: false,
-        obfsPassword: '',
+        obfsEnabled: true,
+        // 新建入站即给随机混淆密码：与后端默认一致，避免「开了混淆却没密码」
+        obfsPassword: randBase64(16),
         upMbps: 0,
         downMbps: 0,
         bbrProfile: 'standard',
+        masquerade: { type: '' },
         // QUIC 类协议 ALPN 必须含 h3：创建入站即给默认值，避免保存后握手失败
-        tls: { enabled: true, certMode: 'managed', alpn: ['h3'] },
+        tls: { enabled: true, certMode: 'managed', alpn: ['h3'], ech: { enabled: false } },
+        ...connect,
       }
     case 'tuic':
       return {
         congestionControl: 'bbr',
-        tls: { enabled: true, certMode: 'managed', alpn: ['h3'] },
+        zeroRttHandshake: false,
+        heartbeat: '',
+        tls: { enabled: true, certMode: 'managed', alpn: ['h3'], ech: { enabled: false } },
+        ...connect,
       }
     case 'anytls':
     case 'trojan':
-      return { tls: { ...managedTLS } }
+      return { tls: { ...managedTLS, ech: { enabled: false } }, ...connect }
     case 'vmess':
-      return { wsPath: '/', tls: { ...managedTLS } }
+      return { wsPath: '/', tls: { ...managedTLS, ech: { enabled: false } }, ...connect }
     case 'shadowsocks':
-      return { method: '2022-blake3-aes-128-gcm' }
+      return { method: '2022-blake3-aes-128-gcm', network: '', ...connect }
   }
   throw new Error(`不支持的入站协议: ${protocol}`)
 }
@@ -525,6 +717,43 @@ export function computeInboundWarnings(protocol: string, cfg: Record<string, any
       warnings.push({ text: 'QUIC 类协议 ALPN 需含 h3，当前配置不含 h3' })
     }
   }
+  /** TLS 版本与 ECH 的弱配置（与后端 InboundWarnings.advancedWarnings 同口径） */
+  const advancedTlsWarning = () => {
+    const versions = ['1.0', '1.1', '1.2', '1.3']
+    if (tls.minVersion && !versions.includes(tls.minVersion)) {
+      warnings.push({ text: `TLS 最低版本 ${tls.minVersion} 不是合法值（1.0/1.1/1.2/1.3）` })
+    }
+    if (tls.maxVersion && !versions.includes(tls.maxVersion)) {
+      warnings.push({ text: `TLS 最高版本 ${tls.maxVersion} 不是合法值（1.0/1.1/1.2/1.3）` })
+    }
+    if (tls.minVersion && tls.maxVersion && tls.minVersion > tls.maxVersion) {
+      warnings.push({ text: 'TLS 最低版本高于最高版本，握手将失败' })
+    }
+    if (tls.ech?.enabled && !tls.ech.key && !tls.ech.keyPath) {
+      warnings.push({ text: '已启用 ECH 但未提供 ECH 密钥或密钥路径，内核将忽略该配置' })
+    }
+  }
+  /** 多路复用只在 sing-box 的 VLESS / Trojan / VMess / Shadowsocks 入站生效 */
+  const multiplexWarning = () => {
+    const supported = ['vless', 'trojan', 'vmess', 'shadowsocks']
+    if (cfg.multiplex?.enabled && !supported.includes(protocol)) {
+      warnings.push({ text: `${protocol} 入站不支持多路复用（内核会忽略该设置），QUIC/AnyTLS 自身已多路复用` })
+    }
+    if (cfg.tcpFastOpen && isQuicProtocol(protocol)) {
+      warnings.push({ text: `${protocol} 走 QUIC（UDP），TCP Fast Open 对其无效，可关闭` })
+    }
+  }
+  /** Hysteria2 masquerade 弱配置 */
+  const masqueradeWarning = () => {
+    const m = cfg.masquerade ?? {}
+    if (m.type === 'file' && !m.directory) warnings.push({ text: 'masquerade 类型为静态目录但未填目录，内核将无法启动' })
+    if (m.type === 'proxy' && !m.proxyUrl) warnings.push({ text: 'masquerade 类型为反代站点但未填反代 URL，内核将无法启动' })
+    if (m.type === 'proxy' && m.proxyUrl && !/^https?:\/\//.test(m.proxyUrl)) {
+      warnings.push({ text: 'masquerade 反代 URL 需以 http:// 或 https:// 开头' })
+    }
+    if (m.type === 'string' && !m.content) warnings.push({ text: 'masquerade 类型为固定响应但正文为空，将返回空响应' })
+  }
+  multiplexWarning()
   switch (protocol) {
     case 'vless': {
       const reality = cfg.reality?.enabled
@@ -535,6 +764,9 @@ export function computeInboundWarnings(protocol: string, cfg: Record<string, any
         certWarning()
       } else if (!tls.enabled) {
         warnings.push({ text: 'Reality 已启用，将忽略 TLS 开关强制启用 TLS（无需证书）' })
+      }
+      if (reality && tls.ech?.enabled) {
+        warnings.push({ text: 'Reality 已启用，ECH 不会写入内核配置（内核不允许两者并存），如需 ECH 请关闭 Reality' })
       }
       break
     }
@@ -548,12 +780,19 @@ export function computeInboundWarnings(protocol: string, cfg: Record<string, any
       if ((cfg.upMbps ?? 0) > 0 && (cfg.downMbps ?? 0) > 0) {
         warnings.push({ text: '已设置带宽上限，客户端将无法使用 BBR（如需 BBR 请保持带宽不限）' })
       }
+      masqueradeWarning()
       break
     case 'tuic':
       if (!tls.enabled) warnings.push({ text: 'TUIC 必须启用 TLS，当前已关闭', jump: 'tls' })
       else {
         certWarning()
         alpnWarning()
+      }
+      if (cfg.zeroRttHandshake && tls.enabled) {
+        warnings.push({ text: '已启用 0-RTT 握手：可省一个 RTT，但会牺牲前向安全性' })
+      }
+      if (cfg.heartbeat && !/^\d+(\.\d+)?(ns|us|µs|ms|s|m|h)$/.test(cfg.heartbeat)) {
+        warnings.push({ text: `心跳间隔 ${cfg.heartbeat} 不是合法时长（如 10s / 30s）` })
       }
       break
     case 'anytls':
@@ -570,9 +809,13 @@ export function computeInboundWarnings(protocol: string, cfg: Record<string, any
       break
     case 'shadowsocks': {
       if (!String(cfg.method ?? '').startsWith('2022-')) warnings.push({ text: '非 Shadowsocks-2022 加密方法，强度较弱' })
+      if (cfg.network && cfg.network !== 'tcp' && cfg.network !== 'udp') {
+        warnings.push({ text: 'Shadowsocks 网络只能留空（TCP + UDP）、tcp 或 udp' })
+      }
       break
     }
   }
+  if (protocol !== 'shadowsocks') advancedTlsWarning()
   return warnings
 }
 
