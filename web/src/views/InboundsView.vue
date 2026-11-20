@@ -1,10 +1,10 @@
-<!-- 入站管理：协议分组新建入口（推荐组排前）、真实监听入站列表（端口/用户数/警示）、用户管理与证书管理。
+<!-- 入站管理：协议分组新建入口（推荐组排前）、真实监听入站列表（端口/用户数/警示）与用户管理；
+     「证书管理」跳转独立证书页（/certs）。
      一个入站 = 一个监听端口，端口由其下全部用户共享；每个用户是独立认证身份（独立凭据、独立订阅节点与流量）。
      所有写操作落库后由后端直接热应用内核，因此页面没有「应用配置」入口。 -->
 <script setup lang="ts">
 import { deleteInbound, listInbounds, setInboundEnabled } from '../api/inbound'
 import type { Inbound } from '../api/inbound'
-import CertManager from '../components/CertManager.vue'
 import InboundForm from '../components/InboundForm.vue'
 import InboundUsersDialog from '../components/InboundUsersDialog.vue'
 import {
@@ -23,9 +23,12 @@ import {
   messageConfirm,
 } from '@veltra/desktop'
 import { computed, onMounted, ref, shallowRef } from 'vue'
+import { useRouter } from 'vue-router'
 
 import EmptyState from '../components/EmptyState.vue'
 import { PROTOCOL_DEFS, listenLabel, protocolDef } from '../inbound-schema'
+
+const router = useRouter()
 
 const inbounds = ref<Inbound[]>([])
 const loading = shallowRef(false)
@@ -33,7 +36,6 @@ const pickerVisible = shallowRef(false)
 const togglingId = shallowRef(0)
 
 const inboundForm = shallowRef<InstanceType<typeof InboundForm>>()
-const certManager = shallowRef<InstanceType<typeof CertManager>>()
 
 /** 用户弹窗当前操作的入站 ID；数据始终取列表里的最新副本，避免启停/新建后展示过期结果 */
 const usersInboundId = shallowRef(0)
@@ -119,7 +121,7 @@ onMounted(refresh)
       <div class="page-header">
         <span>入站</span>
         <div class="page-ops">
-          <u-button @click="certManager?.open()">证书管理</u-button>
+          <u-button @click="router.push('/certs')">证书管理</u-button>
           <!-- 列表为空时主入口由空状态 CTA 承担，保持每屏 primary ≤1 -->
           <u-button v-if="inbounds.length" type="primary" @click="pickerVisible = true">新建入站</u-button>
         </div>
@@ -202,9 +204,8 @@ onMounted(refresh)
     </div>
   </u-dialog>
 
-  <InboundForm ref="inboundForm" @saved="refresh" @manage-certs="certManager?.open()" />
+  <InboundForm ref="inboundForm" @saved="refresh" />
   <InboundUsersDialog v-model:visible="usersVisible" :inbound="usersInbound" @changed="refresh" />
-  <CertManager ref="certManager" @changed="inboundForm?.reloadCerts()" />
 </template>
 
 <style scoped>

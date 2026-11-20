@@ -78,7 +78,7 @@ export const TLS_FIELDS: FieldDef[] = [
     field: 'tls.certMode',
     label: '证书引用',
     type: 'select',
-    description: '证书来源：面板存储（上传/粘贴 PEM，随配置部署到内核）或服务器本地路径',
+    description: '证书来源：面板存储（在「证书」页上传/粘贴或一键自签，随配置部署到内核）或服务器本地路径',
     options: [
       { label: '面板存储证书', value: 'managed' },
       { label: '服务器本地路径', value: 'path' },
@@ -90,7 +90,7 @@ export const TLS_FIELDS: FieldDef[] = [
     field: 'tls.certId',
     label: '选择证书',
     type: 'select',
-    description: '选择面板「证书管理」中已存储的证书，保存后自动写出对应 PEM',
+    description: '选择面板「证书」页中已存储的证书（上传/粘贴或一键自签），保存后自动写出对应 PEM',
     when: (cfg) => !!cfg.tls?.enabled && cfg.tls?.certMode === 'managed',
   },
   {

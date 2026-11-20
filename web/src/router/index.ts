@@ -39,6 +39,12 @@ export const router = createRouter({
           meta: { title: '出站', subtitle: '流量的出口与路由规则的最终去向，未命中规则的流量也走这里的兜底出站' },
         },
         {
+          path: 'certs',
+          name: 'certs',
+          component: () => import('../views/CertsView.vue'),
+          meta: { title: '证书', subtitle: 'TLS 证书管理：一键自签、上传/粘贴 PEM、引用服务器路径与到期倒计时' },
+        },
+        {
           path: 'rules',
           name: 'rules',
           component: () => import('../views/RulesView.vue'),

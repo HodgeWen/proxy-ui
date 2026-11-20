@@ -88,6 +88,7 @@ func New(opt Options) *gin.Engine {
 	g.DELETE("/outbounds/:id", a.HandleOutboundDelete)
 	g.GET("/certs", a.HandleCertsList)
 	g.POST("/certs", a.HandleCertCreate)
+	g.POST("/certs/self-signed", a.HandleCertSelfSigned)
 	g.PUT("/certs/:id", a.HandleCertUpdate)
 	g.DELETE("/certs/:id", a.HandleCertDelete)
 	g.GET("/rule-templates", a.HandleRuleTemplates)

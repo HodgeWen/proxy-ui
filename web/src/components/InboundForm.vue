@@ -23,6 +23,7 @@ import {
 import type { Component, PropType } from 'vue'
 import { o } from '@cat-kit/core'
 import { computed, defineComponent, h, nextTick, reactive, ref, shallowRef, useTemplateRef } from 'vue'
+import { useRouter } from 'vue-router'
 
 import FormGroupCard from './FormGroupCard.vue'
 import {
@@ -38,7 +39,8 @@ import {
 } from '../inbound-schema'
 import type { FieldDef, FieldType, ProtocolDef } from '../inbound-schema'
 
-const emit = defineEmits<{ saved: [inbound: Inbound]; 'manage-certs': [] }>()
+const emit = defineEmits<{ saved: [inbound: Inbound] }>()
+const router = useRouter()
 
 /** 控件类型映射 */
 const CONTROLS: Record<FieldType, Component> = {
@@ -171,6 +173,12 @@ async function jumpToTls(): Promise<void> {
   el?.querySelector<HTMLElement>('.form-group-card__header')?.focus({ preventScroll: true })
 }
 
+/** 前往证书页：关闭当前弹框并跳转（证书上传 / 一键自签都在证书页完成） */
+function goCerts(): void {
+  visible.value = false
+  void router.push('/certs')
+}
+
 async function handleSave(): Promise<void> {
   if (!(await formRef.value?.validate())) return
   saving.value = true
@@ -197,7 +205,7 @@ async function handleSave(): Promise<void> {
   }
 }
 
-defineExpose({ openCreate, openEdit, reloadCerts })
+defineExpose({ openCreate, openEdit })
 </script>
 
 <template>
@@ -249,10 +257,16 @@ defineExpose({ openCreate, openEdit, reloadCerts })
         title="TLS / 证书"
         :highlight="tlsHighlighted"
       >
+        <!-- 证书引导：没有证书时给出完整引导；已有证书也保留「没有合适的证书」的跳转提示 -->
         <p v-if="!certs.length" class="tls-empty">
-          暂无面板存储证书，可引用服务器本地路径，或
-          <u-button text type="primary" @click="emit('manage-certs')">打开证书管理</u-button>
-          上传/粘贴证书。
+          暂无面板存储证书：可
+          <u-button text type="primary" @click="goCerts">前往证书页</u-button>
+          一键生成自签或上传/粘贴 PEM，也可把下方「证书引用」切换为服务器本地路径手动填写。
+        </p>
+        <p v-else class="tls-empty">
+          没有合适的证书？可
+          <u-button text type="primary" @click="goCerts">前往证书页</u-button>
+          生成自签或上传；证书文件已在服务器上时，把「证书引用」切换为服务器本地路径即可。
         </p>
         <SchemaField v-for="d in TLS_FIELDS" :key="d.field" :def="d" :model="form" :certs="certs" />
       </FormGroupCard>

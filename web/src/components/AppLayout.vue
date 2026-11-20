@@ -4,7 +4,7 @@
 <script setup lang="ts">
 import { UButton, UNav } from '@veltra/desktop'
 import type { NavItem } from '@veltra/desktop'
-import { AiChat, Download, Filter, Monitor, Moon, Setting, Share, Sun, Terminal, Upload, UserCircle } from '@veltra/icons/normal'
+import { AiChat, Download, Filter, Monitor, Moon, Secured, Setting, Share, Sun, Terminal, Upload, UserCircle } from '@veltra/icons/normal'
 import { computed, onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -73,6 +73,7 @@ const menus: NavItem[] = [
   { title: '仪表盘', icon: Monitor, path: '/dashboard' },
   { title: '入站', icon: Download, path: '/inbounds' },
   { title: '出站', icon: Upload, path: '/outbounds' },
+  { title: '证书', icon: Secured, path: '/certs' },
   { title: '规则', icon: Filter, path: '/rules' },
   { title: '订阅', icon: Share, path: '/subscription' },
   { title: 'AI 助手', icon: AiChat, path: '/ai' },
