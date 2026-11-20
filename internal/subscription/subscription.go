@@ -219,6 +219,19 @@ func (s *Service) nodes(tokenID uint) ([]NodeSpec, error) {
 	if len(bindings) == 0 {
 		return nil, nil
 	}
+	// 用户一次 IN 查询取回，不随节点数放大查询次数
+	userIDs := make([]uint, 0, len(bindings))
+	for _, b := range bindings {
+		userIDs = append(userIDs, b.InboundUserID)
+	}
+	var users []db.InboundUser
+	if err := s.db.Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	userMeta := make(map[uint]db.InboundUser, len(users))
+	for _, u := range users {
+		userMeta[u.ID] = u
+	}
 	var inbounds []db.Inbound
 	if err := s.db.Where("enabled = ?", true).Find(&inbounds).Error; err != nil {
 		return nil, err
@@ -233,8 +246,8 @@ func (s *Service) nodes(tokenID uint) ([]NodeSpec, error) {
 		if !ok {
 			continue // 入站已停用
 		}
-		var user db.InboundUser
-		if err := s.db.First(&user, b.InboundUserID).Error; err != nil {
+		user, ok := userMeta[b.InboundUserID]
+		if !ok {
 			continue
 		}
 		if !user.Enabled || user.Suspended {

@@ -64,7 +64,6 @@ func New(opt Options) *gin.Engine {
 	// 内核只读接口：启停由面板自动管理，配置改动保存即热应用
 	g.GET("/kernel/status", a.HandleKernelStatus)
 	g.GET("/kernel/logs", a.HandleKernelLogs)
-	g.GET("/kernel/versions", a.HandleKernelVersions)
 	g.GET("/panel/versions", a.HandlePanelVersions)
 	g.POST("/panel/update", a.HandlePanelUpdate)
 	g.GET("/stats/realtime", a.HandleStatsRealtime)

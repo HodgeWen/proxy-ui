@@ -105,19 +105,27 @@ func previewFormatLabel(format subscription.Format) string {
 	return "sing-box"
 }
 
-// tokenViews 组装全部订阅用户视图。
+// tokenViews 组装全部订阅用户视图（节点与用量一轮批量查询，避免逐用户往返）。
 func (a *API) tokenViews() ([]tokenView, error) {
 	var records []db.SubscriptionToken
 	if err := a.db.Order("id").Find(&records).Error; err != nil {
 		return nil, err
 	}
+	nodesByToken, err := a.tokenNodesByToken()
+	if err != nil {
+		return nil, err
+	}
+	usedByToken, err := a.usedBytesByToken()
+	if err != nil {
+		return nil, err
+	}
 	views := make([]tokenView, 0, len(records))
 	for _, r := range records {
-		view, err := a.tokenViewOf(r)
-		if err != nil {
-			return nil, err
+		nodes := nodesByToken[r.ID]
+		if nodes == nil {
+			nodes = []tokenNodeView{}
 		}
-		views = append(views, view)
+		views = append(views, tokenViewOf(r, nodes, usedByToken[r.ID]))
 	}
 	return views, nil
 }
@@ -366,11 +374,6 @@ func (a *API) tokenView(id uint) (tokenView, error) {
 	if err := a.db.First(&record, id).Error; err != nil {
 		return tokenView{}, err
 	}
-	return a.tokenViewOf(record)
-}
-
-// tokenViewOf 组装单个订阅用户视图。
-func (a *API) tokenViewOf(record db.SubscriptionToken) (tokenView, error) {
 	nodes, err := a.tokenNodes(record.ID)
 	if err != nil {
 		return tokenView{}, err
@@ -379,6 +382,14 @@ func (a *API) tokenViewOf(record db.SubscriptionToken) (tokenView, error) {
 	if err != nil {
 		return tokenView{}, err
 	}
+	return tokenViewOf(record, nodes, used), nil
+}
+
+// tokenViewOf 组装单个订阅用户视图（节点与用量由调用方给出）。
+func tokenViewOf(record db.SubscriptionToken, nodes []tokenNodeView, used int64) tokenView {
+	if nodes == nil {
+		nodes = []tokenNodeView{}
+	}
 	return tokenView{
 		ID: record.ID, Token: record.Token, Name: record.Name, Revoked: record.Revoked,
 		TrafficLimitBytes: record.TrafficLimitBytes, UsedBytes: used,
@@ -386,29 +397,41 @@ func (a *API) tokenViewOf(record db.SubscriptionToken) (tokenView, error) {
 		Expired:   record.ExpiresAt != nil && time.Now().After(*record.ExpiresAt),
 		OverQuota: record.TrafficLimitBytes > 0 && used >= record.TrafficLimitBytes,
 		CreatedAt: record.CreatedAt, LastUsedAt: record.LastUsedAt, Nodes: nodes,
-	}, nil
+	}
 }
 
-// tokenNodes 查询订阅用户名下节点视图（各节点展示自身累计用量）。
+// tokenNodes 查询某订阅用户名下节点视图（各节点展示自身累计用量）。
 func (a *API) tokenNodes(tokenID uint) ([]tokenNodeView, error) {
-	var bindings []db.SubscriptionNode
-	if err := a.db.Where("token_id = ?", tokenID).Order("inbound_id, id").Find(&bindings).Error; err != nil {
+	byToken, err := a.tokenNodesByToken()
+	if err != nil {
 		return nil, err
 	}
-	if len(bindings) == 0 {
-		return []tokenNodeView{}, nil
+	if nodes, ok := byToken[tokenID]; ok {
+		return nodes, nil
+	}
+	return []tokenNodeView{}, nil
+}
+
+// tokenNodesByToken 一轮批量查询组装全部订阅用户名下的节点视图（键为订阅用户 ID）。
+// 列表接口与配额对账循环共用，避免按订阅用户逐个往返造成 N+1。
+func (a *API) tokenNodesByToken() (map[uint][]tokenNodeView, error) {
+	var bindings []db.SubscriptionNode
+	if err := a.db.Order("token_id, inbound_id, id").Find(&bindings).Error; err != nil {
+		return nil, err
 	}
 	userIDs := make([]uint, 0, len(bindings))
 	for _, b := range bindings {
 		userIDs = append(userIDs, b.InboundUserID)
 	}
-	var users []db.InboundUser
-	if err := a.db.Where("id IN ?", userIDs).Find(&users).Error; err != nil {
-		return nil, err
-	}
-	userMeta := make(map[uint]db.InboundUser, len(users))
-	for _, u := range users {
-		userMeta[u.ID] = u
+	userMeta := map[uint]db.InboundUser{}
+	if len(userIDs) > 0 {
+		var users []db.InboundUser
+		if err := a.db.Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+			return nil, err
+		}
+		for _, u := range users {
+			userMeta[u.ID] = u
+		}
 	}
 	var inbounds []db.Inbound
 	if err := a.db.Find(&inbounds).Error; err != nil {
@@ -422,7 +445,7 @@ func (a *API) tokenNodes(tokenID uint) ([]tokenNodeView, error) {
 	if err != nil {
 		return nil, err
 	}
-	views := make([]tokenNodeView, 0, len(bindings))
+	byToken := make(map[uint][]tokenNodeView, len(bindings))
 	for _, b := range bindings {
 		u, ok := userMeta[b.InboundUserID]
 		if !ok {
@@ -430,14 +453,14 @@ func (a *API) tokenNodes(tokenID uint) ([]tokenNodeView, error) {
 		}
 		in := inMeta[u.InboundID]
 		t := traffic[u.Name]
-		views = append(views, tokenNodeView{
+		byToken[b.TokenID] = append(byToken[b.TokenID], tokenNodeView{
 			UserID: u.ID, InboundID: u.InboundID, InboundName: in.Name, Protocol: in.Protocol,
 			ListenPort: in.ListenPort, Name: u.Name, Enabled: u.Enabled,
 			Disabled: u.Disabled, Suspended: u.Suspended,
 			UploadBytes: t.UploadBytes, DownloadBytes: t.DownloadBytes,
 		})
 	}
-	return views, nil
+	return byToken, nil
 }
 
 // tokenUserIDs 订阅用户名下的全部入站用户 ID。

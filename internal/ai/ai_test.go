@@ -104,8 +104,8 @@ func TestProviderCRUD(t *testing.T) {
 	if err := s.DeleteProvider(p.ID); err != nil {
 		t.Fatal(err)
 	}
-	models, err := s.ListModels(p.ID)
-	if err != nil || len(models) != 0 {
+	var models []db.AIModel
+	if err := s.db.Where("provider_id = ?", p.ID).Find(&models).Error; err != nil || len(models) != 0 {
 		t.Fatalf("删除供应商后其模型应一并删除: %+v err=%v", models, err)
 	}
 	if err := s.DeleteProvider(p.ID); err == nil {
@@ -199,7 +199,10 @@ func TestImportModels(t *testing.T) {
 	if imported != 1 {
 		t.Fatalf("已占用 id 应跳过、空 id 忽略: imported=%d", imported)
 	}
-	models, _ := s.ListModels(b)
+	var models []db.AIModel
+	if err := s.db.Where("provider_id = ?", b).Order("id").Find(&models).Error; err != nil {
+		t.Fatal(err)
+	}
 	if len(models) != 1 || models[0].ModelID != "ds-new" || !models[0].Enabled {
 		t.Fatalf("导入结果不符合预期: %+v", models)
 	}

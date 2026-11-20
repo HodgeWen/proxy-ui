@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -161,11 +162,15 @@ func (a *API) usedBytesByToken() (map[uint]int64, error) {
 
 // usedBytes 查询单个订阅用户的已用流量。
 func (a *API) usedBytes(tokenID uint) (int64, error) {
-	byToken, err := a.usedBytesByToken()
+	var row db.TokenTraffic
+	err := a.db.First(&row, "token_id = ?", tokenID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
 	}
-	return byToken[tokenID], nil
+	return row.UploadBytes + row.DownloadBytes, nil
 }
 
 // ReconcileQuota 按配额、到期与停用刷新各入站用户的暂停状态与生效开关，
@@ -175,16 +180,18 @@ func (a *API) ReconcileQuota() (bool, error) {
 	if err := a.db.Find(&tokens).Error; err != nil {
 		return false, err
 	}
+	// 循环每 30 秒跑一次：节点与用量一轮批量查询，不随订阅用户数放大查询次数
+	nodesByToken, err := a.tokenNodesByToken()
+	if err != nil {
+		return false, err
+	}
 	usedByToken, err := a.usedBytesByToken()
 	if err != nil {
 		return false, err
 	}
 	changed := false
 	for _, token := range tokens {
-		nodes, err := a.tokenNodes(token.ID)
-		if err != nil {
-			return changed, err
-		}
+		nodes := nodesByToken[token.ID]
 		used := usedByToken[token.ID]
 		expired := token.ExpiresAt != nil && time.Now().After(*token.ExpiresAt)
 		over := token.TrafficLimitBytes > 0 && used >= token.TrafficLimitBytes

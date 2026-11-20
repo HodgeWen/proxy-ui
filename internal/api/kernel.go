@@ -30,11 +30,6 @@ func (a *API) HandleKernelLogs(c *gin.Context) {
 	OK(c, a.core.Logs(limit))
 }
 
-// HandleKernelVersions GET /api/kernel/versions 内置内核版本信息（不再有可选的下载版本）。
-func (a *API) HandleKernelVersions(c *gin.Context) {
-	OK(c, gin.H{"version": singbox.EmbeddedVersion, "embedded": true})
-}
-
 // StartKernel 面板启动即拉起内核（无可用入站时以最小配置运行）。
 // 失败只告警：面板保持可用，用户修正配置后任意一次保存都会重新热应用。
 func (a *API) StartKernel(ctx context.Context) {
@@ -73,11 +68,6 @@ func (a *API) applyOrFail(c *gin.Context) bool {
 		return false
 	}
 	return true
-}
-
-// kernelConfig 聚合内核配置（统计服务监听地址由 Manager 在应用时按实例端口写入）。
-func (a *API) kernelConfig() (singbox.Config, error) {
-	return a.buildKernelConfig()
 }
 
 // QuotaLoop 周期核对配额与到期：用户生效状态有变化时热应用，

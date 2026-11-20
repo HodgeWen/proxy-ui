@@ -140,15 +140,6 @@ func validateProvider(in ProviderInput) error {
 
 // ---------- 模型 ----------
 
-// ListModels 供应商下的全部模型（按 id 升序）。
-func (s *Service) ListModels(providerID uint) ([]db.AIModel, error) {
-	var models []db.AIModel
-	if err := s.db.Where("provider_id = ?", providerID).Order("id").Find(&models).Error; err != nil {
-		return nil, fmt.Errorf("查询模型失败: %w", err)
-	}
-	return models, nil
-}
-
 // CreateModel 在供应商下新增模型；模型 id 跨供应商全局唯一。
 func (s *Service) CreateModel(providerID uint, in ModelInput) (db.AIModel, error) {
 	var provider db.AIProvider

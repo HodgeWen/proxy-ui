@@ -22,7 +22,7 @@ import {
 } from '@veltra/desktop'
 import type { Component, PropType } from 'vue'
 import { o } from '@cat-kit/core'
-import { computed, defineComponent, h, nextTick, reactive, ref, shallowRef, useTemplateRef } from 'vue'
+import { computed, defineComponent, h, nextTick, onBeforeUnmount, reactive, ref, shallowRef, useTemplateRef } from 'vue'
 import { useRouter } from 'vue-router'
 
 import FormGroupCard from './FormGroupCard.vue'
@@ -173,6 +173,9 @@ async function jumpToTls(): Promise<void> {
   el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   el?.querySelector<HTMLElement>('.form-group-card__header')?.focus({ preventScroll: true })
 }
+
+// 高亮脉冲是一次性定时器，组件卸载时一并清掉
+onBeforeUnmount(() => clearTimeout(tlsHighlightTimer))
 
 /** 前往证书页：关闭当前弹框并跳转（证书上传 / 一键自签都在证书页完成） */
 function goCerts(): void {

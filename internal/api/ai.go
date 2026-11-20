@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -240,13 +241,19 @@ func (a *API) HandleAIModelsImport(c *gin.Context) {
 	OK(c, gin.H{"imported": imported})
 }
 
+// fetchModelsTimeout 上游 /models 拉取超时：这是一次性的列表请求（非流式对话），
+// 上游挂起时必须可失败返回，否则前端导入弹框会一直停在拉取中。
+const fetchModelsTimeout = 15 * time.Second
+
 // HandleAIModelsFetch POST /api/ai/providers/:id/models/fetch 拉取上游 /models 列表。
 func (a *API) HandleAIModelsFetch(c *gin.Context) {
 	providerID, ok := idParam(c)
 	if !ok {
 		return
 	}
-	models, err := a.ai.FetchModels(c.Request.Context(), providerID)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), fetchModelsTimeout)
+	defer cancel()
+	models, err := a.ai.FetchModels(ctx, providerID)
 	if err != nil {
 		Fail(c, http.StatusBadGateway, err.Error())
 		return

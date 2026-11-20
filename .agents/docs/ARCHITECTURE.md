@@ -15,6 +15,7 @@
 7. **系统优化**：只读展示 TCP 拥塞算法，Linux + root 下可一键写入 sysctl 开启 BBR
 8. **面板更新**：面板自身二进制从 GitHub Releases 更新（二进制替换 + 同 PID 重启）；内核随面板版本走
 9. **AI 助手**：设置页配置多供应商 → 每供应商多模型 → 每模型多推理等级（模型 id 跨供应商全局唯一）；模型可从供应商 `/models` 拉取导入或手工添加；对话按供应商代理（OpenAI 兼容 SSE），前端经 `GET /api/ai/transport` 元数据喂 `@veltra/ai` 的 `createOpenAITransport`；AI 能以工具（function calling）方式调用面板接口
+10. **证书**：一级导航「证书」页统一管理 TLS 证书——一键自签（域名 + 有效期）、上传/粘贴 PEM（面板存储 managed）、引用服务器路径（path）三种来源；列表解析并展示域名、到期时间与剩余天数，入站 TLS 可直接选引用，被引用的证书删除被拒；不做 ACME
 
 参考形态：alireza0/s-ui（入站内多用户 + 每用户一条订阅 + 按用户名统计）。
 
