@@ -15,8 +15,9 @@ import {
   newspaperTheme,
   wildTheme,
 } from '@veltra/styles/theme'
+import { currentTheme } from '@veltra/styles/theme'
 import type { Theme, ThemeSeries, UITheme } from '@veltra/styles/theme'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 
@@ -42,6 +43,22 @@ export const darkPresets = {
 export type LightPresetId = keyof typeof lightPresets
 export type DarkPresetId = keyof typeof darkPresets
 
+/** 预设 id → 设置页展示名 */
+export const presetLabels: Record<LightPresetId | DarkPresetId, string> = {
+  lightTheme: '经典浅色',
+  irisTheme: '鸢尾',
+  celadonTheme: '青瓷',
+  guochaoTheme: '国潮',
+  wildTheme: '旷野',
+  newspaperTheme: '报纸',
+  darkTheme: '经典暗色',
+  auroraTheme: '极光',
+  midnightTheme: '午夜',
+  neonTheme: '霓虹',
+  gildedTheme: '鎏金',
+  metalTheme: '金属',
+}
+
 /** UITheme#new 入参的深 Partial（库未导出 RecursivePartial，等价重声明），UTheme 编辑器产物写入此处 */
 type DeepPartial<T> = { [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P] }
 export type ThemeOverrides = DeepPartial<Theme>
@@ -61,6 +78,11 @@ const mode = ref<ThemeMode>('system')
 const lightId = ref<LightPresetId>('lightTheme')
 const darkId = ref<DarkPresetId>('darkTheme')
 const overrides = ref<ThemeOverrides>({})
+/** system 模式下 OS 当前是否为深色（ref 化供 activeSeries 响应 OS 切换） */
+const systemDark = ref(false)
+
+/** 当前实际生效的系列（system 模式按 OS 外观解析），供设置页标注「当前生效」的预设组 */
+export const activeSeries = computed<ThemeSeries>(() => resolveSeries())
 
 let media: MediaQueryList | undefined
 /** 最近一次已 loadTheme 的配置指纹；目标主题未变化时跳过重复 loadTheme */
@@ -89,7 +111,7 @@ function persist(): void {
 /** system 模式按 OS 外观解析实际系列；light/dark 即自身 */
 function resolveSeries(): ThemeSeries {
   if (mode.value === 'system') {
-    return media?.matches ? 'dark' : 'light'
+    return systemDark.value ? 'dark' : 'light'
   }
   return mode.value
 }
@@ -123,7 +145,11 @@ export function initTheme(): void {
   }
 
   media = window.matchMedia('(prefers-color-scheme: dark)')
-  media.addEventListener('change', applyTheme)
+  systemDark.value = media.matches
+  media.addEventListener('change', () => {
+    systemDark.value = media?.matches ?? false
+    applyTheme()
+  })
   applyTheme()
 }
 
@@ -132,6 +158,55 @@ export function setThemeMode(next: ThemeMode): void {
   mode.value = next
   persist()
   applyTheme()
+}
+
+/** 切换浅色态预设：该系列生效时立即热切换预览，并持久化 */
+export function setLightPreset(id: LightPresetId): void {
+  lightId.value = id
+  persist()
+  applyTheme()
+}
+
+/** 切换深色态预设：该系列生效时立即热切换预览，并持久化 */
+export function setDarkPreset(id: DarkPresetId): void {
+  darkId.value = id
+  persist()
+  applyTheme()
+}
+
+/** 写入 UTheme 编辑器产出的变量覆盖并持久化，与三态/预设正交组合参与 loadTheme */
+export function setThemeOverrides(next: ThemeOverrides): void {
+  overrides.value = next
+  persist()
+  applyTheme()
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** 深 diff：只保留与基线不同的叶子值，返回 undefined 表示无差异 */
+function diffTheme(base: unknown, edited: unknown): unknown {
+  if (isPlainObject(edited)) {
+    const baseObject = isPlainObject(base) ? base : {}
+    const patch: Record<string, unknown> = {}
+    for (const key of Object.keys(edited)) {
+      const value = diffTheme(baseObject[key], edited[key])
+      if (value !== undefined) patch[key] = value
+    }
+    return Object.keys(patch).length ? patch : undefined
+  }
+  return base === edited ? undefined : edited
+}
+
+/** 捕获当前已加载主题（UTheme 编辑器直接改写 currentTheme）相对当前系列基线预设的差异，
+ *  作为变量覆盖交给 setThemeOverrides 持久化 */
+export function captureThemeOverrides(): ThemeOverrides {
+  const series = resolveSeries()
+  const base = (series === 'dark' ? darkPresets[darkId.value] : lightPresets[lightId.value]).theme
+  const current = currentTheme.value?.theme
+  if (!current) return {}
+  return (diffTheme(base, current) as ThemeOverrides) ?? {}
 }
 
 /** 主题状态 composable：mode 三态、浅/深色预设 id、UTheme 编辑器变量覆盖 */

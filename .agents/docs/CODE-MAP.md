@@ -25,8 +25,8 @@ proxy-ui/
     ├── src/
     │   ├── api/          # 请求封装（envelope 解包、401 跳登录、错误提示）与鉴权、内核管理、面板版本/一键更新、统计（实时/连接/按入站累计）、入站/出站/证书、规则模板/规则/策略组/anti-AD、订阅令牌/服务器地址、应用配置、AI（供应商配置/工具描述与执行）接口
     │   ├── stores/       # Pinia：auth 鉴权状态（初始化/会话/登录/登出/改密）
-    │   ├── views/        # 页面：向导/登录/仪表盘（内核状态与启停、实时速率/内存、按入站累计、连接列表、快捷操作）/入站（协议分组新建与列表）/出站（direct 与自定义）/规则（模板/规则/策略组/anti-AD 源）/订阅（令牌管理与链接二维码）/AI 助手（@veltra/ai 流式对话、面板工具调用）/设置（账号/内核/面板与内核在线更新/AI 供应商）
-    │   ├── components/   # 通用组件：AppLayout 应用壳（nav 令牌侧栏、顶栏页面标题与内核状态标签）、EmptyState 全站空状态（图标/说明/CTA）、FormGroupCard 弹框表单分组卡片（标题栏折叠 + 内置断点栅格）、InboundForm 声明式入站表单引擎、CertManager 证书管理、RuleListCard 规则列表、PolicyGroupCard 策略组列表
+    │   ├── views/        # 页面：向导/登录/仪表盘（内核状态与启停、实时速率/内存、按入站累计、连接列表、快捷操作）/入站（协议分组新建与列表）/出站（direct 与自定义）/规则（模板/规则/策略组/anti-AD 源）/订阅（令牌管理与链接二维码）/AI 助手（@veltra/ai 流式对话、面板工具调用）/设置（主题三态与 12 预设及 UTheme 编辑器/账号/内核/面板与内核在线更新/AI 供应商）
+    │   ├── components/   # 通用组件：AppLayout 应用壳（nav 令牌侧栏、顶栏页面标题与内核状态标签）、EmptyState 全站空状态（图标/说明/CTA）、FormGroupCard 表单分组卡片（标题栏折叠 + 内置断点栅格，弹框与设置页主题卡复用）、InboundForm 声明式入站表单引擎、CertManager 证书管理、RuleListCard 规则列表、PolicyGroupCard 策略组列表
     │   ├── inbound-schema.ts # 八协议入站字段 schema、默认值生成（含纯 JS X25519 密钥对）与弱配置警示
     │   └── router/       # 路由与守卫（未登录重定向、已初始化后向导不可达）
     └── package.json      # bun + Vite + TS + Vue3 + @veltra/desktop + etiket（订阅二维码）+ Pinia + Vue Router
@@ -43,7 +43,7 @@ proxy-ui/
 | subscription | `internal/subscription/` | 订阅数据组装（启用入站→节点、策略组/规则映射到客户端 tag）、sing-box 与 clash(mihomo) 双格式渲染、UA/参数格式选择、匿名 token 订阅端点 | `New(db)` |
 | update | `internal/update/` | GitHub Releases 共享访问底座（镜像前缀、sha256 校验下载）；sing-box 内核版本查询与安装、面板自身二进制替换与同 PID 重启 | `New(db, dir)` / `NewSelfUpdate(db, version)` |
 | ai | `internal/ai/` | AI 供应商配置存取（key 不回显）、OpenAI 兼容 SSE 流式对话代理（补齐缺省模型/推理强度）、面板工具注册表；面板工具由 api 注册，执行回落业务模块 | `New(db)` |
-| web | `web/` | Vue3 SPA：底座、布局导航、登录/向导、仪表盘（内核状态与启停、流量概览、按入站累计、连接列表、快捷操作）、设置页（账号/内核管理/面板与内核在线更新/AI 供应商）、入站/出站管理页（声明式协议表单、弱配置警示与 TLS 跳转、证书管理、应用配置）、规则页（模板一键应用、规则与策略组编辑、anti-AD 源与兜底出站配置）、订阅页（令牌管理、订阅链接与 etiket 二维码）、AI 助手页（@veltra/ai 流式对话、面板工具调用过程可见） | `src/main.ts` |
+| web | `web/` | Vue3 SPA：底座、布局导航、登录/向导、仪表盘（内核状态与启停、流量概览、按入站累计、连接列表、快捷操作）、设置页（主题三态与 12 预设及 UTheme 编辑器、账号/内核管理/面板与内核在线更新/AI 供应商）、入站/出站管理页（声明式协议表单、弱配置警示与 TLS 跳转、证书管理、应用配置）、规则页（模板一键应用、规则与策略组编辑、anti-AD 源与兜底出站配置）、订阅页（令牌管理、订阅链接与 etiket 二维码）、AI 助手页（@veltra/ai 流式对话、面板工具调用过程可见） | `src/main.ts` |
 
 ## 依赖
 

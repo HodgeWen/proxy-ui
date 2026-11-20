@@ -1,4 +1,4 @@
-<!-- 设置页：账号分区改密；内核分区提供镜像前缀、版本下载安装、启停与日志；更新分区面板与内核在线更新；AI 分区配置 OpenAI 兼容供应商 -->
+<!-- 设置页：主题（三态/12 预设/UTheme 编辑器）；账号改密；内核（镜像前缀/版本/启停/日志）；面板与内核在线更新；AI 供应商配置 -->
 <script setup lang="ts">
 import {
   UButton,
@@ -8,17 +8,21 @@ import {
   UForm,
   UInput,
   UPasswordInput,
+  USegment,
   USelect,
   UTable,
   UTabs,
   UTag,
+  UTheme,
   defineTableColumns,
   message,
 } from '@veltra/desktop'
 import type { FormExposed, TabItem } from '@veltra/desktop'
-import { computed, nextTick, onBeforeUnmount, reactive, shallowRef, watch } from 'vue'
+import { Check } from '@veltra/icons/normal'
+import { computed, nextTick, onBeforeUnmount, reactive, shallowRef, useTemplateRef, watch } from 'vue'
 
 import EmptyState from '../components/EmptyState.vue'
+import FormGroupCard from '../components/FormGroupCard.vue'
 
 import { fetchAIConfig, saveAIConfig } from '../api/ai'
 import { fetchHealth } from '../api/auth'
@@ -34,18 +38,83 @@ import {
 import type { KernelLogLine, KernelStatus, ReleaseVersion } from '../api/kernel'
 import { fetchPanelVersions, updatePanel } from '../api/panel'
 import { useAuthStore } from '../stores/auth'
+import {
+  activeSeries,
+  captureThemeOverrides,
+  darkPresets,
+  lightPresets,
+  presetLabels,
+  setDarkPreset,
+  setLightPreset,
+  setThemeMode,
+  setThemeOverrides,
+  useTheme,
+} from '../theme'
+import type { DarkPresetId, LightPresetId, ThemeMode, ThemeOverrides } from '../theme'
 
 const auth = useAuthStore()
 
-const active = shallowRef('account')
+const active = shallowRef('theme')
 const tabs: TabItem[] = [
+  { key: 'theme', name: '主题' },
   { key: 'account', name: '账号' },
   { key: 'kernel', name: '内核' },
   { key: 'update', name: '面板更新' },
   { key: 'ai', name: 'AI 供应商' },
 ]
 
-const formRef = shallowRef<FormExposed>()
+// ---------- 主题设置 ----------
+
+const { mode, lightId, darkId, overrides } = useTheme()
+
+const modeItems: { label: string; value: ThemeMode }[] = [
+  { label: '亮色', value: 'light' },
+  { label: '暗色', value: 'dark' },
+  { label: '跟随系统', value: 'system' },
+]
+
+/** 预设选择项：展示名 + 取自预设本体的色板预览（运行时值，非 CSS 字面量） */
+const lightPresetItems = (Object.keys(lightPresets) as LightPresetId[]).map((id) => ({
+  id,
+  label: presetLabels[id],
+  theme: lightPresets[id].theme,
+}))
+const darkPresetItems = (Object.keys(darkPresets) as DarkPresetId[]).map((id) => ({
+  id,
+  label: presetLabels[id],
+  theme: darkPresets[id].theme,
+}))
+
+/** UTheme 变量编辑器默认折叠（spec：编辑器 640px 高，展开才占屏） */
+const editorCollapsed = shallowRef(true)
+
+/** 已持久化自定义覆盖的叶子变量数（0 表示当前为纯预设） */
+const overrideCount = computed(() => countLeaves(overrides.value))
+
+function countLeaves(value: unknown): number {
+  if (typeof value === 'object' && value !== null) {
+    return Object.values(value).reduce<number>((sum, child) => sum + countLeaves(child), 0)
+  }
+  return 1
+}
+
+/** 把 UTheme 实时编辑结果（写入 currentTheme）相对当前预设的差异持久化为覆盖 */
+function handleSaveOverrides(): void {
+  const captured: ThemeOverrides = captureThemeOverrides()
+  setThemeOverrides(captured)
+  message.success(
+    countLeaves(captured) ? '自定义主题已保存，将在亮 / 暗两态持续生效' : '当前没有相对预设的改动，已保存为空覆盖',
+  )
+}
+
+function handleClearOverrides(): void {
+  setThemeOverrides({})
+  message.success('已清除自定义主题覆盖，恢复所选预设')
+}
+
+// ---------- 账号 ----------
+
+const formRef = useTemplateRef<FormExposed>('formRef')
 const saving = shallowRef(false)
 const form = reactive({ oldPassword: '', newPassword: '', confirm: '' })
 
@@ -66,14 +135,14 @@ async function handleSave() {
 // ---------- 内核管理 ----------
 
 /** 镜像前缀 */
-const mirror = shallowRef('')
+const mirrorForm = reactive({ prefix: '' })
 const savingMirror = shallowRef(false)
 
 /** 内核状态与日志 */
 const status = shallowRef<KernelStatus | null>(null)
 const logs = shallowRef<KernelLogLine[]>([])
 const acting = shallowRef<'start' | 'stop' | 'restart' | ''>('')
-const logBox = shallowRef<HTMLElement>()
+const logBox = useTemplateRef<HTMLElement>('logBox')
 
 /** 版本列表 */
 const versions = shallowRef<ReleaseVersion[]>([])
@@ -135,7 +204,7 @@ async function refreshVersions() {
 async function loadMirror() {
   try {
     const { prefix } = await fetchMirrorPrefix()
-    mirror.value = prefix
+    mirrorForm.prefix = prefix
   } catch {
     // 静默：下次保存会重新拉起错误
   }
@@ -144,8 +213,8 @@ async function loadMirror() {
 async function saveMirror() {
   savingMirror.value = true
   try {
-    const { prefix } = await updateMirrorPrefix(mirror.value)
-    mirror.value = prefix
+    const { prefix } = await updateMirrorPrefix(mirrorForm.prefix)
+    mirrorForm.prefix = prefix
     message.success('镜像前缀已保存')
   } catch {
     // 错误已由请求封装统一提示
@@ -207,6 +276,18 @@ const panelPhase = shallowRef('')
 /** 最新稳定版（面板与内核通用取法） */
 const latestPanel = computed(() => panelVersions.value.find((item) => !item.prerelease))
 const latestKernel = computed(() => versions.value.find((item) => !item.prerelease))
+
+type UpdateState = 'unchecked' | 'latest' | 'available'
+
+/** 更新按钮三态：未检查（禁用并给出原因）/ 已是最新（次级重装）/ 有新版（主操作） */
+const panelState = computed<UpdateState>(() => {
+  if (!latestPanel.value) return 'unchecked'
+  return latestPanel.value.installed ? 'latest' : 'available'
+})
+const kernelState = computed<UpdateState>(() => {
+  if (!latestKernel.value) return 'unchecked'
+  return latestKernel.value.installed ? 'latest' : 'available'
+})
 
 async function checkPanelUpdate() {
   panelChecking.value = true
@@ -340,27 +421,119 @@ onBeforeUnmount(stopPolling)
 
 <template>
   <u-tabs v-model="active" :items="tabs">
+    <template #theme>
+      <u-card>
+        <u-card-header>主题设置</u-card-header>
+        <u-card-content>
+          <section class="theme-section">
+            <div class="theme-section-title">外观模式</div>
+            <u-segment :model-value="mode" :items="modeItems" @update:model-value="setThemeMode" />
+            <p class="hint">「跟随系统」随操作系统外观实时切换亮色 / 暗色；选择即时生效并持久化在本浏览器。</p>
+          </section>
+
+          <section class="theme-section">
+            <div class="theme-section-title">
+              浅色预设
+              <u-tag v-if="activeSeries === 'light'" size="small">当前生效</u-tag>
+            </div>
+            <div class="preset-grid">
+              <button
+                v-for="item in lightPresetItems"
+                :key="item.id"
+                type="button"
+                class="preset-item"
+                :class="{ 'is-active': lightId === item.id }"
+                @click="setLightPreset(item.id)"
+              >
+                <span class="preset-swatches">
+                  <span class="preset-swatch" :style="{ background: item.theme.color.primary }"></span>
+                  <span class="preset-swatch" :style="{ background: item.theme.bg.color.bottom }"></span>
+                  <span class="preset-swatch" :style="{ background: item.theme['text-color'].title }"></span>
+                </span>
+                <span class="preset-name">{{ item.label }}</span>
+                <Check v-if="lightId === item.id" class="preset-check" />
+              </button>
+            </div>
+          </section>
+
+          <section class="theme-section">
+            <div class="theme-section-title">
+              深色预设
+              <u-tag v-if="activeSeries === 'dark'" size="small">当前生效</u-tag>
+            </div>
+            <div class="preset-grid">
+              <button
+                v-for="item in darkPresetItems"
+                :key="item.id"
+                type="button"
+                class="preset-item"
+                :class="{ 'is-active': darkId === item.id }"
+                @click="setDarkPreset(item.id)"
+              >
+                <span class="preset-swatches">
+                  <span class="preset-swatch" :style="{ background: item.theme.color.primary }"></span>
+                  <span class="preset-swatch" :style="{ background: item.theme.bg.color.bottom }"></span>
+                  <span class="preset-swatch" :style="{ background: item.theme['text-color'].title }"></span>
+                </span>
+                <span class="preset-name">{{ item.label }}</span>
+                <Check v-if="darkId === item.id" class="preset-check" />
+              </button>
+            </div>
+            <p class="hint">点击预设立即预览并持久化；未生效一侧的预设保留选择，切到对应亮 / 暗外观时自动应用。</p>
+          </section>
+
+          <FormGroupCard v-model:collapsed="editorCollapsed" title="高级定制（主题变量编辑器）">
+            <div class="theme-editor">
+              <!-- UTheme 缺省用法：克隆当前主题热替换，编辑实时预览全站 -->
+              <UTheme style="height: 640px" />
+              <p class="hint">
+                编辑器实时改写当前主题用于预览；「保存自定义」把改动相对所选预设的差异写入本浏览器，
+                与外观模式 / 预设选择正交组合。未保存的改动在切换模式或预设后丢失。
+              </p>
+              <div class="card-actions">
+                <u-button :disabled="!overrideCount" @click="handleClearOverrides">清除自定义</u-button>
+                <u-button type="primary" @click="handleSaveOverrides">
+                  {{ overrideCount ? `保存自定义（已有 ${overrideCount} 项）` : '保存自定义' }}
+                </u-button>
+              </div>
+            </div>
+          </FormGroupCard>
+        </u-card-content>
+      </u-card>
+    </template>
+
     <template v-slot:account>
       <u-card>
-        <u-card-header>管理员账号</u-card-header>
+        <u-card-header>
+          <div class="card-header-row">
+            <span>管理员账号</span>
+            <span class="header-meta">当前账号：{{ auth.user?.username || '-' }}</span>
+          </div>
+        </u-card-header>
         <u-card-content>
-          <u-form ref="formRef" :model="form" :cols="1" label-width="88px" class="settings-form">
+          <u-form ref="formRef" :model="form" :cols="2" label-width="96px" class="settings-form">
             <u-password-input
               label="原密码"
               field="oldPassword"
+              :span="1"
               placeholder="请输入原密码"
+              tips="当前登录账号的密码，修改密码前需先验证身份"
               :rules="{ required: '请输入原密码' }"
             />
             <u-password-input
               label="新密码"
               field="newPassword"
+              :span="1"
               placeholder="至少 8 位"
+              tips="新密码至少 8 位、最多 72 位；建议混合字母、数字与符号"
               :rules="{ required: '请输入新密码', minLen: [8, '密码至少 8 位'], maxLen: [72, '密码最多 72 位'] }"
             />
             <u-password-input
               label="确认新密码"
               field="confirm"
+              :span="1"
               placeholder="再次输入新密码"
+              tips="再次输入一遍新密码，两次不一致将无法保存"
               :rules="{
                 required: '请再次输入新密码',
                 validator: (value: string) =>
@@ -379,16 +552,18 @@ onBeforeUnmount(stopPolling)
       <u-card class="kernel-card">
         <u-card-header>下载镜像</u-card-header>
         <u-card-content>
-          <div class="mirror-row">
+          <u-form :model="mirrorForm" :cols="2" label-width="96px" class="settings-form">
             <u-input
-              v-model="mirror"
+              label="镜像前缀"
+              field="prefix"
+              :span="1"
               placeholder="镜像前缀，如 https://ghproxy.example；留空直连 GitHub"
               clearable
+              tips="配置后所有 GitHub 请求（版本查询与内核下载）均经该前缀代理；面板与内核更新共用"
             />
-          </div>
-          <p class="hint">配置后所有 GitHub 请求（版本查询与内核下载）均经该前缀代理。</p>
+          </u-form>
           <div class="card-actions">
-            <u-button type="primary" :loading="savingMirror" @click="saveMirror">保存</u-button>
+            <u-button :loading="savingMirror" @click="saveMirror">保存</u-button>
           </div>
         </u-card-content>
       </u-card>
@@ -443,6 +618,7 @@ onBeforeUnmount(stopPolling)
               <u-button :loading="loadingVersions" @click="refreshVersions">刷新版本</u-button>
               <u-button
                 type="primary"
+                plain
                 :loading="installing === 'LATEST'"
                 @click="handleInstall()"
               >
@@ -511,18 +687,24 @@ onBeforeUnmount(stopPolling)
           <div class="kernel-meta">
             <span>当前版本：<strong>{{ panelVersion || '未知' }}</strong></span>
             <span>最新稳定版：<strong>{{ latestPanel?.tag ?? '未检查' }}</strong></span>
+            <u-tag v-if="panelState === 'latest'" type="success">已是最新版</u-tag>
           </div>
           <div class="kernel-actions">
             <u-button :loading="panelChecking" @click="checkPanelUpdate">检查更新</u-button>
             <u-button
+              v-if="panelState === 'available'"
               type="primary"
               :loading="panelUpdating"
-              :disabled="!latestPanel"
               @click="handlePanelUpdate"
             >
-              {{ latestPanel?.installed ? '重装最新版' : '一键更新' }}
+              一键更新
             </u-button>
+            <u-button v-else-if="panelState === 'latest'" :loading="panelUpdating" @click="handlePanelUpdate">
+              重装最新版
+            </u-button>
+            <u-button v-else disabled>一键更新</u-button>
           </div>
+          <p v-if="panelState === 'unchecked'" class="hint">尚未获取可用版本，「一键更新」待「检查更新」完成后可用。</p>
           <p v-if="panelPhase" class="hint">{{ panelPhase }}</p>
           <p class="hint">
             更新会替换面板二进制并自动重启进程，数据与配置保留；GitHub
@@ -539,18 +721,25 @@ onBeforeUnmount(stopPolling)
               当前版本：<strong>{{ status?.version || (status?.installed ? '未知' : '未安装') }}</strong>
             </span>
             <span>最新稳定版：<strong>{{ latestKernel?.tag ?? '未检查' }}</strong></span>
+            <u-tag v-if="kernelState === 'latest'" type="success">已是最新版</u-tag>
           </div>
           <div class="kernel-actions">
             <u-button :loading="loadingVersions" @click="refreshVersions">检查更新</u-button>
             <u-button
+              v-if="kernelState === 'available'"
               type="primary"
+              plain
               :loading="installing === 'LATEST'"
-              :disabled="!latestKernel"
               @click="handleInstall()"
             >
-              {{ latestKernel?.installed ? '重装最新版' : '一键更新到最新' }}
+              一键更新到最新
             </u-button>
+            <u-button v-else-if="kernelState === 'latest'" :loading="installing === 'LATEST'" @click="handleInstall()">
+              重装最新版
+            </u-button>
+            <u-button v-else disabled>一键更新到最新</u-button>
           </div>
+          <p v-if="kernelState === 'unchecked'" class="hint">尚未获取可用版本，请先「检查更新」。</p>
           <p class="hint">内核运行中时请先在「内核」分区停止；完整版本列表与内核日志见「内核」分区。</p>
         </u-card-content>
       </u-card>
@@ -560,19 +749,37 @@ onBeforeUnmount(stopPolling)
       <u-card>
         <u-card-header>AI 供应商（OpenAI 兼容）</u-card-header>
         <u-card-content>
-          <u-form :model="aiForm" :cols="1" label-width="88px" class="settings-form">
+          <u-form :model="aiForm" :cols="2" label-width="96px" class="settings-form">
             <u-input
               label="接口地址"
               field="baseUrl"
+              span="full"
+              clearable
               placeholder="如 https://api.openai.com/v1（OpenAI 兼容 base-url）"
+              tips="OpenAI 兼容服务的 base-url，通常以 /v1 结尾；对话由面板代理流式转发到该地址"
             />
-            <u-input label="模型" field="model" placeholder="如 gpt-4o-mini / deepseek-chat" />
+            <u-input
+              label="模型"
+              field="model"
+              :span="1"
+              clearable
+              placeholder="如 gpt-4o-mini / deepseek-chat"
+              tips="对话使用的模型名，需为上方供应商支持的模型"
+            />
             <u-password-input
               label="API Key"
               field="apiKey"
+              :span="1"
               :placeholder="aiHasKey ? '已配置，留空保持不变' : '供应商 API Key（仅保存在服务端）'"
+              tips="供应商 API Key，仅保存在面板服务端且不回显；已配置后留空表示保持不变"
             />
-            <u-select label="推理强度" field="reasoningEffort" :options="reasoningOptions" />
+            <u-select
+              label="推理强度"
+              field="reasoningEffort"
+              :span="1"
+              :options="reasoningOptions"
+              tips="推理模型的思考深度；非推理模型选「不指定」"
+            />
           </u-form>
           <div class="card-actions">
             <u-button type="primary" :loading="aiSaving" @click="saveAI">保存配置</u-button>
@@ -589,22 +796,11 @@ onBeforeUnmount(stopPolling)
 
 <style scoped>
 .settings-form {
-  max-width: 420px;
   margin-bottom: 16px;
 }
 
 .kernel-card {
   margin-bottom: 16px;
-}
-
-.mirror-row {
-  display: flex;
-  gap: 12px;
-  max-width: 560px;
-}
-
-.mirror-row .u-input {
-  flex: 1;
 }
 
 .hint {
@@ -619,6 +815,93 @@ onBeforeUnmount(stopPolling)
   justify-content: flex-end;
   margin-top: 16px;
 }
+
+.header-meta {
+  font-size: var(--u-font-size-main-small);
+  color: var(--u-text-color-second);
+}
+
+/* ---------- 主题设置 ---------- */
+
+.theme-section {
+  margin-bottom: 20px;
+}
+
+.theme-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: var(--u-font-size-main-default);
+  font-weight: 600;
+}
+
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.preset-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  text-align: left;
+  color: var(--u-text-color-main);
+  background: var(--u-bg-color-top);
+  border: 1px solid var(--u-border-color);
+  border-radius: var(--u-radius-default);
+  cursor: pointer;
+}
+
+.preset-item:hover {
+  border-color: var(--u-color-primary);
+}
+
+.preset-item.is-active {
+  border-color: var(--u-color-primary);
+  box-shadow: 0 0 0 1px var(--u-color-primary);
+}
+
+.preset-swatches {
+  display: flex;
+  flex-shrink: 0;
+  border: 1px solid var(--u-border-color);
+  border-radius: var(--u-radius-small);
+  overflow: hidden;
+}
+
+.preset-swatch {
+  width: 14px;
+  height: 14px;
+}
+
+.preset-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-check {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--u-color-primary);
+}
+
+/* FormGroupCard 主体为断点栅格，编辑器整组占满整行 */
+.theme-editor {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 12px;
+}
+
+/* ---------- 内核管理 ---------- */
 
 .kernel-meta {
   display: flex;
