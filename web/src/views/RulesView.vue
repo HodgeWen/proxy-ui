@@ -1,4 +1,4 @@
-<!-- 全局规则：规则模型引导、预设模板一键应用（覆盖前确认）、路由规则、规则集内容项维护、策略组与兜底出站 -->
+<!-- 全局规则：按对象分四个 tab——路由规则 / 规则集 / 策略组 / 兜底与模板；数据一次性并发拉取，切 tab 不重复请求 -->
 <script setup lang="ts">
 import PolicyGroupCard from '../components/PolicyGroupCard.vue'
 import RuleListCard from '../components/RuleListCard.vue'
@@ -21,11 +21,21 @@ import {
   UCardContent,
   UCardHeader,
   USelect,
+  UTabs,
   UTag,
   message,
   messageConfirm,
 } from '@veltra/desktop'
+import type { TabItem } from '@veltra/desktop'
 import { computed, onMounted, shallowRef } from 'vue'
+
+const activeTab = shallowRef('routes')
+const tabs: TabItem[] = [
+  { key: 'routes', name: '路由规则' },
+  { key: 'sets', name: '规则集' },
+  { key: 'groups', name: '策略组' },
+  { key: 'final', name: '兜底与模板' },
+]
 
 const rules = shallowRef<RuleRecord[]>([])
 const ruleSets = shallowRef<RuleSet[]>([])
@@ -34,6 +44,8 @@ const templates = shallowRef<RuleTemplate[]>([])
 const outboundTags = shallowRef<string[]>([])
 /** 首屏未加载完时各卡片不渲染空状态，避免闪一下「暂无数据」 */
 const loading = shallowRef(true)
+/** 规则模型详细说明：默认收起，首屏只留一行说明 */
+const guideExpanded = shallowRef(false)
 const applyingTemplate = shallowRef('')
 /** 兜底出站：模板应用与「当前已应用」标记都要读它，故先于模板区块声明 */
 const finalOutbound = shallowRef<string | undefined>('')
@@ -140,7 +152,7 @@ async function handleApplyTemplate(tpl: RuleTemplate): Promise<void> {
   applyingTemplate.value = tpl.id
   try {
     const res = await applyRuleTemplate(tpl.id)
-    message.success(`模板已应用：${res.rules} 条规则、${res.groups} 个策略组，可在下方继续修改`)
+    message.success(`模板已应用：${res.rules} 条规则、${res.groups} 个策略组，可切到「路由规则」「策略组」继续调整`)
     // 模板会重写兜底出站，同步本地值供「当前已应用」标记即时判定
     finalOutbound.value = res.final
     await refresh()
@@ -190,128 +202,183 @@ onMounted(async () => {
 </script>
 
 <template>
-  <!-- 引导卡 size=small 收紧内边距与字号，不与下方业务卡抢视觉 -->
-  <u-card size="small" class="guide-card">
-    <u-card-header>规则是如何工作的</u-card-header>
-    <u-card-content>
-      <div>
-        每条规则由「匹配对象 × 匹配方式 + 匹配值」决定命中的流量，再指定出站：单个域名用域名规则，整批域名 / IP 用规则集引用。
-      </div>
-      <div class="guide-models">
-        <div class="guide-model">
-          <span class="guide-model-name">域名</span>
-          <span class="guide-model-desc">精确 / 后缀 / 关键字 / 正则，填 google.com 这类域名</span>
+  <u-tabs v-model="activeTab" :items="tabs">
+    <!-- 路由规则：tab 顶部一行说明 + 主操作「新建规则」（在卡片头），规则模型详细说明默认收起 -->
+    <template #routes>
+      <div class="tab-head">
+        <div class="tab-desc">
+          每条规则 = 匹配对象 × 匹配方式 + 匹配值 → 出站，流量自上而下逐条匹配、命中即走对应出站，顺序影响结果（可用「上移 /
+          下移」调整）；整批域名 / IP 先在「规则集」建好再引用，全部未命中走「兜底与模板」里的兜底出站。
         </div>
-        <div class="guide-model">
-          <span class="guide-model-name">IP</span>
-          <span class="guide-model-desc">按网段 CIDR 匹配，填 10.0.0.0/8 这类网段</span>
-        </div>
-        <div class="guide-model">
-          <span class="guide-model-name">规则集</span>
-          <span class="guide-model-desc">引用下方维护的规则集，命中其中任意一条域名或 IP</span>
-        </div>
+        <u-button text type="primary" @click="guideExpanded = !guideExpanded">
+          {{ guideExpanded ? '收起说明' : '详细说明' }}
+        </u-button>
       </div>
-      <div class="guide-flow">
-        <span class="flow-step">流量</span>
-        <span class="flow-arrow">→</span>
-        <span class="flow-step">自上而下逐条匹配</span>
-        <span class="flow-arrow">→</span>
-        <span class="flow-result">命中：走对应出站</span>
-        <span class="flow-result flow-result-dim">全部未命中：走兜底出站</span>
-      </div>
-      <div class="guide-note">
-        这份规则双端生效：既写入服务端 sing-box 配置（服务器自身转发的流量），也随订阅下发到客户端（手机/电脑上的代理客户端本地分流）。规则集同理——一条规则集同一时刻只有一条内容项启用，其中 sing-box 源地址进 sing-box 配置，mihomo 源地址 + 行为进 mihomo 订阅，两端各取所需。
-      </div>
-    </u-card-content>
-  </u-card>
 
-  <u-card class="section-card">
-    <u-card-header>预设模板</u-card-header>
-    <u-card-content>
-      <div class="section-desc">
-        常用规则的起点：一键生成一组规则、策略组与兜底出站，应用会覆盖现有全部规则与策略组，之后可继续修改。
+      <!-- 规则模型引导：三种匹配对象 + 匹配流向 + 双端生效说明，默认收起不占首屏 -->
+      <div v-if="guideExpanded" class="guide-detail">
+        <div class="guide-models">
+          <div class="guide-model">
+            <span class="guide-model-name">域名</span>
+            <span class="guide-model-desc">精确 / 后缀 / 关键字 / 正则，填 google.com 这类域名</span>
+          </div>
+          <div class="guide-model">
+            <span class="guide-model-name">IP</span>
+            <span class="guide-model-desc">按网段 CIDR 匹配，填 10.0.0.0/8 这类网段</span>
+          </div>
+          <div class="guide-model">
+            <span class="guide-model-name">规则集</span>
+            <span class="guide-model-desc">引用「规则集」页签维护的集合，命中其中任意一条域名或 IP</span>
+          </div>
+        </div>
+        <div class="guide-flow">
+          <span class="flow-step">流量</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-step">自上而下逐条匹配</span>
+          <span class="flow-arrow">→</span>
+          <span class="flow-result">命中：走对应出站</span>
+          <span class="flow-result flow-result-dim">全部未命中：走兜底出站</span>
+        </div>
+        <div class="guide-note">
+          这份规则双端生效：既写入服务端 sing-box 配置（服务器自身转发的流量），也随订阅下发到客户端（手机/电脑上的代理客户端本地分流）。规则集同理——一条规则集同一时刻只有一条内容项启用，其中
+          sing-box 源地址进 sing-box 配置，mihomo 源地址 + 行为进 mihomo 订阅，两端各取所需。
+        </div>
       </div>
-      <div class="templates">
-        <div v-for="tpl in templates" :key="tpl.id" class="template-item">
-          <div class="template-info">
-            <div class="template-name">
-              {{ tpl.name }}
-              <u-tag v-if="appliedTemplate === tpl.id" type="success">当前已应用</u-tag>
+
+      <div class="tab-body">
+        <rule-list-card
+          :rules="rules"
+          :rule-sets="ruleSets"
+          :outbound-options="outboundOptions"
+          :loading="loading"
+          @changed="refresh"
+          @maintain-rule-set="openRuleSet"
+        />
+      </div>
+    </template>
+
+    <!-- 规则集：来源包维护，供路由规则引用 -->
+    <template #sets>
+      <div class="tab-head">
+        <div class="tab-desc">
+          规则集是整批域名 / IP 的「一个 tag + 多条来源」规则来源包，供「路由规则」引用；同一时刻只有一条来源启用，切换来源不影响引用它的规则。
+        </div>
+      </div>
+      <div class="tab-body">
+        <rule-set-card :rule-sets="ruleSets" :loading="loading" @changed="refresh" @maintain="openRuleSet" />
+      </div>
+    </template>
+
+    <!-- 策略组：成员来自出站与其它策略组，供规则与兜底引用 -->
+    <template #groups>
+      <div class="tab-head">
+        <div class="tab-desc">
+          策略组聚合多个出站成员供「路由规则」与兜底出站引用，并随订阅下发为客户端里的分组选择器；成员来自「出站」页与其它策略组。
+        </div>
+      </div>
+      <div class="tab-body">
+        <policy-group-card :groups="groups" :outbound-options="outboundOptions" :loading="loading" @changed="refresh" />
+      </div>
+    </template>
+
+    <!-- 兜底与模板：预设模板一键应用 + 兜底出站设置 -->
+    <template #final>
+      <div class="tab-head">
+        <div class="tab-desc">
+          兜底出站是未命中任何规则的流量的最终去向；预设模板一键生成整套「路由规则 + 策略组 +
+          兜底出站」的起点，应用会覆盖现有全部规则与策略组。
+        </div>
+      </div>
+
+      <div class="tab-body">
+        <u-card class="section-card">
+          <u-card-header>预设模板</u-card-header>
+          <u-card-content>
+            <div class="templates">
+              <div v-for="tpl in templates" :key="tpl.id" class="template-item">
+                <div class="template-info">
+                  <div class="template-name">
+                    {{ tpl.name }}
+                    <u-tag v-if="appliedTemplate === tpl.id" type="success">当前已应用</u-tag>
+                  </div>
+                  <div class="template-desc">{{ tpl.description }}</div>
+                </div>
+                <!-- plain 形态：多个模板同屏，守住「每屏实心主按钮 ≤1」；应用期间全部禁用，避免叠第二个覆盖确认 -->
+                <u-button
+                  type="primary"
+                  plain
+                  :loading="applyingTemplate === tpl.id"
+                  :disabled="!!applyingTemplate && applyingTemplate !== tpl.id"
+                  @click="handleApplyTemplate(tpl)"
+                >
+                  一键应用
+                </u-button>
+              </div>
             </div>
-            <div class="template-desc">{{ tpl.description }}</div>
-          </div>
-          <!-- 次级 plain 形态：页面主操作让位给下方列表卡的新建入口；应用期间全部禁用，避免叠第二个覆盖确认 -->
-          <u-button
-            type="primary"
-            plain
-            :loading="applyingTemplate === tpl.id"
-            :disabled="!!applyingTemplate && applyingTemplate !== tpl.id"
-            @click="handleApplyTemplate(tpl)"
-          >
-            一键应用
-          </u-button>
-        </div>
+          </u-card-content>
+        </u-card>
+
+        <u-card>
+          <u-card-header>兜底出站</u-card-header>
+          <u-card-content>
+            <div class="final-row">
+              <div class="final-body">
+                <u-select
+                  v-model="finalOutbound"
+                  :options="finalOptions"
+                  :text="finalOutbound || undefined"
+                  placeholder="内核默认（首个出站）"
+                  clearable
+                  filterable
+                  class="final-input"
+                />
+                <div class="section-desc">
+                  可选直连、自定义出站或「策略组」页签里的策略组；不确定时保持 direct
+                  即可。广告拦截由内置规则集 anti-ad 承担，可在「规则集」页签的「维护内容项」里切换其下载来源。
+                </div>
+                <div v-if="finalDangling" class="final-warn">
+                  当前兜底出站「{{ finalOutbound }}」已不在出站或策略组列表中，保存后内核将无法重建，请重新选择后保存。
+                </div>
+              </div>
+              <!-- 同 tab 内主操作额度已给「一键应用」，本卡保存降次级 -->
+              <u-button :loading="finalSaving" @click="handleSaveFinal">保存</u-button>
+            </div>
+          </u-card-content>
+        </u-card>
       </div>
-    </u-card-content>
-  </u-card>
+    </template>
+  </u-tabs>
 
-  <!-- 子卡片是多根节点（卡片 + 弹窗），class 无法透传，故由外层 div 承担纵向间距 -->
-  <div class="section-card">
-    <rule-list-card
-      :rules="rules"
-      :rule-sets="ruleSets"
-      :outbound-options="outboundOptions"
-      :loading="loading"
-      @changed="refresh"
-      @maintain-rule-set="openRuleSet"
-    />
-  </div>
-  <div class="section-card">
-    <rule-set-card :rule-sets="ruleSets" :loading="loading" @changed="refresh" @maintain="openRuleSet" />
-  </div>
-  <div class="section-card">
-    <policy-group-card :groups="groups" :outbound-options="outboundOptions" :loading="loading" @changed="refresh" />
-  </div>
-
-  <u-card>
-    <u-card-header>兜底出站</u-card-header>
-    <u-card-content>
-      <div class="final-row">
-        <div class="final-body">
-          <u-select
-            v-model="finalOutbound"
-            :options="finalOptions"
-            :text="finalOutbound || undefined"
-            placeholder="内核默认（首个出站）"
-            clearable
-            filterable
-            class="final-input"
-          />
-          <div class="section-desc">
-            未命中任何规则的流量的最终去向，可选直连、自定义出站或策略组；不确定时保持 direct 即可。广告拦截由内置规则集
-            anti-ad 承担，可在上方「规则集」卡片的「维护内容项」里切换其下载来源。
-          </div>
-          <div v-if="finalDangling" class="final-warn">
-            当前兜底出站「{{ finalOutbound }}」已不在出站或策略组列表中，保存后内核将无法重建，请重新选择后保存。
-          </div>
-        </div>
-        <!-- 实心主按钮额度留给「新建规则」，本卡保存降次级 -->
-        <u-button :loading="finalSaving" @click="handleSaveFinal">保存</u-button>
-      </div>
-    </u-card-content>
-  </u-card>
-
+  <!-- 规则集内容项维护弹窗：页面级持有，路由规则弹窗里的「去维护规则集」跨 tab 也能打开 -->
   <rule-set-dialog v-model:visible="setDialogVisible" :rule-set="maintaining" @changed="refresh" />
 </template>
 
 <style scoped>
-/* 页面纵向节奏：业务卡之间统一 16px，末卡不加 */
-.section-card {
-  margin-bottom: 16px;
+/* tab 顶部说明行：主文案次级色不抢视线，右侧挂展开入口 */
+.tab-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
-.guide-card {
+.tab-desc {
+  flex: 1;
+  min-width: 0;
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+}
+
+/* 规则模型详细说明：收起时不占首屏，展开后弱化呈现 */
+.guide-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin-bottom: 16px;
+  padding: 12px 16px;
+  border: var(--u-border);
+  border-radius: var(--u-radius-default);
 }
 
 /* 三种匹配对象一览：三列自适应，窄屏折成单列 */
@@ -319,7 +386,6 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 8px;
-  margin: 10px 0;
 }
 
 .guide-model {
@@ -347,7 +413,6 @@ onMounted(async () => {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 8px 0;
 }
 
 .flow-step {
@@ -380,11 +445,15 @@ onMounted(async () => {
   font-size: var(--u-font-size-main-small);
 }
 
+/* 「兜底与模板」tab 内两卡的纵向节奏：首卡与末卡之间 16px */
+.section-card {
+  margin-bottom: 16px;
+}
+
 .templates {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin-top: 12px;
 }
 
 .template-item {

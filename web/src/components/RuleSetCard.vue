@@ -120,15 +120,12 @@ async function handleDelete(row: RuleSet): Promise<void> {
 <template>
   <u-card>
     <u-card-header>
-      <div class="page-header">
-        <span>规则集</span>
-        <u-button @click="openCreate">新建规则集</u-button>
+      <!-- 页签已表明对象，卡片头只留主操作工具栏；列表为空时主入口由空状态 CTA 承担，保持每屏 primary ≤1 -->
+      <div class="card-ops">
+        <u-button v-if="ruleSets.length" type="primary" @click="openCreate">新建规则集</u-button>
       </div>
     </u-card-header>
     <u-card-content>
-      <div class="card-desc">
-        规则集是「一个 tag + 多条内容项」的规则来源包：每条内容项同时带 sing-box 与 mihomo 源地址，同一时刻只有一条启用，规则下载用的就是它。切换下载来源 = 启用另一条内容项，引用它的规则无需改动。内置规则集与仍被规则引用的规则集不可删除（悬停「删除」可看原因）。
-      </div>
       <u-table :columns="columns" :data="ruleSets" row-key="id" stripe>
         <template #empty>
           <EmptyState
@@ -136,7 +133,6 @@ async function handleDelete(row: RuleSet): Promise<void> {
             title="暂无规则集"
             description="内置的 anti-ad / geosite-cn / geoip-cn 会在服务启动时自动补齐；也可以自建规则集，先建空集再添加内容项来源"
             cta-text="新建规则集"
-            cta-plain
             @cta="openCreate"
           />
         </template>
@@ -213,16 +209,11 @@ async function handleDelete(row: RuleSet): Promise<void> {
 </template>
 
 <style scoped>
-.card-desc {
-  margin-bottom: 12px;
-  color: var(--u-text-color-second);
-  font-size: var(--u-font-size-main-small);
-}
-
-.page-header {
+/* 卡片头工具栏：仅剩主操作，靠右与表格操作列对齐 */
+.card-ops {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
+  gap: 8px;
   flex: 1;
 }
 

@@ -330,25 +330,20 @@ function handleMaintain(): void {
 <template>
   <u-card>
     <u-card-header>
-      <div class="page-header">
-        <span>路由规则</span>
-        <div class="page-ops">
-          <!-- 列表为空时主入口由空状态 CTA 承担，保持每屏 primary ≤1 -->
-          <u-button v-if="rules.length" type="primary" @click="openCreate">新建规则</u-button>
-        </div>
+      <!-- 页签已表明对象，卡片头只留主操作工具栏 -->
+      <div class="card-ops">
+        <!-- 列表为空时主入口由空状态 CTA 承担，保持每屏 primary ≤1 -->
+        <u-button v-if="rules.length" type="primary" @click="openCreate">新建规则</u-button>
       </div>
     </u-card-header>
     <u-card-content>
-      <div class="card-desc">
-        每条规则 = 匹配对象 × 匹配方式 + 匹配值 → 出站，流量自上而下逐条匹配、命中即走对应出站；顺序影响结果，可用「上移 / 下移」调整。
-      </div>
       <!-- 不用 text-ellipsis：它会给含按钮的操作列也挂悬浮提示；只在匹配条件单元格内自行截断 -->
       <u-table :columns="columns" :data="rules" row-key="id" stripe>
         <template #empty>
           <EmptyState
             v-if="!loading"
             title="暂无规则"
-            description="规则决定什么流量走哪个出站。可先应用上方预设模板一键生成常用规则（会覆盖现有），再逐条增改"
+            description="规则决定什么流量走哪个出站。可先在「兜底与模板」页签应用预设模板一键生成常用规则（会覆盖现有），再逐条增改"
             cta-text="新建规则"
             @cta="openCreate"
           />
@@ -430,7 +425,7 @@ function handleMaintain(): void {
         label="规则集"
         field="ruleSetId"
         :rules="{ required: '请选择规则集' }"
-        tips="规则集在下方「规则集」卡片维护：一个规则集可有多条来源，同一时刻只有一条启用，规则只需引用规则集本身"
+        tips="规则集在「规则集」页签维护：一个规则集可有多条来源，同一时刻只有一条启用，规则只需引用规则集本身"
       >
         <div class="ruleset-field">
           <u-select
@@ -474,22 +469,12 @@ function handleMaintain(): void {
 </template>
 
 <style scoped>
-.card-desc {
-  margin-bottom: 12px;
-  color: var(--u-text-color-second);
-  font-size: var(--u-font-size-main-small);
-}
-
-.page-header {
+/* 卡片头工具栏：仅剩主操作，靠右与表格操作列对齐 */
+.card-ops {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex: 1;
-}
-
-.page-ops {
-  display: flex;
+  justify-content: flex-end;
   gap: 8px;
+  flex: 1;
 }
 
 /* 匹配条件列：单行截断，完整值靠 title 悬浮查看（表格级 text-ellipsis 会污染操作列） */

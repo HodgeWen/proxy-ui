@@ -164,24 +164,19 @@ async function handleSave(): Promise<void> {
 <template>
   <u-card>
     <u-card-header>
-      <div class="page-header">
-        <span>策略组</span>
-        <!-- 规则页实心主按钮固定留给「新建规则」，此处降次级并常驻 -->
-        <u-button @click="openCreate">新建策略组</u-button>
+      <!-- 页签已表明对象，卡片头只留主操作工具栏；列表为空时主入口由空状态 CTA 承担，保持每屏 primary ≤1 -->
+      <div class="card-ops">
+        <u-button v-if="groups.length" type="primary" @click="openCreate">新建策略组</u-button>
       </div>
     </u-card-header>
     <u-card-content>
-      <div class="card-desc">
-        策略组是随订阅下发到客户端的分组选择器（客户端上的「节点选择 / 自动选择」），聚合多个成员供规则与兜底出站引用。三种模式：固定=固定用一个节点、自动=自动测延迟选最快、故障转移=自动测速切换到可用节点（带容差防抖，恢复后切回）。
-      </div>
       <u-table :columns="columns" :data="groups" row-key="id" stripe>
         <template #empty>
           <EmptyState
             v-if="!loading"
             title="暂无策略组"
-            description="策略组会随订阅下发，在手机/电脑客户端上呈现为「节点选择 / 自动选择」这类分组；可应用上方预设模板生成，或新建一个"
+            description="策略组会随订阅下发，在手机/电脑客户端上呈现为「节点选择 / 自动选择」这类分组；可先在「兜底与模板」页签应用预设模板生成，或新建一个"
             cta-text="新建策略组"
-            cta-plain
             @cta="openCreate"
           />
         </template>
@@ -256,16 +251,11 @@ async function handleSave(): Promise<void> {
 </template>
 
 <style scoped>
-.card-desc {
-  margin-bottom: 12px;
-  color: var(--u-text-color-second);
-  font-size: var(--u-font-size-main-small);
-}
-
-.page-header {
+/* 卡片头工具栏：仅剩主操作，靠右与表格操作列对齐 */
+.card-ops {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
+  gap: 8px;
   flex: 1;
 }
 </style>
