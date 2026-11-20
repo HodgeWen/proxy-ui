@@ -94,6 +94,9 @@ const saving = shallowRef(false)
 /** TLS 分组默认展开（证书选择是关键配置），高级分组默认折叠 */
 const tlsCollapsed = ref(false)
 const advancedCollapsed = ref(true)
+/** TLS 卡高亮脉冲：跳转后无条件可见的反馈（视口无滚动余量时滚动/展开均为 no-op） */
+const tlsHighlighted = ref(false)
+let tlsHighlightTimer: ReturnType<typeof setTimeout> | undefined
 const tlsCard = useTemplateRef<InstanceType<typeof FormGroupCard>>('tlsCard')
 
 const dialogTitle = computed(() =>
@@ -144,11 +147,16 @@ async function reloadCerts(): Promise<void> {
   }
 }
 
-/** TLS 前置依赖快捷跳转：展开 TLS 分组卡片并滚动到位 */
+/** TLS 前置依赖快捷跳转：展开分组卡、滚动到位并高亮脉冲（无滚动余量的视口下高亮是唯一可见反馈） */
 async function jumpToTls(): Promise<void> {
   tlsCollapsed.value = false
+  tlsHighlighted.value = true
+  clearTimeout(tlsHighlightTimer)
+  tlsHighlightTimer = setTimeout(() => (tlsHighlighted.value = false), 1600)
   await nextTick()
-  tlsCard.value?.$el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  const el = tlsCard.value?.$el as HTMLElement | undefined
+  el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  el?.querySelector<HTMLElement>('.form-group-card__header')?.focus({ preventScroll: true })
 }
 
 async function handleSave(): Promise<void> {
@@ -208,7 +216,13 @@ defineExpose({ openCreate, openEdit, reloadCerts })
           <SchemaField v-for="d in def.basic" :key="d.field" :def="d" :model="form" :certs="certs" />
         </FormGroupCard>
 
-        <FormGroupCard v-if="def.tls" ref="tlsCard" v-model:collapsed="tlsCollapsed" title="TLS / 证书">
+        <FormGroupCard
+          v-if="def.tls"
+          ref="tlsCard"
+          v-model:collapsed="tlsCollapsed"
+          title="TLS / 证书"
+          :highlight="tlsHighlighted"
+        >
           <p v-if="!certs.length" class="tls-empty">
             暂无面板存储证书，可引用服务器本地路径，或
             <u-button text type="primary" @click="emit('manage-certs')">打开证书管理</u-button>

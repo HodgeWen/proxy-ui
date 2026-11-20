@@ -7,13 +7,15 @@ import { Down } from '@veltra/icons/normal'
 defineProps<{
   /** 分组标题（标题栏整行点击折叠） */
   title: string
+  /** 高亮脉冲（快捷跳转目标提示，短暂描边后淡出） */
+  highlight?: boolean
 }>()
 
 const collapsed = defineModel<boolean>('collapsed', { default: false })
 </script>
 
 <template>
-  <section class="form-group-card">
+  <section class="form-group-card" :class="{ 'is-highlight': highlight }">
     <button type="button" class="form-group-card__header" @click="collapsed = !collapsed">
       <span class="form-group-card__title">{{ title }}</span>
       <Down class="form-group-card__chevron" :class="{ 'is-collapsed': collapsed }" />
@@ -32,6 +34,12 @@ const collapsed = defineModel<boolean>('collapsed', { default: false })
   border: 1px solid var(--u-border-color);
   border-radius: var(--u-radius-default);
   background: var(--u-bg-color-top);
+  box-shadow: 0 0 0 0 transparent;
+  transition: box-shadow var(--u-transition-slow) var(--u-transition-ease-out);
+}
+
+.form-group-card.is-highlight {
+  box-shadow: 0 0 0 2px var(--u-color-primary);
 }
 
 /* 表单栅格行间距为 0，相邻分组卡片由自身补垂直间距 */
