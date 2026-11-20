@@ -6,6 +6,7 @@ import {
   UButton,
   UDialog,
   UForm,
+  UFormItem,
   UInput,
   USelect,
   UTable,
@@ -17,6 +18,8 @@ import {
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
 import { reactive, shallowRef } from 'vue'
+
+import FormGroupCard from './FormGroupCard.vue'
 
 const emit = defineEmits<{ changed: [] }>()
 
@@ -152,34 +155,79 @@ defineExpose({ open, refresh })
       </template>
     </u-table>
 
-    <u-dialog v-model="formVisible" :title="editing ? '编辑证书' : '新增证书'" style="width: 640px; max-width: 96vw">
-      <u-form ref="formRef" :model="form" :cols="1" label-width="92px">
-        <u-input label="名称" field="name" placeholder="证书备注名" :rules="{ required: '请输入名称' }" />
-        <u-select
-          label="引用方式"
-          field="mode"
-          :options="modeOptions"
-          :disabled="!!editing"
-          :tips="editing ? '引用方式创建后不可变更' : undefined"
-        />
-        <template v-if="form.mode === 'managed'">
-          <u-form-item label="证书 PEM" field="certPem" :rules="{ required: editing ? undefined : '请粘贴或上传证书 PEM' }">
-            <u-textarea v-model="form.certPem" :rows="4" placeholder="-----BEGIN CERTIFICATE-----" />
-            <u-button class="pem-upload" @click="certFileInput?.click()">上传证书文件</u-button>
-            <input ref="certFileInput" type="file" accept=".pem,.crt,.cer,text/plain" hidden @change="pickPem('certPem', $event)" />
-          </u-form-item>
-          <u-form-item label="私钥 PEM" field="keyPem" :rules="{ required: editing ? undefined : '请粘贴或上传私钥 PEM' }">
-            <u-textarea v-model="form.keyPem" :rows="4" placeholder="-----BEGIN PRIVATE KEY-----" />
-            <u-button class="pem-upload" @click="keyFileInput?.click()">上传私钥文件</u-button>
-            <input ref="keyFileInput" type="file" accept=".pem,.key,text/plain" hidden @change="pickPem('keyPem', $event)" />
-          </u-form-item>
-        </template>
-        <template v-else>
-          <u-input label="证书路径" field="certPath" placeholder="服务器上证书文件绝对路径" :rules="{ required: editing ? undefined : '请输入证书路径' }" />
-          <u-input label="私钥路径" field="keyPath" placeholder="服务器上私钥文件绝对路径" :rules="{ required: editing ? undefined : '请输入私钥路径' }" />
-        </template>
-      </u-form>
-      <p v-if="editing && form.mode === 'managed'" class="pem-hint">留空 PEM 内容表示仅改名；填写则需成对替换。</p>
+    <u-dialog v-model="formVisible" :title="editing ? '编辑证书' : '新增证书'" style="width: 1120px; max-width: 96vw">
+      <div class="dialog-scroll">
+        <u-form ref="formRef" :model="form" :cols="1" label-width="112px">
+          <FormGroupCard title="基本信息">
+            <u-form-item
+              label="名称"
+              field="name"
+              :rules="{ required: '请输入名称' }"
+              tips="证书备注名，供入站 TLS 配置引用时识别"
+            >
+              <u-input v-model="form.name" placeholder="证书备注名" />
+            </u-form-item>
+            <u-form-item
+              label="引用方式"
+              field="mode"
+              :tips="
+                editing
+                  ? '引用方式创建后不可变更'
+                  : '上传/粘贴存储：PEM 由面板保管并随配置部署；服务器本地路径：直接引用服务器上已有文件'
+              "
+            >
+              <u-select v-model="form.mode" :options="modeOptions" :disabled="!!editing" />
+            </u-form-item>
+          </FormGroupCard>
+
+          <FormGroupCard v-if="form.mode === 'managed'" title="证书内容">
+            <u-form-item
+              label="证书 PEM"
+              field="certPem"
+              span="full"
+              :rules="{ required: editing ? undefined : '请粘贴或上传证书 PEM' }"
+              tips="PEM 格式证书全文（-----BEGIN CERTIFICATE----- 开头）；编辑时留空表示仅改名"
+            >
+              <u-textarea v-model="form.certPem" :rows="4" placeholder="-----BEGIN CERTIFICATE-----" />
+              <u-button class="pem-upload" @click="certFileInput?.click()">上传证书文件</u-button>
+              <input ref="certFileInput" type="file" accept=".pem,.crt,.cer,text/plain" hidden @change="pickPem('certPem', $event)" />
+            </u-form-item>
+            <u-form-item
+              label="私钥 PEM"
+              field="keyPem"
+              span="full"
+              :rules="{ required: editing ? undefined : '请粘贴或上传私钥 PEM' }"
+              tips="PEM 格式私钥全文（-----BEGIN PRIVATE KEY----- 开头）；填写则需与证书成对替换"
+            >
+              <u-textarea v-model="form.keyPem" :rows="4" placeholder="-----BEGIN PRIVATE KEY-----" />
+              <u-button class="pem-upload" @click="keyFileInput?.click()">上传私钥文件</u-button>
+              <input ref="keyFileInput" type="file" accept=".pem,.key,text/plain" hidden @change="pickPem('keyPem', $event)" />
+            </u-form-item>
+          </FormGroupCard>
+
+          <FormGroupCard v-else title="文件路径">
+            <u-form-item
+              label="证书路径"
+              field="certPath"
+              span="full"
+              :rules="{ required: editing ? undefined : '请输入证书路径' }"
+              tips="服务器上证书文件的绝对路径，内核进程需有读取权限"
+            >
+              <u-input v-model="form.certPath" placeholder="服务器上证书文件绝对路径" />
+            </u-form-item>
+            <u-form-item
+              label="私钥路径"
+              field="keyPath"
+              span="full"
+              :rules="{ required: editing ? undefined : '请输入私钥路径' }"
+              tips="服务器上私钥文件的绝对路径，与证书路径配套使用"
+            >
+              <u-input v-model="form.keyPath" placeholder="服务器上私钥文件绝对路径" />
+            </u-form-item>
+          </FormGroupCard>
+        </u-form>
+        <p v-if="editing && form.mode === 'managed'" class="pem-hint">留空 PEM 内容表示仅改名；填写则需成对替换。</p>
+      </div>
       <template #footer="{ close }">
         <u-button text @click="close()">取消</u-button>
         <u-button type="primary" :loading="saving" @click="handleSave">保存</u-button>
@@ -189,6 +237,11 @@ defineExpose({ open, refresh })
 </template>
 
 <style scoped>
+.dialog-scroll {
+  max-height: calc(90vh - 160px);
+  overflow-y: auto;
+}
+
 .cert-toolbar {
   display: flex;
   align-items: center;

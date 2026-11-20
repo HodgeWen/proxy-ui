@@ -1,5 +1,5 @@
-<!-- 入站声明式表单引擎：按协议 schema 渲染基础字段与默认折叠的 TLS/证书、高级区块，
-     弱配置警示内联展示并支持一键跳转 TLS 区块 -->
+<!-- 入站声明式表单引擎：按协议 schema 渲染分组卡片（基础 / TLS 证书 / 高级），
+     UFormItem tips 直出 schema description，弱配置警示内联展示并支持一键跳转 TLS 区块 -->
 <script setup lang="ts">
 import type { Certificate } from '../api/cert'
 import { listCerts } from '../api/cert'
@@ -7,8 +7,6 @@ import { createInbound, updateInbound } from '../api/inbound'
 import type { Inbound, InboundPayload } from '../api/inbound'
 import {
   UButton,
-  UCollapse,
-  UCollapseItem,
   UDialog,
   UForm,
   UFormItem,
@@ -22,8 +20,9 @@ import {
 } from '@veltra/desktop'
 import type { Component, PropType } from 'vue'
 import { o } from '@cat-kit/core'
-import { computed, defineComponent, h, nextTick, reactive, ref, shallowRef } from 'vue'
+import { computed, defineComponent, h, nextTick, reactive, ref, shallowRef, useTemplateRef } from 'vue'
 
+import FormGroupCard from './FormGroupCard.vue'
 import {
   PROTOCOL_DEFS,
   TLS_ADVANCED,
@@ -47,7 +46,7 @@ const CONTROLS: Record<FieldType, Component> = {
   switch: USwitch,
 }
 
-/** 声明式字段渲染：UFormItem 包裹控件，经 o() 按点号路径读写表单模型 */
+/** 声明式字段渲染：UFormItem 包裹控件（description → tips、span → 栅格占位），经 o() 按点号路径读写表单模型 */
 const SchemaField = defineComponent({
   name: 'SchemaField',
   props: {
@@ -76,7 +75,11 @@ const SchemaField = defineComponent({
         if (d.min !== undefined) controlProps.min = d.min
         if (d.max !== undefined) controlProps.max = d.max
       }
-      return h(UFormItem, { label: d.label, tips: d.tips }, { default: () => [h(CONTROLS[d.type], controlProps)] })
+      return h(
+        UFormItem,
+        { label: d.label, tips: d.description, span: d.span },
+        { default: () => [h(CONTROLS[d.type], controlProps)] },
+      )
     }
   },
 })
@@ -86,10 +89,12 @@ const def = shallowRef<ProtocolDef>(PROTOCOL_DEFS[0])
 const editing = shallowRef<Inbound | null>(null)
 const form = reactive<Record<string, any>>({})
 const formRef = shallowRef<{ validate: () => Promise<boolean>; clearValidate: () => void }>()
-const expandedSections = ref<string[]>([])
 const certs = shallowRef<Certificate[]>([])
 const saving = shallowRef(false)
-const tlsSection = shallowRef<HTMLElement>()
+/** TLS 分组默认展开（证书选择是关键配置），高级分组默认折叠 */
+const tlsCollapsed = ref(false)
+const advancedCollapsed = ref(true)
+const tlsCard = useTemplateRef<InstanceType<typeof FormGroupCard>>('tlsCard')
 
 const dialogTitle = computed(() =>
   editing.value ? `编辑入站 · ${editing.value.name}` : `新建${def.value.name} 入站`,
@@ -100,7 +105,8 @@ const advancedFields = computed(() => [...def.value.advanced, ...(def.value.tls 
 
 function resetForm(): void {
   Object.keys(form).forEach((key) => delete form[key])
-  expandedSections.value = []
+  tlsCollapsed.value = false
+  advancedCollapsed.value = true
   formRef.value?.clearValidate()
 }
 
@@ -138,11 +144,11 @@ async function reloadCerts(): Promise<void> {
   }
 }
 
-/** TLS 前置依赖快捷跳转：展开 TLS 区块并滚动到位 */
+/** TLS 前置依赖快捷跳转：展开 TLS 分组卡片并滚动到位 */
 async function jumpToTls(): Promise<void> {
-  if (!expandedSections.value.includes('tls')) expandedSections.value = [...expandedSections.value, 'tls']
+  tlsCollapsed.value = false
   await nextTick()
-  tlsSection.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  tlsCard.value?.$el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
 }
 
 async function handleSave(): Promise<void> {
@@ -173,46 +179,53 @@ defineExpose({ openCreate, openEdit, reloadCerts })
 </script>
 
 <template>
-  <u-dialog v-model="visible" :title="dialogTitle" style="width: 680px; max-width: 96vw">
-    <div v-if="warnings.length" class="form-warnings">
-      <div v-for="w in warnings" :key="w.text" class="form-warning">
-        <span class="form-warning-text">⚠ {{ w.text }}</span>
-        <u-button v-if="w.jump === 'tls'" text type="primary" @click="jumpToTls">去配置 TLS</u-button>
+  <u-dialog v-model="visible" :title="dialogTitle" style="width: 1120px; max-width: 96vw">
+    <div class="dialog-scroll">
+      <div v-if="warnings.length" class="form-warnings">
+        <div v-for="w in warnings" :key="w.text" class="form-warning">
+          <span class="form-warning-text">⚠ {{ w.text }}</span>
+          <u-button v-if="w.jump === 'tls'" text type="primary" @click="jumpToTls">去配置 TLS</u-button>
+        </div>
       </div>
-    </div>
 
-    <u-form ref="formRef" :model="form" :cols="1" label-width="112px">
-      <u-input label="名称" field="name" placeholder="留空自动按 协议-端口 生成" clearable />
-      <u-number-input
-        label="监听端口"
-        field="port"
-        :min="1"
-        :max="65535"
-        :rules="{ required: '请输入监听端口' }"
-      />
-      <SchemaField v-for="d in def.basic" :key="d.field" :def="d" :model="form" :certs="certs" />
+      <u-form ref="formRef" :model="form" :cols="1" label-width="112px">
+        <FormGroupCard title="基础配置">
+          <u-form-item
+            label="名称"
+            field="name"
+            tips="入站备注名，展示于列表与统计；留空自动按 协议-端口 生成"
+          >
+            <u-input v-model="form.name" placeholder="留空自动按 协议-端口 生成" clearable />
+          </u-form-item>
+          <u-form-item
+            label="监听端口"
+            field="port"
+            :rules="{ required: '请输入监听端口' }"
+            tips="内核监听的端口，客户端按此端口连接；需未被其它服务占用"
+          >
+            <u-number-input v-model="form.port" :min="1" :max="65535" />
+          </u-form-item>
+          <SchemaField v-for="d in def.basic" :key="d.field" :def="d" :model="form" :certs="certs" />
+        </FormGroupCard>
 
-      <u-collapse
-        v-if="def.tls || advancedFields.length"
-        v-model="expandedSections"
-        class="form-collapse"
-        default-collapse-all
-      >
-        <u-collapse-item v-if="def.tls" value="tls" title="TLS / 证书">
-          <div ref="tlsSection" class="tls-section">
-            <p v-if="!certs.length" class="tls-empty">
-              暂无面板存储证书，可引用服务器本地路径，或
-              <u-button text type="primary" @click="emit('manage-certs')">打开证书管理</u-button>
-              上传/粘贴证书。
-            </p>
-            <SchemaField v-for="d in TLS_FIELDS" :key="d.field" :def="d" :model="form" :certs="certs" />
-          </div>
-        </u-collapse-item>
-        <u-collapse-item v-if="advancedFields.length" value="advanced" title="高级选项">
+        <FormGroupCard v-if="def.tls" ref="tlsCard" v-model:collapsed="tlsCollapsed" title="TLS / 证书">
+          <p v-if="!certs.length" class="tls-empty">
+            暂无面板存储证书，可引用服务器本地路径，或
+            <u-button text type="primary" @click="emit('manage-certs')">打开证书管理</u-button>
+            上传/粘贴证书。
+          </p>
+          <SchemaField v-for="d in TLS_FIELDS" :key="d.field" :def="d" :model="form" :certs="certs" />
+        </FormGroupCard>
+
+        <FormGroupCard
+          v-if="advancedFields.length"
+          v-model:collapsed="advancedCollapsed"
+          title="高级选项"
+        >
           <SchemaField v-for="d in advancedFields" :key="d.field" :def="d" :model="form" :certs="certs" />
-        </u-collapse-item>
-      </u-collapse>
-    </u-form>
+        </FormGroupCard>
+      </u-form>
+    </div>
 
     <template #footer="{ close }">
       <u-button text @click="close()">取消</u-button>
@@ -222,6 +235,11 @@ defineExpose({ openCreate, openEdit, reloadCerts })
 </template>
 
 <style scoped>
+.dialog-scroll {
+  max-height: calc(90vh - 160px);
+  overflow-y: auto;
+}
+
 .form-warnings {
   display: grid;
   gap: 6px;
@@ -245,11 +263,8 @@ defineExpose({ openCreate, openEdit, reloadCerts })
   color: var(--u-color-warning);
 }
 
-.form-collapse {
-  margin-top: 4px;
-}
-
 .tls-empty {
+  grid-column: 1 / -1;
   margin: 0 0 10px;
   font-size: var(--u-font-size-main-small);
   color: var(--u-text-color-second);

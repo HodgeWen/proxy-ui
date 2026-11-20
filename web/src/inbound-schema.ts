@@ -16,8 +16,11 @@ export interface FieldDef {
   field: string
   label: string
   type: FieldType
+  /** 用途说明（这是什么、影响什么、典型值），渲染为 UFormItem tips */
+  description?: string
   placeholder?: string
-  tips?: string
+  /** UFormItem 栅格占位；缺省 1 列，'full' 占整行（长文本/路径类字段） */
+  span?: number | 'full'
   options?: FieldOption[]
   when?: (cfg: Record<string, any>) => boolean
   min?: number
@@ -44,12 +47,24 @@ export interface InboundWarning {
 
 /** TLS/证书区块字段（启用 TLS 的协议共用） */
 export const TLS_FIELDS: FieldDef[] = [
-  { field: 'tls.enabled', label: '启用 TLS', type: 'switch' },
-  { field: 'tls.serverName', label: '服务器名称', type: 'input', placeholder: 'SNI，如 example.com' },
+  {
+    field: 'tls.enabled',
+    label: '启用 TLS',
+    type: 'switch',
+    description: '启用后流量经 TLS 加密传输；Reality 已启用时内核会强制 TLS，无需再配证书',
+  },
+  {
+    field: 'tls.serverName',
+    label: '服务器名称',
+    type: 'input',
+    placeholder: 'SNI，如 example.com',
+    description: 'SNI 服务器名称，客户端握手时使用的域名，需与证书域名匹配',
+  },
   {
     field: 'tls.certMode',
     label: '证书引用',
     type: 'select',
+    description: '证书来源：面板存储（上传/粘贴 PEM，随配置部署到内核）或服务器本地路径',
     options: [
       { label: '面板存储证书', value: 'managed' },
       { label: '服务器本地路径', value: 'path' },
@@ -57,9 +72,31 @@ export const TLS_FIELDS: FieldDef[] = [
     when: (cfg) => !!cfg.tls?.enabled,
   },
   // tls.certId 的选项由表单组件按证书列表动态生成
-  { field: 'tls.certId', label: '选择证书', type: 'select', when: (cfg) => !!cfg.tls?.enabled && cfg.tls?.certMode === 'managed' },
-  { field: 'tls.certPath', label: '证书路径', type: 'input', placeholder: '服务器上证书文件绝对路径', when: (cfg) => !!cfg.tls?.enabled && cfg.tls?.certMode === 'path' },
-  { field: 'tls.keyPath', label: '私钥路径', type: 'input', placeholder: '服务器上私钥文件绝对路径', when: (cfg) => !!cfg.tls?.enabled && cfg.tls?.certMode === 'path' },
+  {
+    field: 'tls.certId',
+    label: '选择证书',
+    type: 'select',
+    description: '选择面板「证书管理」中已存储的证书，应用配置时自动写出对应 PEM',
+    when: (cfg) => !!cfg.tls?.enabled && cfg.tls?.certMode === 'managed',
+  },
+  {
+    field: 'tls.certPath',
+    label: '证书路径',
+    type: 'input',
+    placeholder: '服务器上证书文件绝对路径',
+    description: '服务器上证书文件的绝对路径，内核进程需有读取权限',
+    span: 'full',
+    when: (cfg) => !!cfg.tls?.enabled && cfg.tls?.certMode === 'path',
+  },
+  {
+    field: 'tls.keyPath',
+    label: '私钥路径',
+    type: 'input',
+    placeholder: '服务器上私钥文件绝对路径',
+    description: '服务器上私钥文件的绝对路径，与证书路径配套使用',
+    span: 'full',
+    when: (cfg) => !!cfg.tls?.enabled && cfg.tls?.certMode === 'path',
+  },
 ]
 
 /** TLS 高级字段（归入高级选项折叠区） */
@@ -68,6 +105,7 @@ export const TLS_ADVANCED: FieldDef[] = [
     field: 'tls.alpn',
     label: 'ALPN',
     type: 'multiselect',
+    description: 'TLS ALPN 协商协议；QUIC 类协议（Hysteria2/TUIC）需含 h3，HTTPS 场景常用 h2 / http/1.1',
     options: [
       { label: 'h3', value: 'h3' },
       { label: 'h2', value: 'h2' },
@@ -103,16 +141,62 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     defaultPort: 443,
     tls: true,
     basic: [
-      { field: 'uuid', label: 'UUID', type: 'password', placeholder: '用户 UUID' },
-      { field: 'flow', label: '流控', type: 'select', options: FLOW_OPTIONS },
-      { field: 'reality.enabled', label: '启用 Reality', type: 'switch' },
+      {
+        field: 'uuid',
+        label: 'UUID',
+        type: 'input',
+        placeholder: '用户 UUID',
+        description: '客户端认证的用户 UUID，订阅链接会带上它；默认已随机生成，可直接使用',
+      },
+      {
+        field: 'flow',
+        label: '流控',
+        type: 'select',
+        description: '流控模式；xtls-rprx-vision 可提升 TLS 场景吞吐，Reality 场景建议保持',
+        options: FLOW_OPTIONS,
+      },
+      {
+        field: 'reality.enabled',
+        label: '启用 Reality',
+        type: 'switch',
+        description: '启用 Reality 伪装握手，借用他人证书外观、无需自有证书；关闭后需配置真实证书',
+      },
     ],
     advanced: [
-      { field: 'reality.privateKey', label: 'Reality 私钥', type: 'password', tips: 'x25519 私钥（base64 raw url），客户端需配套公钥' },
-      { field: 'reality.publicKey', type: 'password', label: 'Reality 公钥', tips: '供客户端/订阅使用的公钥，内核不消费' },
-      { field: 'reality.shortId', label: 'Short ID', type: 'input', placeholder: 'hex，0-8 位' },
-      { field: 'reality.handshakeServer', label: '握手目标站点', type: 'input', placeholder: 'www.microsoft.com' },
-      { field: 'reality.handshakePort', label: '握手目标端口', type: 'number', min: 1, max: 65535 },
+      {
+        field: 'reality.privateKey',
+        label: 'Reality 私钥',
+        type: 'input',
+        description: 'x25519 私钥（base64 raw url），内核用于完成 Reality 握手；默认已生成，需与公钥配套',
+      },
+      {
+        field: 'reality.publicKey',
+        label: 'Reality 公钥',
+        type: 'input',
+        description: '与私钥配套的 x25519 公钥，客户端/订阅链接凭它连接本入站；内核本身不消费',
+      },
+      {
+        field: 'reality.shortId',
+        label: 'Short ID',
+        type: 'input',
+        placeholder: 'hex，0-8 位',
+        description: 'Reality 短 ID（hex，0-8 位），客户端需填写一致才能通过握手；留空表示不校验',
+      },
+      {
+        field: 'reality.handshakeServer',
+        label: '握手目标站点',
+        type: 'input',
+        placeholder: 'www.microsoft.com',
+        description: 'Reality 借用握手的目标站点域名，建议选稳定的大站（如 www.microsoft.com）',
+      },
+      {
+        field: 'reality.handshakePort',
+        label: '握手目标端口',
+        type: 'number',
+        min: 1,
+        max: 65535,
+        description: '握手目标站点端口，通常为 443',
+      },
     ],
   },
   {
@@ -122,11 +206,35 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     recommended: true,
     defaultPort: 443,
     tls: true,
-    basic: [{ field: 'password', label: '认证密码', type: 'password' }],
+    basic: [
+      {
+        field: 'password',
+        label: '认证密码',
+        type: 'password',
+        description: '客户端认证密码，订阅链接会带上它；默认已随机生成，可直接使用',
+      },
+    ],
     advanced: [
-      { field: 'obfsPassword', label: '混淆密码', type: 'password', tips: 'salamander 混淆，留空不启用' },
-      { field: 'upMbps', label: '上行上限 (Mbps)', type: 'number', min: 0 },
-      { field: 'downMbps', label: '下行上限 (Mbps)', type: 'number', min: 0 },
+      {
+        field: 'obfsPassword',
+        label: '混淆密码',
+        type: 'password',
+        description: 'salamander 混淆密码，可将流量伪装成普通 QUIC；留空不启用混淆',
+      },
+      {
+        field: 'upMbps',
+        label: '上行上限 (Mbps)',
+        type: 'number',
+        min: 0,
+        description: '上行带宽上限（Mbps）；填服务器真实上行可让拥塞控制更准确，0 表示不限制',
+      },
+      {
+        field: 'downMbps',
+        label: '下行上限 (Mbps)',
+        type: 'number',
+        min: 0,
+        description: '下行带宽上限（Mbps）；0 表示不限制',
+      },
     ],
   },
   {
@@ -137,10 +245,28 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     defaultPort: 443,
     tls: true,
     basic: [
-      { field: 'uuid', label: 'UUID', type: 'password' },
-      { field: 'password', label: '认证密码', type: 'password' },
+      {
+        field: 'uuid',
+        label: 'UUID',
+        type: 'input',
+        description: '客户端认证的 UUID，订阅链接会带上它；默认已随机生成，可直接使用',
+      },
+      {
+        field: 'password',
+        label: '认证密码',
+        type: 'password',
+        description: '客户端认证密码，与 UUID 配合使用；默认已随机生成',
+      },
     ],
-    advanced: [{ field: 'congestionControl', label: '拥塞控制', type: 'select', options: CC_OPTIONS }],
+    advanced: [
+      {
+        field: 'congestionControl',
+        label: '拥塞控制',
+        type: 'select',
+        description: 'QUIC 拥塞控制算法；bbr 在高丢包链路下表现最好',
+        options: CC_OPTIONS,
+      },
+    ],
   },
   {
     protocol: 'anytls',
@@ -149,7 +275,14 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     recommended: true,
     defaultPort: 443,
     tls: true,
-    basic: [{ field: 'password', label: '认证密码', type: 'password' }],
+    basic: [
+      {
+        field: 'password',
+        label: '认证密码',
+        type: 'password',
+        description: '客户端认证密码，订阅链接会带上它；默认已随机生成，可直接使用',
+      },
+    ],
     advanced: [],
   },
   {
@@ -159,7 +292,14 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     recommended: false,
     defaultPort: 443,
     tls: true,
-    basic: [{ field: 'password', label: '认证密码', type: 'password' }],
+    basic: [
+      {
+        field: 'password',
+        label: '认证密码',
+        type: 'password',
+        description: '客户端认证密码，流量经 TLS 加密；建议使用长随机串，默认已随机生成',
+      },
+    ],
     advanced: [],
   },
   {
@@ -170,8 +310,19 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     defaultPort: 443,
     tls: true,
     basic: [
-      { field: 'uuid', label: 'UUID', type: 'password' },
-      { field: 'wsPath', label: 'WS 路径', type: 'input', placeholder: '/' },
+      {
+        field: 'uuid',
+        label: 'UUID',
+        type: 'input',
+        description: '客户端认证的用户 UUID，订阅链接会带上它；默认已随机生成，可直接使用',
+      },
+      {
+        field: 'wsPath',
+        label: 'WS 路径',
+        type: 'input',
+        placeholder: '/',
+        description: 'WebSocket 路径，需以 / 开头（如 /ws）；套 CDN 时需与转发规则保持一致',
+      },
     ],
     advanced: [],
   },
@@ -183,8 +334,19 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     defaultPort: 8388,
     tls: false,
     basic: [
-      { field: 'method', label: '加密方法', type: 'select', options: SS_METHODS },
-      { field: 'password', label: '密钥', type: 'password', tips: '按方法要求为 base64 编码的定长密钥' },
+      {
+        field: 'method',
+        label: '加密方法',
+        type: 'select',
+        description: 'Shadowsocks-2022 加密方法，决定密钥长度；客户端需选择相同方法',
+        options: SS_METHODS,
+      },
+      {
+        field: 'password',
+        label: '密钥',
+        type: 'input',
+        description: '按加密方法要求定长的 base64 密钥（128 位需 16 字节、256 位需 32 字节）；默认已随机生成',
+      },
     ],
     advanced: [],
   },

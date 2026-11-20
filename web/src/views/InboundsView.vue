@@ -116,7 +116,8 @@ onMounted(refresh)
         <div class="page-ops">
           <u-button :loading="applying" @click="handleApply">应用配置</u-button>
           <u-button @click="certManager?.open()">证书管理</u-button>
-          <u-button type="primary" @click="pickerVisible = true">新建入站</u-button>
+          <!-- 列表为空时主入口由空状态 CTA 承担，保持每屏 primary ≤1 -->
+          <u-button v-if="inbounds.length" type="primary" @click="pickerVisible = true">新建入站</u-button>
         </div>
       </div>
     </u-card-header>
@@ -126,7 +127,9 @@ onMounted(refresh)
           <EmptyState
             v-if="!loading"
             title="暂无入站"
-            description="点击右上角「新建入站」创建第一个入站，配置完成后需应用配置生效"
+            description="创建第一个入站供客户端连接，配置完成后需应用配置生效"
+            cta-text="新建入站"
+            @cta="pickerVisible = true"
           />
         </template>
         <template #column:protocol="{ rowData }">
@@ -162,7 +165,7 @@ onMounted(refresh)
       <p class="proto-group-title">推荐</p>
       <div class="proto-grid">
         <button v-for="p in recommended" :key="p.protocol" class="proto-card" type="button" @click="startCreate(p.protocol)">
-          <span class="proto-name">{{ p.name }}<u-tag type="success" size="small">推荐</u-tag></span>
+          <span class="proto-name">{{ p.name }}</span>
           <span class="proto-desc">{{ p.desc }}</span>
         </button>
       </div>
