@@ -1,11 +1,13 @@
-<!-- 应用布局：左侧整列 nav 表面侧栏（品牌 / 导航 / 用户底部区），右侧顶栏（版本 / 主题切换）与内容区 -->
+<!-- 应用布局：左侧整列 nav 表面侧栏（品牌 / 导航 / 用户底部区），右侧顶栏（页面标题 / 版本 / 内核状态 / 主题切换）与内容区 -->
 <script setup lang="ts">
-import { UButton, UNav, USegment } from '@veltra/desktop'
+import { UButton, UNav, USegment, UTag } from '@veltra/desktop'
 import type { NavItem } from '@veltra/desktop'
 import { AiChat, Download, Filter, Monitor, Setting, Share, Terminal, Upload, UserCircle } from '@veltra/icons/normal'
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import { fetchKernelStatus } from '../api/kernel'
+import type { KernelStatus } from '../api/kernel'
 import { useAuthStore } from '../stores/auth'
 import { setThemeMode, useTheme } from '../theme'
 import type { ThemeMode } from '../theme'
@@ -14,6 +16,40 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const { mode } = useTheme()
+
+// ---------- 顶栏页面标题与内核状态 ----------
+
+const pageTitle = computed(() => route.meta.title)
+
+const kernelStatus = shallowRef<KernelStatus | null>(null)
+
+async function refreshKernelStatus() {
+  try {
+    kernelStatus.value = await fetchKernelStatus()
+  } catch {
+    // 静默：下轮轮询重试；内核状态仅作顶栏呈现，不阻塞导航
+  }
+}
+
+const kernelTag = computed(() => {
+  const status = kernelStatus.value
+  if (!status) return undefined
+  if (!status.installed) return { type: 'warning' as const, text: '内核未安装' }
+  return status.running
+    ? { type: 'success' as const, text: '内核运行中' }
+    : { type: 'info' as const, text: '内核已停止' }
+})
+
+let kernelTimer: ReturnType<typeof setInterval> | undefined
+
+onMounted(() => {
+  void refreshKernelStatus()
+  kernelTimer = setInterval(() => void refreshKernelStatus(), 10000)
+})
+
+onBeforeUnmount(() => {
+  if (kernelTimer) clearInterval(kernelTimer)
+})
 
 const themeModeItems: { label: string; value: ThemeMode }[] = [
   { label: '亮色', value: 'light' },
@@ -63,7 +99,11 @@ async function handleLogout() {
     </aside>
     <div class="app-main">
       <header class="app-header">
+        <h1 class="app-page-title">{{ pageTitle }}</h1>
         <span v-if="auth.version" class="app-version">v{{ auth.version }}</span>
+        <u-tag v-if="kernelTag" class="app-kernel-tag" :type="kernelTag.type" size="small">
+          {{ kernelTag.text }}
+        </u-tag>
         <u-segment
           class="app-theme-switch"
           :model-value="mode"
@@ -195,9 +235,20 @@ async function handleLogout() {
   border-bottom: var(--u-border);
 }
 
+.app-page-title {
+  margin: 0;
+  font-size: var(--u-font-size-title-default);
+  font-weight: 600;
+  color: var(--u-text-color-title);
+}
+
 .app-version {
-  color: var(--u-text-color-second);
-  font-size: var(--u-font-size-main-small);
+  color: var(--u-text-color-assist);
+  font-size: var(--u-font-size-assist-default);
+}
+
+.app-kernel-tag {
+  flex-shrink: 0;
 }
 
 .app-header .app-theme-switch {

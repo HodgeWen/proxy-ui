@@ -11,8 +11,8 @@ import {
   defineTableColumns,
   message,
 } from '@veltra/desktop'
-import { Download } from '@veltra/icons/normal'
-import { onBeforeUnmount, onMounted, shallowRef } from 'vue'
+import { ChartPie, CloudDownload, Link } from '@veltra/icons/normal'
+import { computed, onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { fetchKernelStatus, kernelAction } from '../api/kernel'
@@ -28,6 +28,14 @@ const router = useRouter()
 
 const status = shallowRef<KernelStatus | null>(null)
 const acting = shallowRef<'start' | 'stop' | 'restart' | ''>('')
+
+// 「重启内核」禁用时的原因说明（disabled 条件保持 !status?.running 不变）
+const restartDisabledReason = computed(() => {
+  if (!status.value) return ''
+  if (!status.value.installed) return '内核未安装，请先前往设置页安装'
+  if (!status.value.running) return '内核未运行，请先启动内核'
+  return ''
+})
 
 async function refreshStatus() {
   try {
@@ -87,9 +95,10 @@ async function refreshRealtime() {
 // ---------- 按入站累计流量 ----------
 
 const trafficRows = shallowRef<InboundTrafficRow[]>([])
+// 入站/协议两列同为弹性列分摊剩余宽度，避免空表时首列独占整行失衡
 const trafficColumns = defineTableColumns([
   { key: 'name', name: '入站', minWidth: 140 },
-  { key: 'protocol', name: '协议', width: 120 },
+  { key: 'protocol', name: '协议', minWidth: 100 },
   { key: 'enabled', name: '状态', width: 80, align: 'center' },
   { key: 'uploadBytes', name: '累计上传', width: 130, align: 'right' },
   { key: 'downloadBytes', name: '累计下载', width: 130, align: 'right' },
@@ -106,16 +115,17 @@ async function refreshTraffic() {
 // ---------- 当前连接 ----------
 
 const connections = shallowRef<StatsConnection[]>([])
+// 9 列列宽收敛（固定列合计约 800px）：1440px 视口内完整放下，更窄视口由 UTable 内置横向滚动承接
 const connColumns = defineTableColumns([
-  { key: 'inbound', name: '入站', width: 130 },
-  { key: 'network', name: '网络', width: 70, align: 'center' },
-  { key: 'source', name: '客户端', width: 170 },
-  { key: 'destination', name: '目标', minWidth: 200 },
-  { key: 'rule', name: '规则', width: 150 },
-  { key: 'chain', name: '出站链', width: 140 },
-  { key: 'upload', name: '上传', width: 100, align: 'right' },
-  { key: 'download', name: '下载', width: 100, align: 'right' },
-  { key: 'start', name: '建立时间', width: 90, align: 'center' },
+  { key: 'inbound', name: '入站', width: 110 },
+  { key: 'network', name: '网络', width: 64, align: 'center' },
+  { key: 'source', name: '客户端', width: 130 },
+  { key: 'destination', name: '目标', minWidth: 180 },
+  { key: 'rule', name: '规则', width: 110 },
+  { key: 'chain', name: '出站链', width: 110 },
+  { key: 'upload', name: '上传', width: 88, align: 'right' },
+  { key: 'download', name: '下载', width: 88, align: 'right' },
+  { key: 'start', name: '建立时间', width: 100, align: 'center' },
 ])
 
 async function refreshConnections() {
@@ -147,8 +157,16 @@ onBeforeUnmount(() => timers.forEach(clearInterval))
 
 // ---------- 格式化 ----------
 
+// 内核未安装时统计接口无意义，概览数值统一显示 N/A 而非「0 B」
+const statsUnavailable = computed(() => status.value !== null && !status.value.installed)
+
+function statValue(v: number | undefined, fmt: (n: number) => string): string {
+  return v === undefined || statsUnavailable.value ? 'N/A' : fmt(v)
+}
+
 function formatBytes(n?: number): string {
-  if (!n || n <= 0) return '0 B'
+  if (n === undefined) return 'N/A'
+  if (n <= 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
   let value = n
   let unit = 0
@@ -160,7 +178,7 @@ function formatBytes(n?: number): string {
 }
 
 function formatRate(n?: number): string {
-  return `${formatBytes(n)}/s`
+  return n === undefined ? 'N/A' : `${formatBytes(n)}/s`
 }
 
 function formatUptime(seconds?: number): string {
@@ -179,7 +197,12 @@ function formatUptime(seconds?: number): string {
         <div class="card-header-row">
           <span>内核状态</span>
           <div class="quick-actions">
-            <u-button :disabled="!status?.running" :loading="acting === 'restart'" @click="handleKernelAction('restart')">
+            <u-button
+              :disabled="!status?.running"
+              :title="restartDisabledReason"
+              :loading="acting === 'restart'"
+              @click="handleKernelAction('restart')"
+            >
               重启内核
             </u-button>
             <u-button @click="copySubscriptionLink">复制订阅链接</u-button>
@@ -190,7 +213,7 @@ function formatUptime(seconds?: number): string {
       <u-card-content>
         <EmptyState
           v-if="status && !status.installed"
-          :icon="Download"
+          :icon="CloudDownload"
           title="尚未安装 sing-box 内核"
           description="内核未安装时面板仅能管理配置，前往设置页下载安装后即可启动"
           cta-text="前往设置安装"
@@ -214,7 +237,7 @@ function formatUptime(seconds?: number): string {
                 启动
               </u-button>
               <u-button
-                type="error"
+                type="danger"
                 :disabled="!status?.running"
                 :loading="acting === 'stop'"
                 @click="handleKernelAction('stop')"
@@ -238,32 +261,33 @@ function formatUptime(seconds?: number): string {
       <u-card-header>流量概览</u-card-header>
       <u-card-content>
         <div class="stat-grid">
-          <div class="stat-item">
+          <div class="stat-item stat-item--primary">
             <span class="stat-label">上传速率</span>
-            <span class="stat-value is-up">{{ formatRate(realtime?.up) }}</span>
+            <span class="stat-value is-up">{{ statValue(realtime?.up, formatRate) }}</span>
           </div>
-          <div class="stat-item">
+          <div class="stat-item stat-item--primary">
             <span class="stat-label">下载速率</span>
-            <span class="stat-value is-down">{{ formatRate(realtime?.down) }}</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">内核内存</span>
-            <span class="stat-value">{{ formatBytes(realtime?.memory) }}</span>
+            <span class="stat-value is-down">{{ statValue(realtime?.down, formatRate) }}</span>
           </div>
           <div class="stat-item">
             <span class="stat-label">活动连接</span>
-            <span class="stat-value">{{ realtime?.activeConnections ?? 0 }}</span>
+            <span class="stat-value">{{ statValue(realtime?.activeConnections, String) }}</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">内核内存</span>
+            <span class="stat-value">{{ statValue(realtime?.memory, formatBytes) }}</span>
           </div>
           <div class="stat-item">
             <span class="stat-label">累计上传</span>
-            <span class="stat-value is-up">{{ formatBytes(realtime?.uploadTotal) }}</span>
+            <span class="stat-value is-up">{{ statValue(realtime?.uploadTotal, formatBytes) }}</span>
           </div>
           <div class="stat-item">
             <span class="stat-label">累计下载</span>
-            <span class="stat-value is-down">{{ formatBytes(realtime?.downloadTotal) }}</span>
+            <span class="stat-value is-down">{{ statValue(realtime?.downloadTotal, formatBytes) }}</span>
           </div>
         </div>
-        <p v-if="status?.installed && !status.running" class="hint">内核未运行，启动后展示实时速率与连接。</p>
+        <p v-if="status && !status.installed" class="hint">内核未安装，统计值暂不可用；安装后此处展示实时速率与连接。</p>
+        <p v-else-if="status?.installed && !status.running" class="hint">内核未运行，启动后展示实时速率与连接。</p>
       </u-card-content>
     </u-card>
 
@@ -275,7 +299,7 @@ function formatUptime(seconds?: number): string {
         </div>
       </u-card-header>
       <u-card-content>
-        <u-table :columns="trafficColumns" :data="trafficRows" row-key="inboundId" border>
+        <u-table :columns="trafficColumns" :data="trafficRows" row-key="inboundId" border stripe>
           <template #column:enabled="{ rowData }">
             <u-tag :type="rowData.enabled ? 'success' : 'info'">{{ rowData.enabled ? '启用' : '停用' }}</u-tag>
           </template>
@@ -284,6 +308,16 @@ function formatUptime(seconds?: number): string {
           </template>
           <template #column:downloadBytes="{ rowData }">
             {{ formatBytes(rowData.downloadBytes) }}
+          </template>
+          <template #empty>
+            <EmptyState
+              :icon="ChartPie"
+              title="暂无入站流量"
+              description="尚未创建入站；创建入站并产生流量后，此处按入站累计上传与下载"
+              cta-text="前往入站页"
+              cta-plain
+              @cta="router.push({ name: 'inbounds' })"
+            />
           </template>
         </u-table>
       </u-card-content>
@@ -297,7 +331,14 @@ function formatUptime(seconds?: number): string {
         </div>
       </u-card-header>
       <u-card-content>
-        <u-table :columns="connColumns" :data="connections" row-key="id" border>
+        <u-table
+          :columns="connColumns"
+          :data="connections"
+          row-key="id"
+          border
+          stripe
+          text-ellipsis
+        >
           <template #column:network="{ rowData }">
             <u-tag :type="rowData.network === 'tcp' ? 'primary' : 'warning'">{{ rowData.network }}</u-tag>
           </template>
@@ -312,6 +353,13 @@ function formatUptime(seconds?: number): string {
           </template>
           <template #column:start="{ rowData }">
             {{ new Date(rowData.start).toLocaleTimeString() }}
+          </template>
+          <template #empty>
+            <EmptyState
+              :icon="Link"
+              title="暂无活动连接"
+              description="内核运行产生流量后，此处实时展示连接明细"
+            />
           </template>
         </u-table>
       </u-card-content>
@@ -329,12 +377,12 @@ function formatUptime(seconds?: number): string {
   align-items: center;
   justify-content: space-between;
   flex: 1;
-  gap: 12px;
+  gap: var(--u-gap-large);
 }
 
 .quick-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--u-gap-default);
   flex-wrap: wrap;
 }
 
@@ -343,40 +391,66 @@ function formatUptime(seconds?: number): string {
   align-items: center;
   gap: 20px;
   flex-wrap: wrap;
-  font-size: 14px;
+  font-size: var(--u-font-size-main-default);
 }
 
 .kernel-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--u-gap-default);
   margin-left: auto;
 }
 
+/* 主指标（实时速率）与次指标分级行：主指标占两列、抬面放大，次指标单列缩小 */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--u-gap-default);
 }
 
 .stat-item {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 14px 16px;
+  gap: var(--u-gap-small);
+  padding: 12px 14px;
   border: 1px solid var(--u-border-color);
   border-radius: var(--u-radius-default);
   background: var(--u-bg-color-middle);
 }
 
+.stat-item--primary {
+  grid-column: span 2;
+  background: var(--u-bg-color-top);
+}
+
 .stat-label {
-  font-size: var(--u-font-size-main-small);
+  font-size: var(--u-font-size-assist-default);
   color: var(--u-text-color-second);
 }
 
+.stat-item--primary .stat-label {
+  font-size: var(--u-font-size-main-small);
+  color: var(--u-text-color-main);
+}
+
 .stat-value {
-  font-size: 20px;
+  font-size: var(--u-font-size-main-large);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+.stat-item--primary .stat-value {
+  font-size: var(--u-font-size-title-large);
+}
+
+/* 960px 即 --u-breakpoint-md（媒体查询内不能引用 CSS 变量，写等值 px） */
+@media (max-width: 960px) {
+  .stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .stat-item--primary {
+    grid-column: span 2;
+  }
 }
 
 .stat-value.is-up {

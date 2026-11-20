@@ -14,6 +14,8 @@ defineProps<{
   icon?: Component
   /** CTA 按钮文字，传入即渲染 */
   ctaText?: string
+  /** CTA 描边形态（primary 非实心）；同屏可视区已有 primary 实心按钮时置 true，守住「每屏实心主按钮 ≤1」 */
+  ctaPlain?: boolean
 }>()
 
 const emit = defineEmits<{ cta: [] }>()
@@ -25,7 +27,7 @@ const emit = defineEmits<{ cta: [] }>()
     <p class="empty-state-title">{{ title }}</p>
     <p v-if="description" class="empty-state-desc">{{ description }}</p>
     <div v-if="ctaText" class="empty-state-cta">
-      <u-button type="primary" @click="emit('cta')">{{ ctaText }}</u-button>
+      <u-button type="primary" :plain="ctaPlain" @click="emit('cta')">{{ ctaText }}</u-button>
     </div>
   </div>
 </template>
