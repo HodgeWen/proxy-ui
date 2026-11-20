@@ -57,12 +57,6 @@ export const router = createRouter({
           meta: { title: '订阅', subtitle: '为每台设备创建订阅用户，导出客户端订阅链接' },
         },
         {
-          path: 'ai',
-          name: 'ai',
-          component: () => import('../views/AiChatView.vue'),
-          meta: { title: 'AI 助手', subtitle: '可调用面板工具的对话助手，辅助配置与解惑' },
-        },
-        {
           path: 'settings',
           name: 'settings',
           component: () => import('../views/SettingsView.vue'),

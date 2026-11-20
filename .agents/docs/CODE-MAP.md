@@ -26,8 +26,8 @@ proxy-ui/
     └── src/
         ├── api/          # 请求封装与各资源接口（入站+用户/出站/证书/规则+规则集/策略组/订阅用户/统计/内核/DNS/系统/AI/面板更新）
         ├── stores/       # Pinia：auth
-        ├── views/        # 向导/登录/仪表盘（内核只读状态、实时速率、按用户累计流量）/入站（列表+用户管理）/出站/证书（一键自签、上传/粘贴 PEM、路径引用，到期倒计时）/规则（模板/规则/规则集/策略组/兜底出站）/订阅（配额用量、链接二维码弹框）/AI 助手/设置（主题、账号、内核只读状态与日志、面板更新、AI 供应商、DNS、系统优化）
-        ├── components/   # AppLayout、EmptyState、FormGroupCard、InboundForm、InboundUsersDialog、RuleListCard、RuleSetCard、RuleSetDialog、PolicyGroupCard、SubscriptionLinksDialog
+        ├── views/        # 向导/登录/仪表盘（内核只读状态、实时速率、按用户累计流量）/入站（列表+用户管理）/出站/证书（一键自签、上传/粘贴 PEM、路径引用，到期倒计时）/规则（模板/规则/规则集/策略组/兜底出站）/订阅（配额用量、链接二维码弹框）/设置（主题、账号、内核只读状态与日志、面板更新、AI 供应商与模型、DNS、系统优化）
+        ├── components/   # AppLayout、AiChatDialog（顶栏 AI 助手近全屏对话弹框）、EmptyState、FormGroupCard、InboundForm、InboundUsersDialog、RuleListCard、RuleSetCard、RuleSetDialog、PolicyGroupCard、SubscriptionLinksDialog
         ├── inbound-schema.ts # 七协议字段 schema、连接层默认值（含纯 JS X25519）与弱配置警示
         └── router/       # 路由与守卫
 ```

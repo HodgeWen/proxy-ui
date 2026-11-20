@@ -97,6 +97,12 @@ panel.example.com {
 
 协议层拥塞算法按协议给最佳默认：Hysteria2 用 `bbr_profile=standard`、TUIC 用 `bbr`；TCP 类协议（VLESS/Trojan/VMess/Shadowsocks）走系统 TCP 拥塞控制，因此 BBR 对它们同样有效。
 
+## AI 助手
+
+顶栏「AI 助手」按钮打开接近全屏的对话弹框（标题栏可最大化铺满视口）：对话、工具调用确认与供应商 / 模型 / 推理等级切换都在弹框内完成；关闭弹框即重置当前对话，下次打开从新会话开始。
+
+供应商在「设置 → AI 供应商」维护，支持任意 OpenAI 兼容供应商（OpenAI、DeepSeek、Moonshot、本地 vLLM 等）：新增供应商（base-url + API Key，Key 只存服务端、对话经面板代理转发）后，可从供应商 `/models` 接口拉取并多选导入模型，也可手工添加（如 `gpt-6.2`、`deepseek-v4.1-flash`）；每个模型可维护推理等级列表与默认等级。
+
 ## 内核
 
 sing-box **1.14.4 已编进面板**，无需下载也无法更换版本；升级内核随面板版本一起发布。内核随面板自动运行，配置保存即热应用，无需手动启停；「设置 → 内核」只读查看内核状态与日志。

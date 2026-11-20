@@ -1,11 +1,11 @@
 <!-- 应用布局：左侧整列 nav 表面侧栏（渐变 logo 品牌区 / 导航 / 用户底部区），
-     右侧顶栏（标题 + 副标题 / 内核状态胶囊 / 主题循环按钮）与内容区。
+     右侧顶栏（标题 + 副标题 / 内核状态胶囊 / AI 助手按钮 / 主题循环按钮）与内容区。
      顶栏位于滚动容器外天然吸顶；颜色/圆角/阴影全部走 --u-* 主题令牌，12 预设与明暗切换直接生效 -->
 <script setup lang="ts">
 import { UButton, UNav } from '@veltra/desktop'
 import type { NavItem } from '@veltra/desktop'
 import { AiChat, Download, Filter, Monitor, Moon, Secured, Setting, Share, Sun, Terminal, Upload, UserCircle } from '@veltra/icons/normal'
-import { computed, onBeforeUnmount, onMounted, shallowRef } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { fetchKernelStatus } from '../api/kernel'
@@ -13,6 +13,9 @@ import type { KernelStatus } from '../api/kernel'
 import { useAuthStore } from '../stores/auth'
 import { setThemeMode, useTheme } from '../theme'
 import type { ThemeMode } from '../theme'
+
+// AI 对话组件连带 @veltra/ai 体积较大，异步加载并在首次打开后才挂载，避免拖慢首屏
+const AiChatDialog = defineAsyncComponent(() => import('./AiChatDialog.vue'))
 
 const route = useRoute()
 const router = useRouter()
@@ -69,6 +72,17 @@ function toggleThemeMode(): void {
   setThemeMode(themeToggle.value.next)
 }
 
+// ---------- 顶栏 AI 助手弹框 ----------
+
+const aiVisible = shallowRef(false)
+/** 首次打开后才挂载弹框（配合异步组件延迟加载 @veltra/ai） */
+const aiMounted = shallowRef(false)
+
+function openAI(): void {
+  aiMounted.value = true
+  aiVisible.value = true
+}
+
 const menus: NavItem[] = [
   { title: '仪表盘', icon: Monitor, path: '/dashboard' },
   { title: '入站', icon: Download, path: '/inbounds' },
@@ -76,7 +90,6 @@ const menus: NavItem[] = [
   { title: '证书', icon: Secured, path: '/certs' },
   { title: '规则', icon: Filter, path: '/rules' },
   { title: '订阅', icon: Share, path: '/subscription' },
-  { title: 'AI 助手', icon: AiChat, path: '/ai' },
   { title: '设置', icon: Setting, path: '/settings' },
 ]
 
@@ -125,6 +138,15 @@ async function handleLogout() {
           </span>
           <span v-if="auth.version" class="app-version">v{{ auth.version }}</span>
           <u-button
+            circle
+            text
+            :icon="AiChat"
+            :icon-size="16"
+            title="AI 助手（接近全屏对话，可在弹框内切换供应商/模型与推理等级）"
+            aria-label="打开 AI 助手"
+            @click="openAI"
+          />
+          <u-button
             class="app-theme-toggle"
             circle
             text
@@ -140,6 +162,8 @@ async function handleLogout() {
         <router-view />
       </main>
     </div>
+    <!-- AI 助手弹框挂在布局层，全站顶栏可达；关闭弹框即重置当前对话 -->
+    <AiChatDialog v-if="aiMounted" v-model="aiVisible" />
   </div>
 </template>
 
