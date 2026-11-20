@@ -95,7 +95,7 @@ panel.example.com {
 bash scripts/build.sh   # 前端构建 + linux/amd64、darwin/arm64 双平台交叉编译，产物在 bin/
 ```
 
-版本号经 `git describe` 注入；开发调试：根目录 `go run .` + `cd web && bun run dev`（Vite 代理 API）。
+版本号经 `git describe` 注入；开发调试用 Makefile：`make dev` 一条命令同起前后端（Vite 热更新，访问 http://localhost:5173，开发数据在 `.devdata/`，`make help` 看全部命令）。
 
 ## 许可证
 
