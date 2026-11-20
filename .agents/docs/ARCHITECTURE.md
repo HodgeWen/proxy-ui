@@ -14,7 +14,7 @@
 6. **DNS**：一份配置双端生效——写入服务端 `dns` 段与 `route.default_domain_resolver`，同时随订阅下发（sing-box `dns` 段、mihomo `dns:` 段）
 7. **系统优化**：只读展示 TCP 拥塞算法，Linux + root 下可一键写入 sysctl 开启 BBR
 8. **面板更新**：面板自身二进制从 GitHub Releases 更新（二进制替换 + 同 PID 重启）；内核随面板版本走
-9. **AI 助手**：供应商/模型/api-key/推理强度在设置中配置；AI 能以工具（function calling）方式调用面板接口
+9. **AI 助手**：设置页配置多供应商 → 每供应商多模型 → 每模型多推理等级（模型 id 跨供应商全局唯一）；模型可从供应商 `/models` 拉取导入或手工添加；对话按供应商代理（OpenAI 兼容 SSE），前端经 `GET /api/ai/transport` 元数据喂 `@veltra/ai` 的 `createOpenAITransport`；AI 能以工具（function calling）方式调用面板接口
 
 参考形态：alireza0/s-ui（入站内多用户 + 每用户一条订阅 + 按用户名统计）。
 
@@ -27,7 +27,7 @@
 - **subscription**：匿名 token 鉴权的 GET 订阅端点，按 User-Agent/查询参数输出 sing-box / clash(mihomo) 配置
 - **singbox**：配置生成（入站+多用户/出站/路由/规则集/DNS）、**进程内内核实例生命周期**（`box.New`/`Start`/`Close`；`Apply` 配置未变则跳过重建、失败回滚 `lastGood`、统计监听端口按实例动态分配）、按用户流量采集（v2ray 统计 gRPC + 差分落库）
 - **update**：面板自身的 GitHub Releases 版本查询、下载校验与二进制替换重启
-- **ai**：供应商配置存取（key 不回显）、OpenAI 兼容 SSE 对话代理与工具注册表
+- **ai**：多供应商与多模型配置存取（key 不回显、模型 id 跨供应商全局唯一）、上游 `/models` 拉取、`@veltra/ai` transport 元数据构造、按供应商路由的 OpenAI 兼容 SSE 对话代理与工具注册表
 - **db**：SQLite 单文件（glebarez 纯 Go 驱动 + GORM），存面板配置、账号、订阅用户/节点绑定与累计流量；启动时按 `PRAGMA user_version` 校验结构版本，旧 schema 库整体删除并重建为空库（不做旧数据迁移）
 
 > **为什么内核必须内置**：官方 Release 二进制未编入 `with_v2ray_api`，拿不到按用户流量；Clash API 的连接元数据也没有用户字段。只有把内核作为库编进来并启用该标签，共享入站下的按用户配额才成立。

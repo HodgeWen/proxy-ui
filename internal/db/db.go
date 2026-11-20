@@ -16,7 +16,9 @@ import (
 //
 // 只做「版本相符直接用、不符整体重建」，不做迁移：面板不做旧数据兼容，
 // 结构一变就让用户以空库重新配置，避免半迁移状态留下难查的脏数据。
-const schemaVersion = 1
+//
+// v2：AI 供应商从单行配置改为 AIProvider（多供应商）+ AIModel（多模型）双表。
+const schemaVersion = 2
 
 // Open 打开（或创建）SQLite 数据库并执行自动迁移，库文件所在目录不存在时自动创建。
 //
@@ -39,7 +41,7 @@ func Open(path string) (*gorm.DB, error) {
 	if err := g.AutoMigrate(
 		&Admin{}, &Setting{}, &Inbound{}, &InboundUser{}, &Outbound{}, &PolicyGroup{}, &Rule{},
 		&RuleSet{}, &RuleSetItem{}, &SubscriptionToken{}, &SubscriptionNode{}, &UserTraffic{}, &TokenTraffic{},
-		&AIProvider{}, &Certificate{},
+		&AIProvider{}, &AIModel{}, &Certificate{},
 	); err != nil {
 		return nil, fmt.Errorf("数据库迁移失败: %w", err)
 	}

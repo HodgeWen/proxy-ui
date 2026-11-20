@@ -15,7 +15,7 @@ proxy-ui/
 │   ├── singbox/          # 内置内核：连接层配置模型与协议映射、多用户凭据生成与 users 渲染、路由规则与规则集、DNS 模型与预设、配置聚合（BuildConfig）、进程内实例生命周期（manager.go：Start 失败回滚 lastGood、Apply 配置未变则跳过重建、统计端口按实例动态分配）、v2ray 统计采集与差分落库（stats.go / statsclient.go）
 │   ├── subscription/     # 订阅导出：按 token 取用户在各入站的身份→客户端节点、策略组/规则映射、sing-box 与 mihomo 双格式渲染（含 DNS 段与 rule-providers）、配额/到期拒绝、匿名端点
 │   ├── update/           # 面板自身更新：GitHub Releases 版本查询、下载校验、二进制替换与同 PID 重启（内核不再走此模块）
-│   └── ai/               # AI 供应商配置存取、OpenAI 兼容 SSE 对话代理、面板工具注册表
+│   └── ai/               # AI 多供应商/多模型配置存取、上游 /models 拉取、@veltra/ai transport 元数据、按供应商 SSE 对话代理、面板工具注册表
 ├── README.md             # 运行说明：下载、systemd、反代 TLS、首次向导、订阅模型、DNS、BBR、内核说明、面板更新
 ├── Makefile              # dev/dev-api/dev-web/run/build/test/clean（已内置内核构建标签）
 ├── scripts/
@@ -42,7 +42,7 @@ proxy-ui/
 | singbox | `internal/singbox/` | 配置模型与映射、多用户渲染、路由与规则集、DNS、进程内内核生命周期（`Apply` 幂等应用 + 失败回滚）、v2ray 统计采集 | `New(dir)` / `NewStatsMonitor(mgr, db)` |
 | subscription | `internal/subscription/` | 订阅组装与双格式渲染、配额拒绝、匿名端点 | `New(db)` |
 | update | `internal/update/` | 面板自身版本查询与自更新 | `NewSelfUpdate(version)` |
-| ai | `internal/ai/` | AI 供应商配置、SSE 对话代理、工具注册表 | `New(db)` |
+| ai | `internal/ai/` | 多供应商与多模型配置（key 不回显、模型 id 全局唯一）、上游 /models 拉取、transport 元数据、按供应商 SSE 对话代理、工具注册表 | `New(db)` |
 | web | `web/` | Vue3 SPA | `src/main.ts` |
 
 ## 依赖
@@ -71,4 +71,4 @@ graph TD
 - **配额执行**：`StatsMonitor` 每秒经 v2ray 统计 gRPC 读 `user>>>` 计数器并差分累加进 `user_traffics` → `api.ReconcileQuota` 按 token 汇总用量，超限/到期/停用则置 `InboundUser.enabled=false` → `buildKernelConfig` 只输出启用用户（无用户的入站跳过），订阅端点返回 403
 - **保存即热应用**：任一写 handler 落库成功后调 `api.applyKernelConfig`（`applyMu` 串行化）→ `buildKernelConfig` 聚合入站+用户/出站/规则/策略组/DNS（无可用入站时用 `singbox.MinConfig()`）→ `core.CheckConfig` 校验 → `core.Apply(cfg)`（配置未变跳过；失败由 Manager 回滚 `lastGood`）→ 失败则 `applyOrFail` 让本次请求返回原因（数据保留）。不存在「应用配置」接口与按钮
 - **DNS 双端生效**：设置页保存到 `SettingDNS` → `BuildConfig` 写入服务端 `dns` 段与 `route.default_domain_resolver`，并随订阅下发（mihomo 渲染等价 `dns:` 段）
-- **AI 工具调用**：前端 `@veltra/ai` 编排工具循环 → POST `/api/ai/tools/call` → api 按名回落业务模块 → 结果回灌模型；对话本体经 `/api/ai/chat` 代理上游 SSE
+- **AI 工具调用**：前端 `@veltra/ai` 编排工具循环 → POST `/api/ai/tools/call` → api 按名回落业务模块 → 结果回灌模型；对话本体按供应商经 `/api/ai/providers/:id/chat` 代理上游 SSE（transport 元数据来自 `GET /api/ai/transport`）

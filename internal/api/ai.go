@@ -16,58 +16,283 @@ import (
 	"proxy-ui/internal/singbox"
 )
 
-// ---------- 供应商配置 ----------
+// ---------- 供应商与模型 ----------
 
-// aiConfigView AI 供应商配置视图（api-key 不回显，仅给出是否已配置）。
-type aiConfigView struct {
-	BaseURL         string `json:"baseUrl"`         // 接口地址
-	Model           string `json:"model"`           // 模型名
-	ReasoningEffort string `json:"reasoningEffort"` // 推理强度：low/medium/high，空为不指定
-	HasKey          bool   `json:"hasKey"`          // 是否已配置 api-key
-	Configured      bool   `json:"configured"`      // 配置是否完整（可发起对话）
+// aiProviderView 供应商视图（api-key 不回显，仅给出是否已配置）。
+type aiProviderView struct {
+	ID      uint          `json:"id"`      // 主键
+	Name    string        `json:"name"`    // 供应商名称
+	BaseURL string        `json:"baseUrl"` // OpenAI 兼容接口地址
+	Enabled bool          `json:"enabled"` // 是否启用
+	Sort    int           `json:"sort"`    // 排序，值小者靠前
+	HasKey  bool          `json:"hasKey"`  // 是否已配置 api-key
+	Models  []aiModelView `json:"models"`  // 供应商下的模型
 }
 
-// aiConfigReq 保存供应商配置请求；apiKey 为空表示保留已存 Key。
-type aiConfigReq struct {
-	BaseURL         string `json:"baseUrl"`         // 接口地址
-	Model           string `json:"model"`           // 模型名
-	APIKey          string `json:"apiKey"`          // API Key（可选，空为保留）
-	ReasoningEffort string `json:"reasoningEffort"` // 推理强度
+// aiModelView 模型视图。
+type aiModelView struct {
+	ID                    uint                `json:"id"`                    // 主键
+	ProviderID            uint                `json:"providerId"`            // 所属供应商
+	ModelID               string              `json:"modelId"`               // 模型 id（跨供应商全局唯一）
+	Label                 string              `json:"label"`                 // 显示名
+	Description           string              `json:"description"`           // 一句话描述
+	ReasoningLevels       []ai.ReasoningLevel `json:"reasoningLevels"`       // 推理等级列表
+	DefaultReasoningLevel string              `json:"defaultReasoningLevel"` // 默认推理等级
+	ContextWindow         int                 `json:"contextWindow"`         // 上下文窗口（token）
+	Enabled               bool                `json:"enabled"`               // 是否启用
 }
 
-// aiConfigToView 配置转响应视图。
-func aiConfigToView(cfg ai.Config) aiConfigView {
-	return aiConfigView{
-		BaseURL: cfg.BaseURL, Model: cfg.Model, ReasoningEffort: cfg.ReasoningEffort,
-		HasKey: cfg.APIKey != "", Configured: cfg.Ready(),
+// aiModelToView 模型转视图（推理等级 JSON 解析为数组，损坏时置空不中断列表）。
+func aiModelToView(m db.AIModel) aiModelView {
+	levels, _ := ai.ParseReasoningLevels(m.ReasoningLevels)
+	if levels == nil {
+		levels = []ai.ReasoningLevel{}
+	}
+	return aiModelView{
+		ID: m.ID, ProviderID: m.ProviderID, ModelID: m.ModelID, Label: m.Label,
+		Description: m.Description, ReasoningLevels: levels,
+		DefaultReasoningLevel: m.DefaultReasoningLevel,
+		ContextWindow:         m.ContextWindow, Enabled: m.Enabled,
 	}
 }
 
-// HandleAIConfigGet GET /api/ai/config AI 供应商配置。
-func (a *API) HandleAIConfigGet(c *gin.Context) {
-	cfg, err := a.ai.LoadConfig()
+// aiProviderViews 查询全部供应商并按所属组装模型。
+func (a *API) aiProviderViews() ([]aiProviderView, error) {
+	providers, err := a.ai.ListProviders()
+	if err != nil {
+		return nil, err
+	}
+	var models []db.AIModel
+	if err := a.db.Order("provider_id, id").Find(&models).Error; err != nil {
+		return nil, fmt.Errorf("查询模型失败: %w", err)
+	}
+	byProvider := map[uint][]aiModelView{}
+	for _, m := range models {
+		byProvider[m.ProviderID] = append(byProvider[m.ProviderID], aiModelToView(m))
+	}
+	views := make([]aiProviderView, 0, len(providers))
+	for _, p := range providers {
+		models := byProvider[p.ID]
+		if models == nil {
+			models = []aiModelView{}
+		}
+		views = append(views, aiProviderView{
+			ID: p.ID, Name: p.Name, BaseURL: p.BaseURL, Enabled: p.Enabled,
+			Sort: p.Sort, HasKey: p.APIKey != "", Models: models,
+		})
+	}
+	return views, nil
+}
+
+// aiProviderReq 供应商创建/更新请求；apiKey 为空表示保留已存 Key，enabled 缺省 true。
+type aiProviderReq struct {
+	Name    string `json:"name"`    // 供应商名称
+	BaseURL string `json:"baseUrl"` // OpenAI 兼容接口地址
+	APIKey  string `json:"apiKey"`  // API Key（可选，空为保留）
+	Enabled *bool  `json:"enabled"` // 是否启用，缺省 true
+}
+
+// aiProviderInput 请求转服务层入参。
+func (r aiProviderReq) input() ai.ProviderInput {
+	enabled := r.Enabled == nil || *r.Enabled
+	return ai.ProviderInput{Name: r.Name, BaseURL: r.BaseURL, APIKey: r.APIKey, Enabled: enabled}
+}
+
+// HandleAIProvidersList GET /api/ai/providers 供应商列表（含各自模型）。
+func (a *API) HandleAIProvidersList(c *gin.Context) {
+	views, err := a.aiProviderViews()
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	OK(c, aiConfigToView(cfg))
+	OK(c, views)
 }
 
-// HandleAIConfigPut PUT /api/ai/config 保存 AI 供应商配置。
-func (a *API) HandleAIConfigPut(c *gin.Context) {
-	var req aiConfigReq
+// HandleAIProviderCreate POST /api/ai/providers 新增供应商。
+func (a *API) HandleAIProviderCreate(c *gin.Context) {
+	var req aiProviderReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
 		return
 	}
-	cfg, err := a.ai.SaveConfig(ai.Config{
-		BaseURL: req.BaseURL, Model: req.Model, APIKey: req.APIKey, ReasoningEffort: req.ReasoningEffort,
-	})
+	record, err := a.ai.CreateProvider(req.input())
 	if err != nil {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	OK(c, aiConfigToView(cfg))
+	OK(c, aiProviderView{
+		ID: record.ID, Name: record.Name, BaseURL: record.BaseURL, Enabled: record.Enabled,
+		Sort: record.Sort, HasKey: record.APIKey != "", Models: []aiModelView{},
+	})
+}
+
+// HandleAIProviderUpdate PUT /api/ai/providers/:id 更新供应商（apiKey 空为保留）。
+func (a *API) HandleAIProviderUpdate(c *gin.Context) {
+	id, ok := idParam(c)
+	if !ok {
+		return
+	}
+	var req aiProviderReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
+		return
+	}
+	record, err := a.ai.UpdateProvider(id, req.input())
+	if err != nil {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	OK(c, aiProviderView{
+		ID: record.ID, Name: record.Name, BaseURL: record.BaseURL, Enabled: record.Enabled,
+		Sort: record.Sort, HasKey: record.APIKey != "", Models: []aiModelView{},
+	})
+}
+
+// HandleAIProviderDelete DELETE /api/ai/providers/:id 删除供应商及其下全部模型。
+func (a *API) HandleAIProviderDelete(c *gin.Context) {
+	id, ok := idParam(c)
+	if !ok {
+		return
+	}
+	if err := a.ai.DeleteProvider(id); err != nil {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	OK(c, gin.H{"deleted": id})
+}
+
+// HandleAIProvidersOrder PUT /api/ai/providers/order 按给定 ID 顺序重排供应商。
+func (a *API) HandleAIProvidersOrder(c *gin.Context) {
+	var req orderReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
+		return
+	}
+	if err := a.ai.OrderProviders(req.IDs); err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, gin.H{"ordered": len(req.IDs)})
+}
+
+// aiModelReq 模型创建/更新请求；enabled 缺省 true。
+type aiModelReq struct {
+	ModelID               string              `json:"modelId"`               // 模型 id（跨供应商全局唯一）
+	Label                 string              `json:"label"`                 // 显示名
+	Description           string              `json:"description"`           // 一句话描述
+	ReasoningLevels       []ai.ReasoningLevel `json:"reasoningLevels"`       // 推理等级列表
+	DefaultReasoningLevel string              `json:"defaultReasoningLevel"` // 默认推理等级
+	ContextWindow         int                 `json:"contextWindow"`         // 上下文窗口（token）
+	Enabled               *bool               `json:"enabled"`               // 是否启用，缺省 true
+}
+
+// input 请求转服务层入参。
+func (r aiModelReq) input() ai.ModelInput {
+	enabled := r.Enabled == nil || *r.Enabled
+	return ai.ModelInput{
+		ModelID: r.ModelID, Label: r.Label, Description: r.Description,
+		ReasoningLevels: r.ReasoningLevels, DefaultReasoningLevel: r.DefaultReasoningLevel,
+		ContextWindow: r.ContextWindow, Enabled: enabled,
+	}
+}
+
+// HandleAIModelCreate POST /api/ai/providers/:id/models 手工新增模型。
+func (a *API) HandleAIModelCreate(c *gin.Context) {
+	providerID, ok := idParam(c)
+	if !ok {
+		return
+	}
+	var req aiModelReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
+		return
+	}
+	record, err := a.ai.CreateModel(providerID, req.input())
+	if err != nil {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	OK(c, aiModelToView(record))
+}
+
+// aiModelsImportReq 模型批量导入请求（从上游 /models 多选导入）。
+type aiModelsImportReq struct {
+	ModelIDs []string `json:"modelIds"` // 模型 id 列表
+}
+
+// HandleAIModelsImport POST /api/ai/providers/:id/models/import 批量导入模型 id（已占用的跳过）。
+func (a *API) HandleAIModelsImport(c *gin.Context) {
+	providerID, ok := idParam(c)
+	if !ok {
+		return
+	}
+	var req aiModelsImportReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
+		return
+	}
+	imported, err := a.ai.ImportModels(providerID, req.ModelIDs)
+	if err != nil {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	OK(c, gin.H{"imported": imported})
+}
+
+// HandleAIModelsFetch POST /api/ai/providers/:id/models/fetch 拉取上游 /models 列表。
+func (a *API) HandleAIModelsFetch(c *gin.Context) {
+	providerID, ok := idParam(c)
+	if !ok {
+		return
+	}
+	models, err := a.ai.FetchModels(c.Request.Context(), providerID)
+	if err != nil {
+		Fail(c, http.StatusBadGateway, err.Error())
+		return
+	}
+	OK(c, models)
+}
+
+// HandleAIModelUpdate PUT /api/ai/models/:id 更新模型。
+func (a *API) HandleAIModelUpdate(c *gin.Context) {
+	id, ok := idParam(c)
+	if !ok {
+		return
+	}
+	var req aiModelReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
+		return
+	}
+	record, err := a.ai.UpdateModel(id, req.input())
+	if err != nil {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	OK(c, aiModelToView(record))
+}
+
+// HandleAIModelDelete DELETE /api/ai/models/:id 删除模型。
+func (a *API) HandleAIModelDelete(c *gin.Context) {
+	id, ok := idParam(c)
+	if !ok {
+		return
+	}
+	if err := a.ai.DeleteModel(id); err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, gin.H{"deleted": id})
+}
+
+// HandleAITransport GET /api/ai/transport 前端 createOpenAITransport 元数据。
+func (a *API) HandleAITransport(c *gin.Context) {
+	transport, err := a.ai.Transport()
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	OK(c, transport)
 }
 
 // ---------- 流式对话（SSE） ----------
@@ -75,10 +300,14 @@ func (a *API) HandleAIConfigPut(c *gin.Context) {
 // maxAIChatBody 对话代理请求体大小上限。
 const maxAIChatBody = 16 << 20
 
-// HandleAIChat POST /api/ai/chat OpenAI 兼容流式对话代理：
-// 注入供应商 api-key 与缺省参数后转发上游，SSE 原样回传。
+// HandleAIChat POST /api/ai/providers/:id/chat OpenAI 兼容流式对话代理：
+// 按路径供应商路由，注入其 api-key、校验模型归属并补默认推理等级后转发上游，SSE 原样回传。
 // 响应不经统一 envelope（由前端 @veltra/ai transport 按 OpenAI 协议解析）。
 func (a *API) HandleAIChat(c *gin.Context) {
+	providerID, ok := idParam(c)
+	if !ok {
+		return
+	}
 	body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxAIChatBody+1))
 	if err != nil {
 		failAI(c, http.StatusBadRequest, "读取请求失败")
@@ -88,11 +317,13 @@ func (a *API) HandleAIChat(c *gin.Context) {
 		failAI(c, http.StatusRequestEntityTooLarge, "请求体过大")
 		return
 	}
-	resp, err := a.ai.Chat(c.Request.Context(), body)
+	resp, err := a.ai.Chat(c.Request.Context(), providerID, body)
 	if err != nil {
 		switch {
-		case errors.Is(err, ai.ErrNotConfigured):
-			failAI(c, http.StatusServiceUnavailable, "AI 供应商未配置，请先在设置页完成配置")
+		case errors.Is(err, ai.ErrNotConfigured), errors.Is(err, ai.ErrProviderDisabled):
+			failAI(c, http.StatusServiceUnavailable, err.Error())
+		case errors.Is(err, ai.ErrInvalidRequest), errors.Is(err, ai.ErrModelNotFound):
+			failAI(c, http.StatusBadRequest, err.Error())
 		default:
 			failAI(c, http.StatusBadGateway, err.Error())
 		}
@@ -221,6 +452,24 @@ func (a *API) registerAIQueryTools() {
 		},
 	})
 	a.ai.Register(ai.Tool{
+		Name: "list_certs",
+		Description: "列出面板全部 TLS 证书（含引用方式 managed/path、域名、到期时间与剩余天数、" +
+			"解析失败原因，以及各证书被哪些入站引用）",
+		Parameters: map[string]any{"type": "object", "properties": map[string]any{}},
+		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
+			views, err := a.certViews()
+			if err != nil {
+				return nil, err
+			}
+			for i := range views {
+				if refs := a.certReferencedBy(views[i].Certificate); len(refs) > 0 {
+					views[i].ReferencedBy = refs
+				}
+			}
+			return views, nil
+		},
+	})
+	a.ai.Register(ai.Tool{
 		Name:        "list_rules",
 		Description: "列出全部全局路由规则（按生效顺序，含匹配对象 matchType、匹配方式 matchMethod、匹配值、引用的规则集与出站动作）",
 		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
@@ -254,7 +503,7 @@ func (a *API) registerAIQueryTools() {
 	})
 	a.ai.Register(ai.Tool{
 		Name:        "get_kernel_status",
-		Description: "查询 sing-box 内核运行状态（是否安装、是否运行、版本、运行时长）",
+		Description: "查询 sing-box 内核运行状态（内置内核、是否运行、版本、运行时长）",
 		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
 		Exec: func(ctx context.Context, _ json.RawMessage) (any, error) {
 			return a.kernelStatusOf(ctx), nil
@@ -342,14 +591,18 @@ func (a *API) registerModify(tool ai.Tool) {
 func (a *API) registerAIModifyTools() {
 	a.registerModify(ai.Tool{
 		Name: "create_inbound",
-		Description: "创建入站（真实监听）。入站只配连接层参数（TLS/证书/Reality/混淆/带宽/拥塞算法），" +
+		Description: "创建入站（真实监听）。入站只配连接层参数（TLS/证书/Reality/ECH/混淆/masquerade/带宽/拥塞算法），" +
 			"用户凭据在入站内单独创建；listenPort 省略时自动分配随机空闲端口；保存后内核立即按新配置重建",
 		Parameters: toolParams(map[string]any{
 			"protocol": toolProp("string", "入站协议", singbox.SupportedProtocols...),
 			"name":     toolProp("string", "入站名称，缺省按 协议-序号 生成"),
 			"listen":   toolProp("string", "监听地址：:: 双栈 / 0.0.0.0 仅 IPv4 / 127.0.0.1 走反代，缺省 ::"),
-			"config":   map[string]any{"type": "object", "description": "协议连接层配置对象，缺省按协议填默认值"},
-			"enabled":  toolProp("boolean", "是否启用，缺省 true"),
+			"config": map[string]any{"type": "object", "description": "协议连接层配置对象，缺省按协议填默认值。" +
+				"通用：tls{enabled,serverName,alpn,minVersion,maxVersion,ech{enabled,key,keyPath},certMode,certId,certPath,keyPath}、" +
+				"tcpFastOpen、multiplex{enabled,padding}（VLESS/Trojan/VMess/Shadowsocks）；" +
+				"Hysteria2：obfsEnabled/obfsPassword、upMbps/downMbps、bbrProfile、masquerade{type,directory,proxyUrl,statusCode,content}；" +
+				"TUIC：congestionControl（默认 bbr）、zeroRttHandshake、heartbeat；Shadowsocks：network（空为 TCP+UDP）"},
+			"enabled": toolProp("boolean", "是否启用，缺省 true"),
 		}, "protocol"),
 		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
 			var req inboundReq
@@ -812,6 +1065,25 @@ func (a *API) registerAIModifyTools() {
 				return nil, err
 			}
 			return cfg, nil
+		},
+	})
+	a.registerModify(ai.Tool{
+		Name: "create_self_signed_cert",
+		Description: "一键生成自签 TLS 证书（域名作 CN 并入 SAN，面板存储 managed 口径），" +
+			"生成后可在入站 TLS 中按证书 ID 引用；保存后内核立即按新配置重建",
+		Parameters: toolParams(map[string]any{
+			"domain":  toolProp("string", "主域名（作 CN 与 SAN，不能是 IP；IP 请填入 sans）"),
+			"sans":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "附加 SAN（域名或 IP）"},
+			"days":    toolProp("integer", "有效期天数（1-36500）"),
+			"name":    toolProp("string", "名称备注，缺省取主域名"),
+			"keyType": toolProp("string", "密钥类型：p256（默认）/ rsa2048 / ed25519", SupportedCertKeyTypes...),
+		}, "domain", "days"),
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var req selfSignReq
+			if err := decodeToolArgs(args, &req); err != nil {
+				return nil, err
+			}
+			return a.createSelfSigned(req)
 		},
 	})
 	a.registerModify(ai.Tool{

@@ -184,12 +184,30 @@ type TokenTraffic struct {
 	UpdatedAt     time.Time `json:"updatedAt"`                 // 更新时间
 }
 
-// AIProvider AI 供应商配置（OpenAI 兼容接口）。
+// AIProvider AI 供应商配置（OpenAI 兼容接口），一个供应商下挂多个模型（AIModel）。
 type AIProvider struct {
-	ID              uint      `gorm:"primaryKey" json:"id"`           // 主键
-	BaseURL         string    `gorm:"size:256" json:"baseUrl"`        // 接口地址（base-url）
-	APIKey          string    `gorm:"size:256" json:"-"`              // API Key，不回显
-	Model           string    `gorm:"size:64" json:"model"`           // 模型名
-	ReasoningEffort string    `gorm:"size:16" json:"reasoningEffort"` // 推理强度：low/medium/high
-	UpdatedAt       time.Time `json:"updatedAt"`                      // 更新时间
+	ID        uint      `gorm:"primaryKey" json:"id"`        // 主键
+	Name      string    `gorm:"size:64" json:"name"`         // 供应商名称（UI 显示名）
+	BaseURL   string    `gorm:"size:256" json:"baseUrl"`     // OpenAI 兼容接口地址（base-url）
+	APIKey    string    `gorm:"size:256" json:"-"`           // API Key，不回显
+	Enabled   bool      `gorm:"default:true" json:"enabled"` // 是否启用（停用后不进对话路由）
+	Sort      int       `json:"sort"`                        // 排序，值小者靠前
+	CreatedAt time.Time `json:"createdAt"`                   // 创建时间
+	UpdatedAt time.Time `json:"updatedAt"`                   // 更新时间
+}
+
+// AIModel 供应商下的模型：ModelID 即发往上游的模型名，跨供应商全局唯一
+// （前端 @veltra/ai 的 ChatModel 要求模型 id 全局唯一，对话代理据此路由）。
+type AIModel struct {
+	ID                    uint      `gorm:"primaryKey" json:"id"`                 // 主键
+	ProviderID            uint      `gorm:"index" json:"providerId"`              // 所属供应商
+	ModelID               string    `gorm:"uniqueIndex;size:128" json:"modelId"`  // 模型 id（全局唯一，即上游模型名）
+	Label                 string    `gorm:"size:128" json:"label"`                // 显示名，空时前端取 id
+	Description           string    `gorm:"size:256" json:"description"`          // 一句话描述
+	ReasoningLevels       string    `gorm:"type:text" json:"reasoningLevels"`     // 推理等级列表（JSON 数组 [{value,label}]）
+	DefaultReasoningLevel string    `gorm:"size:32" json:"defaultReasoningLevel"` // 默认推理等级（须落在列表内，空为不指定）
+	ContextWindow         int       `json:"contextWindow"`                        // 上下文窗口（token），0 为未知
+	Enabled               bool      `gorm:"default:true" json:"enabled"`          // 是否启用
+	CreatedAt             time.Time `json:"createdAt"`                            // 创建时间
+	UpdatedAt             time.Time `json:"updatedAt"`                            // 更新时间
 }

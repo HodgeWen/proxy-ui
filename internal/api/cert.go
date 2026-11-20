@@ -59,25 +59,35 @@ type selfSignReq struct {
 // 解析失败时 NotAfter / DaysLeft 为 null、CertError 给出可读原因（不中断整张列表）。
 type certView struct {
 	db.Certificate
-	CommonName string     `json:"commonName"`          // 证书 CN
-	Domains    []string   `json:"domains"`             // CN + SAN 域名/IP 汇总（展示用）
-	NotAfter   *time.Time `json:"notAfter"`            // 到期时间
-	DaysLeft   *int       `json:"daysLeft"`            // 剩余整天数（已过期为负）
-	CertError  string     `json:"certError,omitempty"` // 证书解析失败的可读原因
+	CommonName   string     `json:"commonName"`          // 证书 CN
+	Domains      []string   `json:"domains"`             // CN + SAN 域名/IP 汇总（展示用）
+	NotAfter     *time.Time `json:"notAfter"`            // 到期时间
+	DaysLeft     *int       `json:"daysLeft"`            // 剩余整天数（已过期为负）
+	CertError    string     `json:"certError,omitempty"` // 证书解析失败的可读原因
+	ReferencedBy []string   `json:"referencedBy"`        // 引用该证书的入站名称（AI 工具视图填充）
 }
 
 // HandleCertsList GET /api/certs 证书列表（含到期时间与剩余天数）。
 func (a *API) HandleCertsList(c *gin.Context) {
-	var certs []db.Certificate
-	if err := a.db.Order("id").Find(&certs).Error; err != nil {
+	views, err := a.certViews()
+	if err != nil {
 		Fail(c, http.StatusInternalServerError, "查询证书列表失败: "+err.Error())
 		return
+	}
+	OK(c, views)
+}
+
+// certViews 查询全部证书并组装视图（含被入站引用情况之外的基础信息）。
+func (a *API) certViews() ([]certView, error) {
+	var certs []db.Certificate
+	if err := a.db.Order("id").Find(&certs).Error; err != nil {
+		return nil, err
 	}
 	views := make([]certView, len(certs))
 	for i, cert := range certs {
 		views[i] = a.certViewOf(cert)
 	}
-	OK(c, views)
+	return views, nil
 }
 
 // HandleCertSelfSigned POST /api/certs/self-signed 一键生成自签证书（managed 存储口径落 certs/）。
@@ -87,10 +97,22 @@ func (a *API) HandleCertSelfSigned(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
 		return
 	}
-	certPEM, keyPEM, err := generateSelfSigned(req.Domain, req.SANs, req.Days, req.KeyType)
+	view, err := a.createSelfSigned(req)
 	if err != nil {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
+	}
+	if !a.applyOrFail(c) {
+		return
+	}
+	OK(c, view)
+}
+
+// createSelfSigned 生成自签证书并落库（内核热应用由调用方负责）。
+func (a *API) createSelfSigned(req selfSignReq) (certView, error) {
+	certPEM, keyPEM, err := generateSelfSigned(req.Domain, req.SANs, req.Days, req.KeyType)
+	if err != nil {
+		return certView{}, err
 	}
 	name := req.Name
 	if name == "" {
@@ -98,29 +120,22 @@ func (a *API) HandleCertSelfSigned(c *gin.Context) {
 	}
 	var count int64
 	if err := a.db.Model(&db.Certificate{}).Where("name = ?", name).Count(&count).Error; err != nil {
-		Fail(c, http.StatusInternalServerError, "查询证书失败: "+err.Error())
-		return
+		return certView{}, fmt.Errorf("查询证书失败: %w", err)
 	}
 	if count > 0 {
-		Fail(c, http.StatusBadRequest, fmt.Sprintf("名称「%s」已存在，请换一个名称", name))
-		return
+		return certView{}, fmt.Errorf("名称「%s」已存在，请换一个名称", name)
 	}
 	certName, keyName, err := a.writeCertFiles(certPEM, keyPEM)
 	if err != nil {
-		Fail(c, http.StatusInternalServerError, err.Error())
-		return
+		return certView{}, err
 	}
 	cert := db.Certificate{Name: name, Mode: singbox.CertModeManaged, CertPath: certName, KeyPath: keyName}
 	if err := a.db.Create(&cert).Error; err != nil {
 		_ = os.Remove(filepath.Join(a.certDir(), certName))
 		_ = os.Remove(filepath.Join(a.certDir(), keyName))
-		Fail(c, http.StatusInternalServerError, "创建证书失败: "+err.Error())
-		return
+		return certView{}, fmt.Errorf("创建证书失败: %w", err)
 	}
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, a.certViewOf(cert))
+	return a.certViewOf(cert), nil
 }
 
 // HandleCertCreate POST /api/certs 新增证书（上传/粘贴存储或本地路径引用）。
@@ -256,7 +271,7 @@ func cleanAbsPath(p string) string {
 
 // certViewOf 为证书记录补充从 PEM 解析出的域名与到期信息；解析失败只置 CertError。
 func (a *API) certViewOf(cert db.Certificate) certView {
-	v := certView{Certificate: cert, Domains: []string{}}
+	v := certView{Certificate: cert, Domains: []string{}, ReferencedBy: []string{}}
 	pemText, err := a.readCertPEM(cert)
 	if err != nil {
 		v.CertError = err.Error()
