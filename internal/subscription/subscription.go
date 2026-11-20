@@ -18,13 +18,14 @@ import (
 	"proxy-ui/internal/singbox"
 )
 
-// ErrInvalidToken 匿名令牌不存在或已停用。
+// ErrInvalidToken 匿名令牌不存在或已停用（预览按 ID 查不到订阅用户也复用此错误）。
 var ErrInvalidToken = errors.New("订阅令牌不存在或已停用")
 
 // ErrUnavailable 订阅已到期或流量用尽。
 var ErrUnavailable = errors.New("订阅已到期或流量已用尽")
 
-// ErrNoNodes 该订阅没有任何可用节点（未勾选入站、入站被停用或用户被暂停）。
+// ErrNoNodes 该订阅没有任何可用节点（未勾选入站、入站被停用或用户被停用/暂停）；
+// 具体原因以 %w 附在错误消息里。
 var ErrNoNodes = errors.New("订阅下没有可用节点")
 
 // Format 订阅输出格式。
@@ -36,14 +37,23 @@ const (
 	FormatClash   Format = "clash"    // clash(mihomo) 客户端配置
 )
 
+// ParseFormat 解析显式给出的格式参数（接受 sing-box / mihomo 及其常见别名）；
+// 不认识的值返回 false，供需要严格校验格式的调用方（如预览接口）区别于 DetectFormat 的兜底默认。
+func ParseFormat(param string) (Format, bool) {
+	switch strings.ToLower(strings.TrimSpace(param)) {
+	case "clash", "mihomo", "clashmeta", "clash.meta":
+		return FormatClash, true
+	case "singbox", "sing-box", "sing":
+		return FormatSingBox, true
+	}
+	return "", false
+}
+
 // DetectFormat 选择订阅输出格式：查询参数 format 优先于 UA；
 // UA 含 clash/mihomo/stash 判为 clash，含 sing-box/singbox/SFI/SFM 判为 sing-box。
 func DetectFormat(param, ua string) Format {
-	switch strings.ToLower(strings.TrimSpace(param)) {
-	case "clash", "mihomo", "clashmeta", "clash.meta":
-		return FormatClash
-	case "singbox", "sing-box", "sing":
-		return FormatSingBox
+	if f, ok := ParseFormat(param); ok {
+		return f
 	}
 	lower := strings.ToLower(ua)
 	if strings.Contains(lower, "clash") || strings.Contains(lower, "mihomo") || strings.Contains(lower, "stash") {
@@ -97,6 +107,7 @@ func (s *Service) Handle(c *gin.Context) {
 
 // Fetch 校验匿名令牌并组装订阅数据：节点取该用户在各入站下的用户身份，
 // 服务器端口为入站端口（同入站下所有用户共享），服务器地址取请求 Host（反代天然适配）。
+// 保持原语义供匿名订阅端点使用；预览走 Preview（共用 assemble，差异只在校验）。
 func (s *Service) Fetch(token, requestHost string) (Data, error) {
 	var record db.SubscriptionToken
 	if err := s.db.First(&record, "token = ?", token).Error; err != nil {
@@ -118,15 +129,33 @@ func (s *Service) Fetch(token, requestHost string) (Data, error) {
 	}
 	now := time.Now()
 	s.db.Model(&record).Update("last_used_at", now) // 最近使用时间非关键数据，失败忽略
+	return s.assemble(record, requestHost)
+}
 
+// Preview 按订阅用户 ID 与格式渲染预览内容：跳过停用、配额与到期校验，
+// 与匿名端点共用同一 assemble / Render，保证预览即真实下发内容；无可用节点时返回带原因的 ErrNoNodes。
+func (s *Service) Preview(id uint, requestHost string, format Format) ([]byte, error) {
+	var record db.SubscriptionToken
+	if err := s.db.First(&record, id).Error; err != nil {
+		return nil, ErrInvalidToken
+	}
+	data, err := s.assemble(record, requestHost)
+	if err != nil {
+		return nil, err
+	}
+	return Render(data, format)
+}
+
+// assemble 组装订阅数据（节点、策略组、规则与 DNS），匿名下发与预览共用。
+func (s *Service) assemble(record db.SubscriptionToken, requestHost string) (Data, error) {
 	specs, err := s.nodes(record.ID)
 	if err != nil {
 		return Data{}, err
 	}
 	if len(specs) == 0 {
 		// 没有任何可用节点时，下发的只会是一份"全部直连"的空配置，客户端会以为订阅正常。
-		// 直接报错让用户知道该去找管理员（未勾选入站 / 入站被停用 / 用户被暂停）。
-		return Data{}, ErrNoNodes
+		// 直接报错并带上原因（未勾选入站 / 入站被停用 / 用户被停用或暂停）。
+		return Data{}, fmt.Errorf("%w：%s", ErrNoNodes, s.noNodeReason(record.ID))
 	}
 	var groups []db.PolicyGroup
 	if err := s.db.Where("enabled = ?", true).Order("id").Find(&groups).Error; err != nil {
@@ -156,6 +185,16 @@ func (s *Service) Fetch(token, requestHost string) (Data, error) {
 	}
 	return Assemble(hostOnly(requestHost), specs, groupEntries, ruleEntries,
 		getSetting(s.db, db.SettingRouteFinal), dns)
+}
+
+// noNodeReason 无可用节点的原因：要么没勾过入站，要么勾选的入站已全部停用、
+// 或该用户在入站下的节点已全部被停用/暂停。
+func (s *Service) noNodeReason(tokenID uint) string {
+	var bound int64
+	if err := s.db.Model(&db.SubscriptionNode{}).Where("token_id = ?", tokenID).Count(&bound).Error; err != nil || bound == 0 {
+		return "该用户未勾选任何入站"
+	}
+	return "勾选的入站已全部停用，或该用户的节点已全部停用/暂停"
 }
 
 // usedBytes 统计订阅用户的已用流量（唯一依据是 TokenTraffic，与当前用户身份无关）。

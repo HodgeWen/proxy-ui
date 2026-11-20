@@ -12,6 +12,7 @@ import (
 	"proxy-ui/internal/ai"
 	"proxy-ui/internal/db"
 	"proxy-ui/internal/singbox"
+	"proxy-ui/internal/subscription"
 	"proxy-ui/internal/update"
 )
 
@@ -35,13 +36,14 @@ type API struct {
 	selfUpdates *update.SelfUpdater   // 面板自身版本查询、替换与重启
 	stats       *singbox.StatsMonitor // 内核统计采集（实时速率与按用户累计流量）
 	ai          *ai.Service           // AI 助手（供应商配置、对话代理、工具注册表）
+	subs        *subscription.Service // 订阅组装与渲染（面板内预览；匿名端点由 server 单独装配）
 	dataDir     string                // 数据目录（证书存储等落盘位置）
 	applyMu     sync.Mutex            // 串行化「聚合配置 + 重建内核」，保证并发写操作按落库顺序生效
 }
 
 // New 构造 API；dataDir 为面板数据目录。
 func New(database *gorm.DB, sessions SessionManager, core *singbox.Manager, selfUpdates *update.SelfUpdater, stats *singbox.StatsMonitor, dataDir string) *API {
-	a := &API{db: database, sessions: sessions, core: core, selfUpdates: selfUpdates, stats: stats, dataDir: dataDir}
+	a := &API{db: database, sessions: sessions, core: core, selfUpdates: selfUpdates, stats: stats, dataDir: dataDir, subs: subscription.New(database)}
 	a.ai = ai.New(database)
 	a.registerAITools()
 	return a

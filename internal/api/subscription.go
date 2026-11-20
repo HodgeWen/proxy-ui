@@ -3,6 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"proxy-ui/internal/db"
+	"proxy-ui/internal/subscription"
 )
 
 // tokenView 订阅用户响应视图（含配额用量与名下节点）。
@@ -61,6 +63,46 @@ func (a *API) HandleSubscriptionGet(c *gin.Context) {
 		return
 	}
 	OK(c, views)
+}
+
+// HandleTokenPreview GET /api/subscription/tokens/:id/preview?format=sing-box|mihomo
+// 预览该用户的订阅配置：忽略停用、配额与到期，只要有启用中的节点就按格式渲染真实下发内容；
+// 无可用节点时返回 400 与明确原因。
+func (a *API) HandleTokenPreview(c *gin.Context) {
+	id, ok := idParam(c)
+	if !ok {
+		return
+	}
+	format := subscription.FormatSingBox
+	if raw := strings.TrimSpace(c.Query("format")); raw != "" {
+		parsed, valid := subscription.ParseFormat(raw)
+		if !valid {
+			Fail(c, http.StatusBadRequest, "不支持的格式：仅支持 sing-box 或 mihomo")
+			return
+		}
+		format = parsed
+	}
+	content, err := a.subs.Preview(id, c.Request.Host, format)
+	if err != nil {
+		switch {
+		case errors.Is(err, subscription.ErrInvalidToken):
+			Fail(c, http.StatusNotFound, "订阅用户不存在")
+		case errors.Is(err, subscription.ErrNoNodes):
+			Fail(c, http.StatusBadRequest, err.Error())
+		default:
+			Fail(c, http.StatusInternalServerError, "生成预览失败: "+err.Error())
+		}
+		return
+	}
+	OK(c, gin.H{"format": previewFormatLabel(format), "content": string(content)})
+}
+
+// previewFormatLabel 预览响应的格式标识：对外统一称 mihomo（即 clash 格式）。
+func previewFormatLabel(format subscription.Format) string {
+	if format == subscription.FormatClash {
+		return "mihomo"
+	}
+	return "sing-box"
 }
 
 // tokenViews 组装全部订阅用户视图。

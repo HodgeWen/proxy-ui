@@ -88,6 +88,24 @@ export function subscriptionLink(token: string, format?: 'clash' | 'singbox'): s
   return format ? `${base}?format=${format}` : base
 }
 
+/** 预览格式：sing-box 或 mihomo */
+export type PreviewFormat = 'sing-box' | 'mihomo'
+
+/** 订阅配置预览结果：该用户真实导出的渲染文本 */
+export interface SubscriptionPreview {
+  format: PreviewFormat
+  content: string
+}
+
+/** 预览订阅用户的客户端配置：忽略配额与到期，无可用节点时后端返回 400 与原因；
+ *  错误不在全局 toast，由预览弹框内展示原因 */
+export function previewSubscription(
+  id: number,
+  format: PreviewFormat,
+): Promise<SubscriptionPreview> {
+  return request(`/api/subscription/tokens/${id}/preview?format=${format}`, { silent: true })
+}
+
 /** 字节数转人类可读 */
 export function formatBytes(bytes: number): string {
   if (!bytes) return '0 B'

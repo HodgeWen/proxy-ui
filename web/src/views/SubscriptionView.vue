@@ -32,6 +32,7 @@ import { computed, onMounted, reactive, shallowRef, useTemplateRef } from 'vue'
 
 import EmptyState from '../components/EmptyState.vue'
 import SubscriptionLinksDialog from '../components/SubscriptionLinksDialog.vue'
+import SubscriptionPreviewDialog from '../components/SubscriptionPreviewDialog.vue'
 import { dialogStyle } from '../dialog-style'
 import { listInbounds } from '../api/inbound'
 import type { Inbound } from '../api/inbound'
@@ -61,8 +62,8 @@ const columns = defineTableColumns([
   { key: 'nodes', name: '节点', minWidth: 200 },
   { key: 'expiresAt', name: '到期时间', minWidth: 150 },
   { key: 'lastUsedAt', name: '最近使用', minWidth: 150 },
-  // 订阅链接是订阅用户专属动作，单独成列；通用操作列固定在右侧
-  { key: 'links', name: '订阅', width: 96, align: 'center' },
+  // 订阅链接与配置预览是订阅用户专属动作，单独成列；通用操作列固定在右侧
+  { key: 'links', name: '订阅', width: 100, align: 'center' },
   { key: 'actions', name: '操作', width: 160, align: 'center', fixed: 'right' },
 ])
 
@@ -120,6 +121,16 @@ const linksUser = shallowRef<SubscriptionToken | null>(null)
 function openLinks(user: SubscriptionToken): void {
   linksUser.value = user
   linksVisible.value = true
+}
+
+// ---------- 配置预览弹窗 ----------
+
+const previewVisible = shallowRef(false)
+const previewUser = shallowRef<SubscriptionToken | null>(null)
+
+function openPreview(user: SubscriptionToken): void {
+  previewUser.value = user
+  previewVisible.value = true
 }
 
 // ---------- 新建 / 编辑 ----------
@@ -406,7 +417,10 @@ onMounted(refresh)
             </span>
           </template>
           <template #column:links="{ rowData }">
-            <u-button text type="primary" size="small" @click="openLinks(rowData)">查看订阅</u-button>
+            <div class="links-cell">
+              <u-button text type="primary" size="small" @click="openLinks(rowData)">查看订阅</u-button>
+              <u-button text type="primary" size="small" @click="openPreview(rowData)">预览</u-button>
+            </div>
           </template>
           <template #column:actions="{ rowData }">
             <!-- 5 个动作超出 max=3：编辑/启停内联，其余收进「更多」下拉 -->
@@ -505,6 +519,7 @@ onMounted(refresh)
   </u-dialog>
 
   <SubscriptionLinksDialog v-model:visible="linksVisible" :token="linksUser" />
+  <SubscriptionPreviewDialog v-model:visible="previewVisible" :token="previewUser" />
 </template>
 
 <style scoped>
@@ -529,6 +544,13 @@ onMounted(refresh)
 
 .cell-dim {
   color: var(--u-text-color-assist);
+}
+
+.links-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
 }
 
 .usage {

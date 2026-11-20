@@ -14,6 +14,7 @@ import (
 	"proxy-ui/internal/ai"
 	"proxy-ui/internal/db"
 	"proxy-ui/internal/singbox"
+	"proxy-ui/internal/subscription"
 )
 
 // ---------- 供应商与模型 ----------
@@ -369,6 +370,15 @@ type toolCallReq struct {
 	Arguments json.RawMessage `json:"arguments"` // 参数（模型给出的 JSON 对象）
 }
 
+// requestHostKey 工具执行上下文里携带请求 Host 的键（预览类工具渲染节点服务器地址用）。
+type requestHostKey struct{}
+
+// requestHostFrom 取工具调用请求的 Host；取不到返回空串（渲染仍可用，仅服务器地址为空）。
+func requestHostFrom(ctx context.Context) string {
+	host, _ := ctx.Value(requestHostKey{}).(string)
+	return host
+}
+
 // HandleAIToolsGet GET /api/ai/tools 面板工具描述列表（供前端注册为对话工具）。
 func (a *API) HandleAIToolsGet(c *gin.Context) {
 	OK(c, a.ai.ToolInfos())
@@ -385,7 +395,8 @@ func (a *API) HandleAIToolCall(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "工具名不能为空")
 		return
 	}
-	result, err := a.ai.Call(c.Request.Context(), req.Name, req.Arguments)
+	ctx := context.WithValue(c.Request.Context(), requestHostKey{}, c.Request.Host)
+	result, err := a.ai.Call(ctx, req.Name, req.Arguments)
 	if err != nil {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
@@ -499,6 +510,40 @@ func (a *API) registerAIQueryTools() {
 		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
 		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
 			return a.tokenViews()
+		},
+	})
+	a.ai.Register(ai.Tool{
+		Name: "preview_subscription",
+		Description: "按订阅用户 ID 预览其订阅配置的真实渲染内容（与页面预览一致）；" +
+			"忽略停用、配额与到期状态，只要有启用中的节点就返回完整配置，无节点时报明确原因",
+		Parameters: toolParams(map[string]any{
+			"id":     toolProp("integer", "订阅用户 ID（可用 list_subscription_tokens 查询）"),
+			"format": toolProp("string", "输出格式，缺省 sing-box", "sing-box", "mihomo"),
+		}, "id"),
+		Exec: func(ctx context.Context, args json.RawMessage) (any, error) {
+			var arg struct {
+				ID     uint   `json:"id"`
+				Format string `json:"format"`
+			}
+			if err := decodeToolArgs(args, &arg); err != nil {
+				return nil, err
+			}
+			if arg.ID == 0 {
+				return nil, errors.New("缺少订阅用户 ID")
+			}
+			format := subscription.FormatSingBox
+			if strings.TrimSpace(arg.Format) != "" {
+				parsed, valid := subscription.ParseFormat(arg.Format)
+				if !valid {
+					return nil, errors.New("不支持的格式：仅支持 sing-box 或 mihomo")
+				}
+				format = parsed
+			}
+			content, err := a.subs.Preview(arg.ID, requestHostFrom(ctx), format)
+			if err != nil {
+				return nil, err
+			}
+			return gin.H{"format": previewFormatLabel(format), "content": string(content)}, nil
 		},
 	})
 	a.ai.Register(ai.Tool{

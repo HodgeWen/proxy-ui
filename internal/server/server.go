@@ -120,6 +120,7 @@ func New(opt Options) *gin.Engine {
 	g.POST("/system/bbr", a.HandleBBREnable)
 	g.GET("/subscription", a.HandleSubscriptionGet)
 	g.POST("/subscription/tokens", a.HandleTokenCreate)
+	g.GET("/subscription/tokens/:id/preview", a.HandleTokenPreview)
 	g.PUT("/subscription/tokens/:id", a.HandleTokenUpdate)
 	g.PATCH("/subscription/tokens/:id/revoked", a.HandleTokenRevoke)
 	g.POST("/subscription/tokens/:id/reset", a.HandleTokenReset)
