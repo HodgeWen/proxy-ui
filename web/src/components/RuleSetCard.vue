@@ -45,7 +45,7 @@ const columns = defineTableColumns([
 ])
 
 /**
- * 启用中的内容项备注；null 表示没有启用项（真正的异常态，应用配置会失败）。
+ * 启用中的内容项备注；null 表示没有启用项（真正的异常态，保存后内核无法重建）。
  * 与「有启用项但没写备注」区分开，避免把正常的空备注误报成未配置来源。
  */
 function activeSource(ruleSet: RuleSet): string | null {
@@ -247,7 +247,7 @@ async function handleDelete(row: RuleSet): Promise<void> {
   white-space: nowrap;
 }
 
-/* 规则集没有启用来源时应用配置会失败，用警示色而非灰色提示 */
+/* 规则集没有启用来源时内核无法重建，用警示色而非灰色提示 */
 .warn {
   color: var(--u-color-warning);
 }

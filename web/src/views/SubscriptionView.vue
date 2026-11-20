@@ -480,7 +480,7 @@ onMounted(refresh)
         filterable
       />
       <p class="form-hint">
-        勾选或取消入站，会在对应入站里创建 / 删除该用户的身份，节点随之增减；这些改动需到「入站」页点「应用配置」后生效。
+        勾选或取消入站，会在对应入站里创建 / 删除该用户的身份，节点随之增减；保存后立即生效。
         只改配额或到期时间时后端会自动应用，并且只暂停 / 恢复节点，不影响链接与端口。
       </p>
       <p v-if="!hasEnabledInbound" class="form-hint is-warning">

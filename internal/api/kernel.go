@@ -19,44 +19,15 @@ func (a *API) kernelStatusOf(ctx context.Context) singbox.Status {
 	return st
 }
 
-// HandleKernelStatus GET /api/kernel/status 内核运行状态。
+// HandleKernelStatus GET /api/kernel/status 内核运行状态（只读）。
 func (a *API) HandleKernelStatus(c *gin.Context) {
 	OK(c, a.kernelStatusOf(c.Request.Context()))
 }
 
-// HandleKernelLogs GET /api/kernel/logs?limit=200 内核日志。
+// HandleKernelLogs GET /api/kernel/logs?limit=200 内核日志（只读）。
 func (a *API) HandleKernelLogs(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	OK(c, a.core.Logs(limit))
-}
-
-// HandleKernelStart POST /api/kernel/start 启动内核（用已聚合的配置，无则现聚合）。
-func (a *API) HandleKernelStart(c *gin.Context) {
-	cfg := a.currentKernelConfig()
-	if err := a.core.Start(cfg); err != nil {
-		Fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	OK(c, a.kernelStatusOf(c.Request.Context()))
-}
-
-// HandleKernelStop POST /api/kernel/stop 停止内核。
-func (a *API) HandleKernelStop(c *gin.Context) {
-	if err := a.core.Stop(); err != nil {
-		Fail(c, http.StatusInternalServerError, "停止内核失败: "+err.Error())
-		return
-	}
-	OK(c, a.kernelStatusOf(c.Request.Context()))
-}
-
-// HandleKernelRestart POST /api/kernel/restart 重启内核（按最新配置重建）。
-func (a *API) HandleKernelRestart(c *gin.Context) {
-	cfg := a.currentKernelConfig()
-	if err := a.core.Restart(cfg); err != nil {
-		Fail(c, http.StatusBadRequest, err.Error())
-		return
-	}
-	OK(c, a.kernelStatusOf(c.Request.Context()))
 }
 
 // HandleKernelVersions GET /api/kernel/versions 内置内核版本信息（不再有可选的下载版本）。
@@ -64,23 +35,53 @@ func (a *API) HandleKernelVersions(c *gin.Context) {
 	OK(c, gin.H{"version": singbox.EmbeddedVersion, "embedded": true})
 }
 
-// currentKernelConfig 取待启动配置：优先使用上次应用时缓存的配置，否则现聚合一份。
-func (a *API) currentKernelConfig() singbox.Config {
-	a.configMu.Lock()
-	cached := a.pendingConfig
-	a.configMu.Unlock()
-	if cached.Inbounds != nil || cached.Outbounds != nil {
-		return cached
+// StartKernel 面板启动即拉起内核（无可用入站时以最小配置运行）。
+// 失败只告警：面板保持可用，用户修正配置后任意一次保存都会重新热应用。
+func (a *API) StartKernel(ctx context.Context) {
+	if err := a.applyKernelConfig(ctx); err != nil {
+		slog.Warn("启动时自动拉起内核失败，面板仍可用；修正配置后再保存任一配置即可重试", "err", err)
+		return
 	}
-	cfg, err := a.buildKernelConfig()
-	if err != nil {
-		return singbox.MinConfig()
-	}
-	return cfg
+	slog.Info("内核已随面板启动", "version", singbox.EmbeddedVersion)
 }
 
-// QuotaLoop 周期核对配额与到期（否则只有管理员操作时才暂停超限用户，
-// 客户端会一直可用到下次手动「应用配置」）。有变化则重建内核。
+// applyKernelConfig 聚合当前配置并热应用：校验通过后重建内核实例。
+//
+// 所有写操作落库成功后都调用它，因此「保存即生效」；重建失败时 Manager 会自动回滚到
+// 上一份可用配置（代理不中断），失败原因经返回值带回本次请求。调用方的数据库改动一律
+// 保留，用户修正配置后再保存即可重试。
+//
+// 整个过程串行化：并发保存若各自聚合再各自重建，后完成的一方可能把先落库的改动覆盖掉。
+func (a *API) applyKernelConfig(ctx context.Context) error {
+	a.applyMu.Lock()
+	defer a.applyMu.Unlock()
+	cfg, err := a.buildKernelConfig()
+	if err != nil {
+		return err
+	}
+	if err := a.core.CheckConfig(cfg); err != nil {
+		return err
+	}
+	// 统计服务监听地址由 Manager 在应用时按实例端口写入
+	return a.core.Apply(cfg)
+}
+
+// applyOrFail 保存成功后热应用内核；失败时写出响应并返回 false（数据已保存，带上失败原因）。
+func (a *API) applyOrFail(c *gin.Context) bool {
+	if err := a.applyKernelConfig(c.Request.Context()); err != nil {
+		Fail(c, http.StatusBadRequest, "已保存，但内核按新配置重建失败: "+err.Error())
+		return false
+	}
+	return true
+}
+
+// kernelConfig 聚合内核配置（统计服务监听地址由 Manager 在应用时按实例端口写入）。
+func (a *API) kernelConfig() (singbox.Config, error) {
+	return a.buildKernelConfig()
+}
+
+// QuotaLoop 周期核对配额与到期：用户生效状态有变化时热应用，
+// 否则超限用户会一直可用到下次管理员操作。
 func (a *API) QuotaLoop(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -93,8 +94,8 @@ func (a *API) QuotaLoop(ctx context.Context, interval time.Duration) {
 			if err != nil || !changed {
 				continue
 			}
-			if _, _, err := a.applyKernel(ctx); err != nil {
-				slog.Warn("配额核对后应用配置失败", "err", err)
+			if err := a.applyKernelConfig(ctx); err != nil {
+				slog.Warn("配额核对后热应用内核配置失败", "err", err)
 			}
 		}
 	}

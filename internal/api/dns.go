@@ -45,7 +45,7 @@ func (a *API) HandleDNSGet(c *gin.Context) {
 	})
 }
 
-// HandleDNSSet PUT /api/dns 保存 DNS 配置（校验后落库，需应用配置生效）。
+// HandleDNSSet PUT /api/dns 保存 DNS 配置（校验后落库并热应用内核）。
 func (a *API) HandleDNSSet(c *gin.Context) {
 	var cfg singbox.DNSConfig
 	if err := c.ShouldBindJSON(&cfg); err != nil {
@@ -63,6 +63,9 @@ func (a *API) HandleDNSSet(c *gin.Context) {
 	}
 	if err := a.setSetting(db.SettingDNS, string(raw)); err != nil {
 		Fail(c, http.StatusInternalServerError, "保存 DNS 配置失败: "+err.Error())
+		return
+	}
+	if !a.applyOrFail(c) {
 		return
 	}
 	OK(c, cfg)

@@ -1,4 +1,4 @@
-<!-- 设置页：主题（三态/12 预设/UTheme 编辑器）；账号改密；内置内核（只读版本/启停/日志）；面板在线更新；AI 供应商配置；DNS 与系统优化（BBR） -->
+<!-- 设置页：主题（三态/12 预设/UTheme 编辑器）；账号改密；内置内核（只读状态与日志）；面板在线更新；AI 供应商配置；DNS 与系统优化（BBR） -->
 <script setup lang="ts">
 import { clipboard } from '@cat-kit/fe'
 import {
@@ -31,7 +31,7 @@ import { fetchAIConfig, saveAIConfig } from '../api/ai'
 import { fetchHealth } from '../api/auth'
 import { getDNS, saveDNS } from '../api/dns'
 import type { DNSPreset, DNSRule, DNSServer, DNSSettings } from '../api/dns'
-import { fetchKernelLogs, fetchKernelStatus, kernelAction } from '../api/kernel'
+import { fetchKernelLogs, fetchKernelStatus } from '../api/kernel'
 import type { KernelLogLine, KernelStatus } from '../api/kernel'
 import { fetchPanelVersions, updatePanel } from '../api/panel'
 import type { ReleaseVersion } from '../api/panel'
@@ -136,10 +136,9 @@ async function handleSave() {
 
 // ---------- 内核管理 ----------
 
-/** 内置内核的运行状态与日志（内核编进面板，版本随面板固定，不可换版本） */
+/** 内置内核的只读运行状态与日志（内核编进面板随面板自动运行，不可启停或换版本） */
 const status = shallowRef<KernelStatus | null>(null)
 const logs = shallowRef<KernelLogLine[]>([])
-const acting = shallowRef<'start' | 'stop' | 'restart' | ''>('')
 const logBox = useTemplateRef<HTMLElement>('logBox')
 
 let pollTimer: ReturnType<typeof setInterval> | undefined
@@ -167,20 +166,6 @@ async function refreshLogs(silent = true) {
     if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight
   } catch {
     if (!silent) message.error('查询内核日志失败')
-  }
-}
-
-async function handleKernelAction(action: 'start' | 'stop' | 'restart') {
-  acting.value = action
-  try {
-    await kernelAction(action)
-    message.success(action === 'start' ? '内核已启动' : action === 'stop' ? '内核已停止' : '内核已重启')
-  } catch {
-    // 错误已由请求封装统一提示
-  } finally {
-    acting.value = ''
-    await refreshStatus()
-    await refreshLogs()
   }
 }
 
@@ -487,7 +472,7 @@ async function handleSaveDNS(): Promise<void> {
   try {
     const saved = await saveDNS(buildDNSPayload())
     fillDNS(saved)
-    message.success('DNS 配置已保存；到「入站」页点「应用配置」后服务端生效')
+    message.success('DNS 配置已保存并已按新配置重建内核')
   } catch {
     // 校验失败等错误已由请求封装统一提示
   } finally {
@@ -723,37 +708,19 @@ onBeforeUnmount(stopPolling)
           </div>
         </u-card-header>
         <u-card-content>
-          <div class="kernel-meta">
+          <div class="info-meta">
             <u-tag :type="status?.running ? 'success' : 'info'">
               {{ status?.running ? '运行中' : '已停止' }}
             </u-tag>
             <span>版本：<strong>{{ status?.version || '内置' }}</strong></span>
-            <span v-if="status?.running">运行时长：{{ formatUptime(status.uptimeSeconds) }}</span>
-          </div>
-          <div class="kernel-actions">
-            <u-button
-              type="primary"
-              :disabled="status?.running"
-              :loading="acting === 'start'"
-              @click="handleKernelAction('start')"
-            >
-              启动
-            </u-button>
-            <u-button
-              type="danger"
-              :disabled="!status?.running"
-              :loading="acting === 'stop'"
-              @click="handleKernelAction('stop')"
-            >
-              停止
-            </u-button>
-            <u-button :disabled="!status?.running" :loading="acting === 'restart'" @click="handleKernelAction('restart')">
-              重启
-            </u-button>
+            <span>运行时长：{{ formatUptime(status?.uptimeSeconds) }}</span>
           </div>
           <p class="hint">
+            内核随面板启动自动运行，无需手动启停；入站、出站、规则、DNS、证书等任一配置保存后都会立即按新配置重建，
+            新配置起不来时自动回到上一份可用配置并在保存处报错。
+          </p>
+          <p class="hint">
             内核已编译进面板二进制，版本随面板版本一同升级，无需也不能单独安装或切换版本。
-            配置改动请到「入站」页点「应用配置」重新生成。
           </p>
         </u-card-content>
       </u-card>
@@ -782,12 +749,12 @@ onBeforeUnmount(stopPolling)
       <u-card class="settings-card">
         <u-card-header>面板更新</u-card-header>
         <u-card-content>
-          <div class="kernel-meta">
+          <div class="info-meta">
             <span>当前版本：<strong>{{ panelVersion || '未知' }}</strong></span>
             <span>最新稳定版：<strong>{{ latestPanel?.tag ?? '未检查' }}</strong></span>
             <u-tag v-if="panelState === 'latest'" type="success">已是最新版</u-tag>
           </div>
-          <div class="kernel-actions">
+          <div class="card-ops">
             <u-button :loading="panelChecking" @click="checkPanelUpdate">检查更新</u-button>
             <u-button
               v-if="panelState === 'available'"
@@ -994,7 +961,7 @@ onBeforeUnmount(stopPolling)
           <div class="card-actions">
             <u-button type="primary" :loading="dnsSaving" @click="handleSaveDNS">保存 DNS</u-button>
           </div>
-          <p class="hint">保存只写入面板配置；需到「入站」页点击「应用配置」重新生成并重启内核后才真正生效。</p>
+          <p class="hint">保存后立即按新配置重建内核；新配置起不来时自动回到上一份可用配置，并在保存处报错。</p>
         </u-card-content>
       </u-card>
     </template>
@@ -1456,7 +1423,8 @@ onBeforeUnmount(stopPolling)
 
 /* ---------- 内核管理 ---------- */
 
-.kernel-meta {
+/* 只读信息行：内核状态与面板版本共用 */
+.info-meta {
   display: flex;
   align-items: center;
   gap: 20px;
@@ -1465,7 +1433,8 @@ onBeforeUnmount(stopPolling)
   font-size: 14px;
 }
 
-.kernel-actions {
+/* 卡片操作行 */
+.card-ops {
   display: flex;
   gap: 12px;
 }

@@ -71,6 +71,9 @@ func (a *API) HandleInboundUserCreate(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !a.applyOrFail(c) {
+		return
+	}
 	views, _ := a.userViews(id)
 	for _, v := range views {
 		if v.ID == user.ID {
@@ -89,6 +92,9 @@ func (a *API) HandleInboundUserDelete(c *gin.Context) {
 	}
 	if err := a.deleteUser(id); err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !a.applyOrFail(c) {
 		return
 	}
 	OK(c, gin.H{"deleted": id})
@@ -125,6 +131,9 @@ func (a *API) HandleInboundUserSetEnabled(c *gin.Context) {
 	}
 	user.Disabled = disabled
 	user.Enabled = !disabled && !user.Suspended
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, userToView(user))
 }
 

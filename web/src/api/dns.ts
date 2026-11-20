@@ -1,4 +1,4 @@
-// DNS 接口：当前配置、可选类型 / 策略与内置预设，保存后需应用配置生效。
+// DNS 接口：当前配置、可选类型 / 策略与内置预设，保存后立即按新配置重建内核。
 import { request } from './http'
 
 /** DNS 服务器类型：udp / tcp / tls / https / h3 / local */

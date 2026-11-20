@@ -1,6 +1,5 @@
 <!-- 路由规则卡片：匹配对象 × 匹配方式 + 匹配值 + 出站，排序、增删改启停与编辑弹窗 -->
 <script setup lang="ts">
-import { applyKernelConfig } from '../api/kernel'
 import { createRule, deleteRule, reorderRules, setRuleEnabled, updateRule } from '../api/rule'
 import type { RuleMatchMethod, RuleMatchType, RulePayload, RuleRecord, RuleSet } from '../api/rule'
 import {
@@ -39,7 +38,6 @@ const emit = defineEmits<{
   maintainRuleSet: [ruleSet: RuleSet]
 }>()
 
-const applying = shallowRef(false)
 const moving = shallowRef(false)
 const togglingId = shallowRef(0)
 
@@ -313,24 +311,6 @@ function handleMaintain(): void {
   const ruleSet = selectedRuleSet.value
   if (ruleSet) emit('maintainRuleSet', ruleSet)
 }
-
-// ---------- 应用配置 ----------
-
-async function handleApply(): Promise<void> {
-  applying.value = true
-  try {
-    const { applied, status } = await applyKernelConfig()
-    message.success(
-      applied
-        ? `配置已应用并重启内核（${status.version ?? '未知版本'}）`
-        : `配置已生成并通过校验，内核${status.running ? `运行中（${status.version ?? ''}）` : '未运行，将在下次启动时生效'}`,
-    )
-  } catch {
-    // 错误已由请求封装统一提示
-  } finally {
-    applying.value = false
-  }
-}
 </script>
 
 <template>
@@ -339,7 +319,6 @@ async function handleApply(): Promise<void> {
       <div class="page-header">
         <span>路由规则</span>
         <div class="page-ops">
-          <u-button :loading="applying" @click="handleApply">应用配置</u-button>
           <!-- 列表为空时主入口由空状态 CTA 承担，保持每屏 primary ≤1 -->
           <u-button v-if="rules.length" type="primary" @click="openCreate">新建规则</u-button>
         </div>

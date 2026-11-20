@@ -102,6 +102,9 @@ func (a *API) HandleInboundCreate(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, view)
 }
 
@@ -140,6 +143,9 @@ func (a *API) HandleInboundUpdate(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, view)
 }
 
@@ -164,6 +170,9 @@ func (a *API) HandleInboundSetEnabled(c *gin.Context) {
 		return
 	}
 	in.Enabled = req.Enabled
+	if !a.applyOrFail(c) {
+		return
+	}
 	users, _ := a.usersByInbound()
 	OK(c, a.inboundToView(in, users[in.ID]))
 }
@@ -176,6 +185,9 @@ func (a *API) HandleInboundDelete(c *gin.Context) {
 	}
 	if err := a.deleteInbound(id); err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !a.applyOrFail(c) {
 		return
 	}
 	OK(c, gin.H{"deleted": id})

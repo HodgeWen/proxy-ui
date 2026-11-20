@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"sync"
 	"time"
@@ -45,7 +46,8 @@ type Status struct {
 
 // Manager sing-box 内核实例管理：进程内构建、启动、停止与重建。
 type Manager struct {
-	dir string // 工作目录（cache.db 等内核落盘文件）
+	dir       string // 工作目录（cache.db 等内核落盘文件）
+	statsAddr string // 本实例的 v2ray 统计监听地址（构造时选定的空闲回环端口）
 
 	startMu    sync.Mutex // 串行化「停旧-起新」全过程（并发应用会互相踩踏独占资源）
 	mu         sync.Mutex
@@ -58,20 +60,33 @@ type Manager struct {
 
 // New 构造内核管理器；dir 为工作目录（<data>/core）。
 func New(dir string) *Manager {
-	return &Manager{dir: dir}
+	return &Manager{dir: dir, statsAddr: freeStatsAddr()}
 }
 
 // Dir 内核工作目录。
 func (m *Manager) Dir() string { return m.dir }
 
-// statsAddr 本进程内核的 v2ray 统计监听地址（固定本机回环，随实例固定）。
-const statsAddr = "127.0.0.1:19091"
+// statsAddrFallback 回环端口探测失败时的兜底地址（仅本机）。
+const statsAddrFallback = "127.0.0.1:19091"
 
-// StatsAddr 返回本进程内核的统计服务监听地址。
-func (m *Manager) StatsAddr() string { return statsAddr }
+// freeStatsAddr 选一个本机回环空闲端口承载 v2ray 统计服务。
+//
+// 不写死端口：同一台机器上可能跑多个面板实例（或测试里多个内核管理器），
+// 固定端口会让第二个实例直接启动失败。
+func freeStatsAddr() string {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return statsAddrFallback
+	}
+	defer ln.Close()
+	return ln.Addr().String()
+}
 
-// StatsListen 统计服务监听地址（供配置生成写入 v2ray_api.listen）。
-func StatsListen() string { return statsAddr }
+// StatsAddr 返回本实例内核的统计服务监听地址。
+func (m *Manager) StatsAddr() string { return m.statsAddr }
+
+// StatsListen 统计服务的默认监听地址（供不持管理器实例的配置生成使用）。
+func StatsListen() string { return statsAddrFallback }
 
 // Installed 内核是否可用（内置内核恒为 true）。
 func (m *Manager) Installed() bool { return true }
@@ -97,9 +112,10 @@ func (m *Manager) Logs(limit int) []LogLine { return m.logs.snapshot(limit) }
 // Start 以给定配置启动内核。
 //
 // 内核的缓存文件与统计监听端口是独占资源，两个实例无法共存，因此必须先停旧实例。
-// 为避免并发应用（配额核对与手动应用同时触发）互相踩踏，整个「停旧-起新」过程串行化；
+// 为避免并发应用（配额核对与写操作同时触发）互相踩踏，整个「停旧-起新」过程串行化；
 // 为免一次错误配置把代理整个停掉，新配置启动失败时自动回滚到上一个可用配置。
 func (m *Manager) Start(cfg Config) error {
+	m.withStatsAddr(&cfg)
 	m.startMu.Lock()
 	defer m.startMu.Unlock()
 	m.mu.Lock()
@@ -117,6 +133,42 @@ func (m *Manager) Start(cfg Config) error {
 		return err
 	}
 	return nil
+}
+
+// Apply 按新配置重建内核；新配置与当前运行的配置完全一致时直接返回（不必白白重启代理）。
+func (m *Manager) Apply(cfg Config) error {
+	m.withStatsAddr(&cfg)
+	m.mu.Lock()
+	last, running := m.lastGood, m.box != nil
+	m.mu.Unlock()
+	if running && last != nil && configEqual(*last, cfg) {
+		return nil
+	}
+	return m.Start(cfg)
+}
+
+// configEqual 判断两份内核配置的序列化结果是否一致。
+func configEqual(a, b Config) bool {
+	left, err := json.Marshal(a)
+	if err != nil {
+		return false
+	}
+	right, err := json.Marshal(b)
+	if err != nil {
+		return false
+	}
+	return string(left) == string(right)
+}
+
+// withStatsAddr 把统计服务监听地址指向本管理器的端口，避免多实例争用同一端口。
+func (m *Manager) withStatsAddr(cfg *Config) {
+	if cfg.Experimental == nil {
+		cfg.Experimental = &Experimental{}
+	}
+	if cfg.Experimental.V2RayAPI == nil {
+		cfg.Experimental.V2RayAPI = &V2RayAPI{Stats: &V2RayStatsConf{Enabled: true}}
+	}
+	cfg.Experimental.V2RayAPI.Listen = m.statsAddr
 }
 
 // start 构建并启动实例，成功后记为「上一个可用配置」（调用方持 startMu）。

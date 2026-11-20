@@ -2,15 +2,27 @@ package server
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
+	"math/big"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"proxy-ui/internal/db"
+	"proxy-ui/internal/singbox"
 )
 
 // envelope 统一响应结构（测试断言用）。
@@ -23,6 +35,8 @@ type envelope struct {
 // newTestServer 以临时数据库与内存静态资源构造面板服务。
 func newTestServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
+	// 面板的所有写接口都会热应用内核，内核起不来时这些用例没有意义
+	requireKernel(t)
 	dbPath := filepath.Join(t.TempDir(), "panel.db")
 	dataDir := t.TempDir()
 	srv := httptest.NewServer(mustNewEngine(dbPath, dataDir))
@@ -38,6 +52,31 @@ func mustNewEngine(dbPath, dataDir string) http.Handler {
 	}
 	dist := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html>proxy-ui</html>")}}
 	return New(Options{DB: database, Dist: dist, Version: "test", DataDir: dataDir})
+}
+
+// kernelBuildable 探测当前测试二进制里的内嵌内核能否真正启动。
+//
+// 内核以库形式编进面板，缺 with_v2ray_api 等构建标签时 box.New 会直接失败，而面板的
+// 写操作一律保存即热应用，因此这类构建下的接口测试必然走不通。此时明确跳过并提示用
+// `make test`（带 BUILD_TAGS）跑，避免把「构建标签缺失」误报成业务回归。
+var kernelBuildable = sync.OnceValue(func() bool {
+	dir, err := os.MkdirTemp("", "proxy-ui-probe")
+	if err != nil {
+		return false
+	}
+	defer os.RemoveAll(dir)
+	mgr := singbox.New(dir)
+	defer func() { _ = mgr.Stop() }()
+	return mgr.Start(singbox.MinConfig()) == nil
+})
+
+// requireKernel 内核不可用时跳过当前用例。
+func requireKernel(t *testing.T) {
+	t.Helper()
+	if kernelBuildable() {
+		return
+	}
+	t.Skip("当前测试二进制未带内核构建标签（内核无法启动），请用 make test 运行")
 }
 
 // newClient 带会话 Cookie 的客户端。
@@ -83,6 +122,55 @@ func setupAdmin(t *testing.T, srvURL string) *http.Client {
 		t.Fatalf("setup 失败: %s", env.Msg)
 	}
 	return client
+}
+
+// createTestCert 上传一份自签证书并返回其 ID（供需要真实证书的入站使用）。
+func createTestCert(t *testing.T, client *http.Client, srvURL string) uint {
+	t.Helper()
+	certPem, keyPem := selfSignedPEM(t)
+	code, env := doJSON(t, client, http.MethodPost, srvURL+"/api/certs", map[string]any{
+		"name": "test-cert", "mode": "managed", "certPem": certPem, "keyPem": keyPem,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("创建证书失败: code=%d msg=%s", code, env.Msg)
+	}
+	var cert struct {
+		ID uint `json:"id"`
+	}
+	decodeData(t, env, &cert)
+	return cert.ID
+}
+
+// selfSignedPEM 生成 localhost 自签证书与私钥 PEM（有效期一年）。
+func selfSignedPEM(t *testing.T) (certPEM, keyPEM string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("生成私钥失败: %v", err)
+	}
+	tpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "localhost"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:              []string{"localhost"},
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tpl, tpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("生成证书失败: %v", err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatalf("序列化私钥失败: %v", err)
+	}
+	certPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+	keyPEM = string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))
+	return certPEM, keyPEM
 }
 
 // decodeData 把 envelope.Data 解析到目标结构。

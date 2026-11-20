@@ -159,6 +159,10 @@ func (a *API) HandleRuleSetCreate(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	// 新建规则集本身还没有规则引用，热应用会比对出配置未变而直接返回，不重建内核
+	if !a.applyOrFail(c) {
+		return
+	}
 	views, err := a.ruleSetViews()
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
@@ -242,6 +246,10 @@ func (a *API) HandleRuleSetUpdate(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "保存规则集失败: "+err.Error())
 		return
 	}
+	// 规则集名称是内核规则集 tag，被规则引用时必须重建
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, gin.H{"updated": id})
 }
 
@@ -276,6 +284,9 @@ func (a *API) HandleRuleSetDelete(c *gin.Context) {
 		return tx.Delete(&db.RuleSet{}, id).Error
 	}); err != nil {
 		Fail(c, http.StatusInternalServerError, "删除规则集失败: "+err.Error())
+		return
+	}
+	if !a.applyOrFail(c) {
 		return
 	}
 	OK(c, gin.H{"deleted": id})
@@ -345,6 +356,9 @@ func (a *API) HandleRuleSetItemCreate(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "创建内容项失败: "+err.Error())
 		return
 	}
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, ruleSetItemViewOf(item))
 }
 
@@ -380,6 +394,9 @@ func (a *API) HandleRuleSetItemUpdate(c *gin.Context) {
 	})
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, "保存内容项失败: "+err.Error())
+		return
+	}
+	if !a.applyOrFail(c) {
 		return
 	}
 	OK(c, ruleSetItemViewOf(item))
@@ -422,6 +439,9 @@ func (a *API) HandleRuleSetItemDelete(c *gin.Context) {
 				return
 			}
 		}
+	}
+	if !a.applyOrFail(c) {
+		return
 	}
 	OK(c, gin.H{"deleted": itemID})
 }

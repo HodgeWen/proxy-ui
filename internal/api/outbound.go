@@ -69,6 +69,9 @@ func (a *API) HandleOutboundCreate(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "创建出站失败: "+err.Error())
 		return
 	}
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, outboundToView(ob))
 }
 
@@ -110,6 +113,9 @@ func (a *API) HandleOutboundUpdate(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "保存出站失败: "+err.Error())
 		return
 	}
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, outboundToView(ob))
 }
 
@@ -134,6 +140,9 @@ func (a *API) HandleOutboundSetEnabled(c *gin.Context) {
 		return
 	}
 	ob.Enabled = req.Enabled
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, outboundToView(ob))
 }
 
@@ -145,6 +154,9 @@ func (a *API) HandleOutboundDelete(c *gin.Context) {
 	}
 	if err := a.db.Delete(&db.Outbound{}, id).Error; err != nil {
 		Fail(c, http.StatusInternalServerError, "删除出站失败: "+err.Error())
+		return
+	}
+	if !a.applyOrFail(c) {
 		return
 	}
 	OK(c, gin.H{"deleted": id})

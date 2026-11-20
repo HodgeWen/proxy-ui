@@ -1,8 +1,7 @@
-<!-- 出站管理：页顶出站说明卡、direct 出站说明与添加、自定义出站表单（高级项折叠）增删改、应用配置入口 -->
+<!-- 出站管理：页顶出站说明卡、direct 出站说明与添加、自定义出站表单（高级项折叠）增删改；改动保存即热应用内核 -->
 <script setup lang="ts">
 import { createOutbound, deleteOutbound, listOutbounds, setOutboundEnabled, updateOutbound } from '../api/outbound'
 import type { Outbound, OutboundPayload } from '../api/outbound'
-import { applyKernelConfig } from '../api/kernel'
 import {
   UAlert,
   UButton,
@@ -31,7 +30,6 @@ import FormGroupCard from '../components/FormGroupCard.vue'
 
 const outbounds = shallowRef<Outbound[]>([])
 const loading = shallowRef(false)
-const applying = shallowRef(false)
 const togglingId = shallowRef(0)
 
 const columns = defineTableColumns([
@@ -157,7 +155,7 @@ async function handleToggle(row: Outbound, enabled: boolean): Promise<void> {
 async function handleDelete(row: Outbound): Promise<void> {
   const action = await messageConfirm({
     title: '删除出站',
-    message: `确认删除出站「${row.name}」吗？被规则引用时应用配置将失败。`,
+    message: `确认删除出站「${row.name}」吗？被规则引用时内核将无法重建，你会看到具体原因。`,
     confirmButtonText: '删除',
     cancelButtonText: '取消',
   }).onClosed
@@ -168,22 +166,6 @@ async function handleDelete(row: Outbound): Promise<void> {
     await refresh()
   } catch {
     // 错误已由请求封装统一提示
-  }
-}
-
-async function handleApply(): Promise<void> {
-  applying.value = true
-  try {
-    const { applied, status } = await applyKernelConfig()
-    message.success(
-      applied
-        ? `配置已应用并重启内核（${status.version ?? '未知版本'}）`
-        : `配置已生成并通过校验，内核${status.running ? `运行中（${status.version ?? ''}）` : '未运行，将在下次启动时生效'}`,
-    )
-  } catch {
-    // 错误已由请求封装统一提示
-  } finally {
-    applying.value = false
   }
 }
 
@@ -224,7 +206,6 @@ onMounted(refresh)
       <div class="page-header">
         <span>出站管理</span>
         <div class="page-ops">
-          <u-button :loading="applying" @click="handleApply">应用配置</u-button>
           <!-- 列表为空时主入口由空状态 CTA 承担，保持每屏 primary ≤1 -->
           <u-button v-if="outbounds.length" type="primary" @click="openCreate">新建自定义出站</u-button>
         </div>

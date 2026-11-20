@@ -62,7 +62,7 @@ async function handleToggle(row: InboundUser, enabled: boolean): Promise<void> {
   try {
     await setUserEnabled(row.id, enabled)
     row.enabled = enabled
-    message.success(enabled ? '用户已启用（需应用配置生效）' : '用户已停用，应用配置后该身份不再可用')
+    message.success(enabled ? '用户已启用并已生效' : '用户已停用，该身份已不再可用')
     emit('changed')
   } catch {
     // 错误已由请求封装统一提示

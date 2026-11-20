@@ -140,7 +140,7 @@ async function handleApplyTemplate(tpl: RuleTemplate): Promise<void> {
   applyingTemplate.value = tpl.id
   try {
     const res = await applyRuleTemplate(tpl.id)
-    message.success(`模板已应用：${res.rules} 条规则、${res.groups} 个策略组，可在下方继续修改后应用配置`)
+    message.success(`模板已应用：${res.rules} 条规则、${res.groups} 个策略组，可在下方继续修改`)
     // 模板会重写兜底出站，同步本地值供「当前已应用」标记即时判定
     finalOutbound.value = res.final
     await refresh()
@@ -292,7 +292,7 @@ onMounted(async () => {
             anti-ad 承担，可在上方「规则集」卡片的「维护内容项」里切换其下载来源。
           </div>
           <div v-if="finalDangling" class="final-warn">
-            当前兜底出站「{{ finalOutbound }}」已不在出站或策略组列表中，应用配置会失败，请重新选择后保存。
+            当前兜底出站「{{ finalOutbound }}」已不在出站或策略组列表中，保存后内核将无法重建，请重新选择后保存。
           </div>
         </div>
         <!-- 实心主按钮额度留给「新建规则」，本卡保存降次级 -->

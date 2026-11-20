@@ -97,6 +97,9 @@ func (a *API) HandleRuleCreate(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "创建规则失败: "+err.Error())
 		return
 	}
+	if !a.applyOrFail(c) {
+		return
+	}
 	names, _ := a.ruleSetNames()
 	OK(c, ruleToView(rule, names))
 }
@@ -123,6 +126,9 @@ func (a *API) HandleRuleUpdate(c *gin.Context) {
 	}
 	if err := a.db.Save(&rule).Error; err != nil {
 		Fail(c, http.StatusInternalServerError, "保存规则失败: "+err.Error())
+		return
+	}
+	if !a.applyOrFail(c) {
 		return
 	}
 	names, _ := a.ruleSetNames()
@@ -153,6 +159,9 @@ func (a *API) HandleRulesOrder(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "调整规则排序失败: "+err.Error())
 		return
 	}
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, gin.H{"ordered": len(req.IDs)})
 }
 
@@ -177,6 +186,9 @@ func (a *API) HandleRuleSetEnabled(c *gin.Context) {
 		return
 	}
 	rule.Enabled = req.Enabled
+	if !a.applyOrFail(c) {
+		return
+	}
 	names, _ := a.ruleSetNames()
 	OK(c, ruleToView(rule, names))
 }
@@ -189,6 +201,9 @@ func (a *API) HandleRuleDelete(c *gin.Context) {
 	}
 	if err := a.db.Delete(&db.Rule{}, id).Error; err != nil {
 		Fail(c, http.StatusInternalServerError, "删除规则失败: "+err.Error())
+		return
+	}
+	if !a.applyOrFail(c) {
 		return
 	}
 	OK(c, gin.H{"deleted": id})
@@ -317,6 +332,9 @@ func (a *API) HandleGroupCreate(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "创建策略组失败: "+err.Error())
 		return
 	}
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, groupToView(group))
 }
 
@@ -344,6 +362,9 @@ func (a *API) HandleGroupUpdate(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "保存策略组失败: "+err.Error())
 		return
 	}
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, groupToView(group))
 }
 
@@ -368,6 +389,9 @@ func (a *API) HandleGroupSetEnabled(c *gin.Context) {
 		return
 	}
 	group.Enabled = req.Enabled
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, groupToView(group))
 }
 
@@ -381,10 +405,13 @@ func (a *API) HandleGroupDelete(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "删除策略组失败: "+err.Error())
 		return
 	}
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, gin.H{"deleted": id})
 }
 
-// applyGroupReq 把请求字段应用到策略组记录并校验模式与名称唯一性（成员存在性在应用配置时校验）。
+// applyGroupReq 把请求字段应用到策略组记录并校验模式与名称唯一性（成员存在性在聚合内核配置时校验）。
 func (a *API) applyGroupReq(group *db.PolicyGroup, req groupReq, id uint) error {
 	if req.Name != "" {
 		group.Name = req.Name
@@ -453,6 +480,9 @@ func (a *API) HandleRouteFinalSet(c *gin.Context) {
 	}
 	if err := a.setSetting(db.SettingRouteFinal, strings.TrimSpace(req.Final)); err != nil {
 		Fail(c, http.StatusInternalServerError, "保存兜底出站失败: "+err.Error())
+		return
+	}
+	if !a.applyOrFail(c) {
 		return
 	}
 	OK(c, gin.H{"final": strings.TrimSpace(req.Final)})

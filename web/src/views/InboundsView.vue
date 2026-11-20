@@ -1,7 +1,7 @@
-<!-- 入站管理：协议分组新建入口（推荐组排前）、真实监听入站列表（端口/用户数/警示）、用户管理、证书管理与应用配置入口。
-     一个入站 = 一个监听端口，端口由其下全部用户共享；每个用户是独立认证身份（独立凭据、独立订阅节点与流量） -->
+<!-- 入站管理：协议分组新建入口（推荐组排前）、真实监听入站列表（端口/用户数/警示）、用户管理与证书管理。
+     一个入站 = 一个监听端口，端口由其下全部用户共享；每个用户是独立认证身份（独立凭据、独立订阅节点与流量）。
+     所有写操作落库后由后端直接热应用内核，因此页面没有「应用配置」入口。 -->
 <script setup lang="ts">
-import { applyKernelConfig } from '../api/kernel'
 import { deleteInbound, listInbounds, setInboundEnabled } from '../api/inbound'
 import type { Inbound } from '../api/inbound'
 import CertManager from '../components/CertManager.vue'
@@ -30,7 +30,6 @@ import { PROTOCOL_DEFS, listenLabel, protocolDef } from '../inbound-schema'
 const inbounds = ref<Inbound[]>([])
 const loading = shallowRef(false)
 const pickerVisible = shallowRef(false)
-const applying = shallowRef(false)
 const togglingId = shallowRef(0)
 
 const inboundForm = shallowRef<InstanceType<typeof InboundForm>>()
@@ -81,7 +80,7 @@ async function handleToggle(row: Inbound, enabled: boolean): Promise<void> {
   try {
     await setInboundEnabled(row.id, enabled)
     row.enabled = enabled
-    message.success(enabled ? '入站已启用（需应用配置生效）' : '入站已停用，其下全部用户将随之下线（需应用配置生效）')
+    message.success(enabled ? '入站已启用并已生效' : '入站已停用，其下全部用户已随之下线')
   } catch {
     // 错误已由请求封装统一提示
   } finally {
@@ -111,22 +110,6 @@ async function handleDelete(row: Inbound): Promise<void> {
   }
 }
 
-async function handleApply(): Promise<void> {
-  applying.value = true
-  try {
-    const { applied, status } = await applyKernelConfig()
-    message.success(
-      applied
-        ? `配置已应用并重启内核（${status.version ?? '内置内核'}）`
-        : `配置已生成并通过校验，内核${status.running ? `运行中（${status.version ?? ''}）` : '未运行，将在下次启动时生效'}`,
-    )
-  } catch {
-    // 错误已由请求封装统一提示
-  } finally {
-    applying.value = false
-  }
-}
-
 onMounted(refresh)
 </script>
 
@@ -136,7 +119,6 @@ onMounted(refresh)
       <div class="page-header">
         <span>入站</span>
         <div class="page-ops">
-          <u-button :loading="applying" @click="handleApply">应用配置</u-button>
           <u-button @click="certManager?.open()">证书管理</u-button>
           <!-- 列表为空时主入口由空状态 CTA 承担，保持每屏 primary ≤1 -->
           <u-button v-if="inbounds.length" type="primary" @click="pickerVisible = true">新建入站</u-button>
@@ -147,7 +129,7 @@ onMounted(refresh)
       <div class="card-desc">
         一个入站就是一个<b>真实监听端口</b>（协议 + 监听地址/端口 + TLS 等连接层配置），该端口由其下全部用户共享。
         每个用户都是独立身份：有自己的凭据、在订阅里是一个独立节点，流量也按用户单独累计。
-        改动入站或用户后记得点「应用配置」。
+        任何改动保存后立即生效，内核随即按新配置重建。
       </div>
       <u-table :columns="columns" :data="inbounds" row-key="id" border :loading="loading">
         <template #empty>

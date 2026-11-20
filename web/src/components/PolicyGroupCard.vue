@@ -95,7 +95,7 @@ async function handleToggle(row: PolicyGroup, enabled: boolean): Promise<void> {
 async function handleDelete(row: PolicyGroup): Promise<void> {
   const action = await messageConfirm({
     title: '删除策略组',
-    message: `确认删除策略组「${row.name}」吗？被规则引用时应用配置将失败。`,
+    message: `确认删除策略组「${row.name}」吗？被规则引用时内核将无法重建，你会看到具体原因。`,
     confirmButtonText: '删除',
     confirmButtonType: 'danger',
     cancelButtonText: '取消',

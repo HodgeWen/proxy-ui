@@ -320,8 +320,14 @@ func TestSubscriptionFormats(t *testing.T) {
 	srv, _ := newTestServer(t)
 	client := setupAdmin(t, srv.URL)
 
-	in := createInbound(t, client, srv.URL, map[string]any{"name": "hy2-main", "protocol": "hysteria2"})
-	// Hysteria2 默认配置没有绑定证书，只做订阅渲染用（不应用内核配置）
+	// Hysteria2 强制 TLS：绑定一份真实自签证书，否则保存时内核无法重建（保存即热应用）
+	certID := createTestCert(t, client, srv.URL)
+	in := createInbound(t, client, srv.URL, map[string]any{
+		"name": "hy2-main", "protocol": "hysteria2",
+		"config": map[string]any{
+			"tls": map[string]any{"enabled": true, "certMode": "managed", "certId": certID, "alpn": []string{"h3"}},
+		},
+	})
 	token := createToken(t, client, srv.URL, map[string]any{
 		"name": "bob", "nodeInbounds": []uint{in.ID},
 	})

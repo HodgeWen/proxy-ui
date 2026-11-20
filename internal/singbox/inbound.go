@@ -391,7 +391,7 @@ func (t *TLSConfig) certWarnings(add func(string, ...any)) {
 		(t.CertMode == CertModeManaged && t.CertID == 0) ||
 		(t.CertMode == CertModePath && (t.CertPath == "" || t.KeyPath == ""))
 	if missing {
-		add("TLS 已启用但未配置证书，应用配置将失败")
+		add("TLS 已启用但未配置证书，保存后内核将无法重建")
 	}
 }
 

@@ -322,11 +322,28 @@ func (a *API) registerAIQueryTools() {
 	})
 }
 
+// registerModify 注册写操作工具：执行成功后立即热应用内核（保存即生效）。
+// 数据库改动已在业务模块完成，热应用失败时把原因回给模型与用户，便于修正后重试。
+func (a *API) registerModify(tool ai.Tool) {
+	exec := tool.Exec
+	tool.Exec = func(ctx context.Context, args json.RawMessage) (any, error) {
+		result, err := exec(ctx, args)
+		if err != nil {
+			return nil, err
+		}
+		if err := a.applyKernelConfig(ctx); err != nil {
+			return nil, fmt.Errorf("已保存，但内核按新配置重建失败: %w", err)
+		}
+		return result, nil
+	}
+	a.ai.Register(tool)
+}
+
 func (a *API) registerAIModifyTools() {
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name: "create_inbound",
 		Description: "创建入站（真实监听）。入站只配连接层参数（TLS/证书/Reality/混淆/带宽/拥塞算法），" +
-			"用户凭据在入站内单独创建；listenPort 省略时自动分配随机空闲端口；创建后需调用 apply_config 生效",
+			"用户凭据在入站内单独创建；listenPort 省略时自动分配随机空闲端口；保存后内核立即按新配置重建",
 		Parameters: toolParams(map[string]any{
 			"protocol": toolProp("string", "入站协议", singbox.SupportedProtocols...),
 			"name":     toolProp("string", "入站名称，缺省按 协议-序号 生成"),
@@ -343,7 +360,7 @@ func (a *API) registerAIModifyTools() {
 			return a.createInbound(req)
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:        "update_inbound",
 		Description: "按 ID 更新入站；仅更新给出的字段，config 为完整协议配置对象（变更协议时必须提供）",
 		Parameters: toolParams(map[string]any{
@@ -366,7 +383,7 @@ func (a *API) registerAIModifyTools() {
 			return a.updateInbound(arg.ID, req)
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:         "delete_inbound",
 		Description:  "按 ID 删除入站（连同其下全部用户与累计流量）",
 		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "入站 ID")}, "id"),
@@ -382,7 +399,7 @@ func (a *API) registerAIModifyTools() {
 			return gin.H{"deleted": arg.ID}, nil
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name: "create_outbound",
 		Description: "创建出站（type 为 sing-box 出站类型，如 direct、socks、http、shadowsocks、vmess、trojan、vless、hysteria2、wireguard 等）；" +
 			"config 为该类型出站的字段对象（如 server、server_port、密码等）",
@@ -408,7 +425,7 @@ func (a *API) registerAIModifyTools() {
 			return outboundToView(ob), nil
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:        "update_outbound",
 		Description: "按 ID 更新出站；仅更新给出的字段",
 		Parameters: toolParams(map[string]any{
@@ -440,7 +457,7 @@ func (a *API) registerAIModifyTools() {
 			return outboundToView(ob), nil
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:         "delete_outbound",
 		Description:  "按 ID 删除出站",
 		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "出站 ID")}, "id"),
@@ -456,7 +473,7 @@ func (a *API) registerAIModifyTools() {
 			return gin.H{"deleted": arg.ID}, nil
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name: "create_rule",
 		Description: "创建全局路由规则（追加到规则末尾）。matchType 为匹配对象：domain 域名 / ip IP / rule_set 规则集；" +
 			"域名需给出 matchMethod（exact/suffix/keyword/regex）与 value；IP 固定 cidr + value；规则集只给 ruleSetId",
@@ -486,7 +503,7 @@ func (a *API) registerAIModifyTools() {
 			return ruleToView(rule, names), nil
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:        "update_rule",
 		Description: "按 ID 更新规则；仅更新给出的字段",
 		Parameters: toolParams(map[string]any{
@@ -521,7 +538,7 @@ func (a *API) registerAIModifyTools() {
 			return ruleToView(rule, names), nil
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:         "delete_rule",
 		Description:  "按 ID 删除规则",
 		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "规则 ID")}, "id"),
@@ -537,7 +554,7 @@ func (a *API) registerAIModifyTools() {
 			return gin.H{"deleted": arg.ID}, nil
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:        "create_policy_group",
 		Description: "创建策略组（生成 sing-box selector/urltest 出站）；members 为成员出站 tag 按顺序生效",
 		Parameters: toolParams(map[string]any{
@@ -560,7 +577,7 @@ func (a *API) registerAIModifyTools() {
 			return groupToView(group), nil
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:        "update_policy_group",
 		Description: "按 ID 更新策略组；仅更新给出的字段",
 		Parameters: toolParams(map[string]any{
@@ -592,7 +609,7 @@ func (a *API) registerAIModifyTools() {
 			return groupToView(group), nil
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:         "delete_policy_group",
 		Description:  "按 ID 删除策略组",
 		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "策略组 ID")}, "id"),
@@ -608,7 +625,7 @@ func (a *API) registerAIModifyTools() {
 			return gin.H{"deleted": arg.ID}, nil
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name: "create_subscription_token",
 		Description: "创建订阅用户（客户端免登录拉取订阅链接）。nodeInbounds 给出要勾选的入站 ID，" +
 			"每个入站内会为该用户创建一个独立凭据的用户身份（共享入站端口），即该用户的一个节点",
@@ -646,9 +663,9 @@ func (a *API) registerAIModifyTools() {
 			return a.tokenView(record.ID)
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:        "update_subscription_token",
-		Description: "更新订阅用户：名称、流量配额、到期时间、勾选的入站（会在入站内创建/移除该用户的身份）。改动后需 apply_config 生效",
+		Description: "更新订阅用户：名称、流量配额、到期时间、勾选的入站（会在入站内创建/移除该用户的身份）。保存后内核立即按新配置重建",
 		Parameters: toolParams(map[string]any{
 			"id":                toolProp("integer", "订阅用户 ID"),
 			"name":              toolProp("string", "备注名"),
@@ -703,7 +720,7 @@ func (a *API) registerAIModifyTools() {
 			return a.tokenView(arg.ID)
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:         "delete_subscription_token",
 		Description:  "按 ID 删除订阅用户（连同其全部节点与累计流量）",
 		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "订阅用户 ID")}, "id"),
@@ -719,7 +736,7 @@ func (a *API) registerAIModifyTools() {
 			return gin.H{"deleted": arg.ID}, nil
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:         "reset_subscription_token",
 		Description:  "按 ID 重置订阅链接（换新随机值并恢复可用，旧链接立即失效）",
 		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "订阅用户 ID")}, "id"),
@@ -739,7 +756,7 @@ func (a *API) registerAIModifyTools() {
 			return a.tokenView(arg.ID)
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:         "reset_user_traffic",
 		Description:  "按 ID 清零某订阅用户全部节点的累计流量（配额已用尽的用户会随之恢复）",
 		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "订阅用户 ID")}, "id"),
@@ -769,9 +786,9 @@ func (a *API) registerAIModifyTools() {
 			return a.tokenView(arg.ID)
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:        "set_dns_config",
-		Description: "保存面板 DNS 配置（含服务器列表与分流规则），需 apply_config 生效。服务器 type 可选 udp/tcp/tls/https/h3/local",
+		Description: "保存面板 DNS 配置（含服务器列表与分流规则），保存后内核立即按新配置重建。服务器 type 可选 udp/tcp/tls/https/h3/local",
 		Parameters: toolParams(map[string]any{
 			"enabled":  toolProp("boolean", "是否启用自定义 DNS"),
 			"strategy": toolProp("string", "默认域名解析策略", singbox.SupportedDNSStrategies...),
@@ -797,7 +814,7 @@ func (a *API) registerAIModifyTools() {
 			return cfg, nil
 		},
 	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:         "enable_bbr",
 		Description:  "一键开启/关闭服务器 BBR 加速（写入 /etc/sysctl.d 并立即生效）；仅 Linux 且面板以 root 运行时可用",
 		Parameters:   toolParams(map[string]any{"enable": toolProp("boolean", "true 开启 / false 关闭，缺省 true")}),
@@ -819,49 +836,7 @@ func (a *API) registerAIModifyTools() {
 			return readSystemStatus(), nil
 		},
 	})
-	a.ai.Register(ai.Tool{
-		Name:         "kernel_control",
-		Description:  "启动/停止/重启 sing-box 内核",
-		Parameters:   toolParams(map[string]any{"action": toolProp("string", "动作", "start", "stop", "restart")}, "action"),
-		NeedsConfirm: true,
-		Exec: func(ctx context.Context, args json.RawMessage) (any, error) {
-			var arg struct {
-				Action string `json:"action"`
-			}
-			if err := decodeToolArgs(args, &arg); err != nil {
-				return nil, err
-			}
-			var err error
-			switch arg.Action {
-			case "start":
-				err = a.core.Start(a.currentKernelConfig())
-			case "stop":
-				err = a.core.Stop()
-			case "restart":
-				err = a.core.Restart(a.currentKernelConfig())
-			default:
-				return nil, fmt.Errorf("不支持的动作: %s（可选 start/stop/restart）", arg.Action)
-			}
-			if err != nil {
-				return nil, err
-			}
-			return a.kernelStatusOf(ctx), nil
-		},
-	})
-	a.ai.Register(ai.Tool{
-		Name:         "apply_config",
-		Description:  "聚合全部生效节点/出站/规则/DNS 重新生成 sing-box 配置并应用（内核运行中则按新配置重启）；配置类修改后需调用本工具生效",
-		Parameters:   map[string]any{"type": "object", "properties": map[string]any{}},
-		NeedsConfirm: true,
-		Exec: func(ctx context.Context, _ json.RawMessage) (any, error) {
-			if _, err := a.ReconcileQuota(); err != nil {
-				return nil, err
-			}
-			result, _, err := a.applyKernel(ctx)
-			return result, err
-		},
-	})
-	a.ai.Register(ai.Tool{
+	a.registerModify(ai.Tool{
 		Name:        "set_settings",
 		Description: "更新面板全局设置：未命中规则的兜底出站 tag",
 		Parameters: toolParams(map[string]any{

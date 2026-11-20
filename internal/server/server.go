@@ -41,6 +41,9 @@ func New(opt Options) *gin.Engine {
 	go stats.Run(context.Background()) // 统计常驻采集（按用户累计流量），随进程生命周期
 	subs := subscription.New(opt.DB)
 	a := api.New(opt.DB, store, core, selfUpdates, stats, opt.DataDir)
+	// 内核随面板自动运行：库里有可用入站则按聚合配置启动，没有则以最小配置启动。
+	// 失败只告警，不阻塞 HTTP 服务——面板必须能打开，用户才能修改配置。
+	go a.StartKernel(context.Background())
 	// 配额与到期周期核对：只靠管理员操作触发会让超限用户一直可用
 	go a.QuotaLoop(context.Background(), 30*time.Second)
 
@@ -58,15 +61,12 @@ func New(opt Options) *gin.Engine {
 	g.POST("/logout", a.HandleLogout)
 	g.GET("/me", a.HandleMe)
 	g.PUT("/password", a.HandleChangePassword)
+	// 内核只读接口：启停由面板自动管理，配置改动保存即热应用
 	g.GET("/kernel/status", a.HandleKernelStatus)
 	g.GET("/kernel/logs", a.HandleKernelLogs)
-	g.POST("/kernel/start", a.HandleKernelStart)
-	g.POST("/kernel/stop", a.HandleKernelStop)
-	g.POST("/kernel/restart", a.HandleKernelRestart)
 	g.GET("/kernel/versions", a.HandleKernelVersions)
 	g.GET("/panel/versions", a.HandlePanelVersions)
 	g.POST("/panel/update", a.HandlePanelUpdate)
-	g.POST("/kernel/apply", a.HandleKernelApply)
 	g.GET("/stats/realtime", a.HandleStatsRealtime)
 	g.GET("/stats/user-traffic", a.HandleStatsUserTraffic)
 	g.GET("/inbounds", a.HandleInboundsList)

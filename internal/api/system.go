@@ -82,6 +82,10 @@ func (a *API) HandleBBREnable(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	// BBR 是系统级设置，不影响内核配置；热应用会比对出配置未变而直接返回
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, readSystemStatus())
 }
 

@@ -1,6 +1,7 @@
 package singbox
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,7 +103,53 @@ func TestManagerStartInvalid(t *testing.T) {
 	}
 }
 
+// TestManagerApplySkipsIdenticalConfig 配置未变时不重建实例（写操作频繁保存不该反复重启代理）。
+func TestManagerApplySkipsIdenticalConfig(t *testing.T) {
+	m := New(t.TempDir())
+	if err := m.Start(MinConfig()); err != nil {
+		t.Skipf("本机统计端口不可用，跳过重建跳过用例: %v", err)
+	}
+	defer func() { _ = m.Stop() }()
+	gen := m.Generation()
+	if err := m.Apply(MinConfig()); err != nil {
+		t.Fatalf("应用相同配置失败: %v", err)
+	}
+	if got := m.Generation(); got != gen {
+		t.Errorf("相同配置不应重建实例: generation %d -> %d", gen, got)
+	}
+	// 配置变化后必须重建
+	changed := MinConfig()
+	changed.Log = &LogConfig{Level: "debug", Timestamp: true}
+	if err := m.Apply(changed); err != nil {
+		t.Fatalf("应用新配置失败: %v", err)
+	}
+	if got := m.Generation(); got == gen {
+		t.Errorf("配置变化后应重建实例: generation 仍为 %d", got)
+	}
+	if st := m.Status(); !st.Running {
+		t.Errorf("重建后应仍在运行: %+v", st)
+	}
+}
+
 // TestLogBuffer 日志环形缓冲：容量上限与 limit 语义。
+
+// TestManagerStatsAddrIsDynamic 每个管理器使用各自的回环端口，避免多实例争用同一端口。
+func TestManagerStatsAddrIsDynamic(t *testing.T) {
+	first, second := New(t.TempDir()), New(t.TempDir())
+	if first.StatsAddr() == second.StatsAddr() {
+		t.Errorf("两个管理器的统计端口不应相同: %s", first.StatsAddr())
+	}
+	for _, m := range []*Manager{first, second} {
+		host, port, err := net.SplitHostPort(m.StatsAddr())
+		if err != nil {
+			t.Fatalf("统计地址不合法 %q: %v", m.StatsAddr(), err)
+		}
+		if host != "127.0.0.1" || port == "" {
+			t.Errorf("统计地址应为本机回环: %s", m.StatsAddr())
+		}
+	}
+}
+
 func TestLogBuffer(t *testing.T) {
 	var b logBuffer
 	for i := 0; i < logCapacity+10; i++ {

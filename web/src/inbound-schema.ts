@@ -90,7 +90,7 @@ export const TLS_FIELDS: FieldDef[] = [
     field: 'tls.certId',
     label: '选择证书',
     type: 'select',
-    description: '选择面板「证书管理」中已存储的证书，应用配置时自动写出对应 PEM',
+    description: '选择面板「证书管理」中已存储的证书，保存后自动写出对应 PEM',
     when: (cfg) => !!cfg.tls?.enabled && cfg.tls?.certMode === 'managed',
   },
   {
@@ -515,7 +515,7 @@ export function computeInboundWarnings(protocol: string, cfg: Record<string, any
       (tls.certMode === 'managed' && !tls.certId) ||
       (tls.certMode === 'path' && (!tls.certPath || !tls.keyPath))
     if (tls.enabled && missing) {
-      warnings.push({ text: 'TLS 已启用但未配置证书，应用配置将失败', jump: 'tls' })
+      warnings.push({ text: 'TLS 已启用但未配置证书，保存后内核将无法重建', jump: 'tls' })
     }
   }
   /** QUIC 协议若显式配置了 ALPN 但不含 h3，握手会失败 */

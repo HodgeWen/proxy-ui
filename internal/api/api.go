@@ -29,15 +29,14 @@ type SessionManager interface {
 
 // API 面板 REST handlers，持有数据库、会话管理与内核相关模块。
 type API struct {
-	db            *gorm.DB
-	sessions      SessionManager
-	core          *singbox.Manager      // 内置内核实例管理
-	selfUpdates   *update.SelfUpdater   // 面板自身版本查询、替换与重启
-	stats         *singbox.StatsMonitor // 内核统计采集（实时速率与按用户累计流量）
-	ai            *ai.Service           // AI 助手（供应商配置、对话代理、工具注册表）
-	dataDir       string                // 数据目录（证书存储等落盘位置）
-	configMu      sync.Mutex            // 保护 pendingConfig（多个 handler 并发读写）
-	pendingConfig singbox.Config        // 上次应用生成的配置（启动内核时使用）
+	db          *gorm.DB
+	sessions    SessionManager
+	core        *singbox.Manager      // 内置内核实例管理
+	selfUpdates *update.SelfUpdater   // 面板自身版本查询、替换与重启
+	stats       *singbox.StatsMonitor // 内核统计采集（实时速率与按用户累计流量）
+	ai          *ai.Service           // AI 助手（供应商配置、对话代理、工具注册表）
+	dataDir     string                // 数据目录（证书存储等落盘位置）
+	applyMu     sync.Mutex            // 串行化「聚合配置 + 重建内核」，保证并发写操作按落库顺序生效
 }
 
 // New 构造 API；dataDir 为面板数据目录。

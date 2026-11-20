@@ -482,51 +482,6 @@ func TestRuleTemplateApply(t *testing.T) {
 	}
 }
 
-// TestKernelApplyAggregates 应用配置：聚合入站/用户/规则/DNS 并写入待启动配置。
-func TestKernelApplyAggregates(t *testing.T) {
-	srv, _ := newTestServer(t)
-	client := setupAdmin(t, srv.URL)
-
-	in := createInbound(t, client, srv.URL, map[string]any{"name": "vless-apply", "protocol": "vless"})
-	createToken(t, client, srv.URL, map[string]any{"name": "applier", "nodeInbounds": []uint{in.ID}})
-
-	code, env := doJSON(t, client, http.MethodPost, srv.URL+"/api/kernel/apply", nil)
-	if code != http.StatusOK {
-		t.Fatalf("应用配置失败: code=%d msg=%s", code, env.Msg)
-	}
-	var result struct {
-		Applied bool           `json:"applied"`
-		Status  map[string]any `json:"status"`
-	}
-	decodeData(t, env, &result)
-	// 内核未运行时不偷偷拉起
-	if result.Applied {
-		t.Error("内核未运行时不应标记已应用")
-	}
-	if result.Status == nil {
-		t.Error("应返回内核状态")
-	}
-
-	// 内核状态接口可查
-	code, env = doJSON(t, client, http.MethodGet, srv.URL+"/api/kernel/status", nil)
-	if code != http.StatusOK {
-		t.Fatalf("查询内核状态失败: %s", env.Msg)
-	}
-	var status struct {
-		Installed bool   `json:"installed"`
-		Running   bool   `json:"running"`
-		Embedded  bool   `json:"embedded"`
-		Version   string `json:"version"`
-	}
-	decodeData(t, env, &status)
-	if !status.Installed || !status.Embedded || status.Version == "" {
-		t.Errorf("内置内核状态不符: %+v", status)
-	}
-	if status.Running {
-		t.Error("未启动时 running 应为 false")
-	}
-}
-
 // TestStatsEndpoints 统计接口在未启动内核时返回零值。
 func TestStatsEndpoints(t *testing.T) {
 	srv, _ := newTestServer(t)

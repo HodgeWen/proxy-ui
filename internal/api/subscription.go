@@ -108,7 +108,9 @@ func (a *API) HandleTokenCreate(c *gin.Context) {
 			return
 		}
 	}
-	_, _ = a.ReconcileQuota()
+	if err := a.syncQuota(c); err != nil {
+		return
+	}
 	view, err := a.tokenView(record.ID)
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
@@ -164,8 +166,7 @@ func (a *API) HandleTokenUpdate(c *gin.Context) {
 			return
 		}
 	}
-	if err := a.refreshAndApply(c); err != nil {
-		Fail(c, http.StatusBadRequest, err.Error())
+	if err := a.syncQuota(c); err != nil {
 		return
 	}
 	view, err := a.tokenView(id)
@@ -186,7 +187,9 @@ func (a *API) HandleTokenDelete(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	_, _, _ = a.applyKernel(c.Request.Context())
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, gin.H{"deleted": id})
 }
 
@@ -210,8 +213,7 @@ func (a *API) HandleTokenRevoke(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "更新订阅用户失败: "+err.Error())
 		return
 	}
-	if err := a.refreshAndApply(c); err != nil {
-		Fail(c, http.StatusBadRequest, err.Error())
+	if err := a.syncQuota(c); err != nil {
 		return
 	}
 	view, err := a.tokenView(id)
@@ -237,8 +239,7 @@ func (a *API) HandleTokenReset(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "重置订阅链接失败: "+err.Error())
 		return
 	}
-	if err := a.refreshAndApply(c); err != nil {
-		Fail(c, http.StatusBadRequest, err.Error())
+	if err := a.syncQuota(c); err != nil {
 		return
 	}
 	view, err := a.tokenView(id)
@@ -283,8 +284,7 @@ func (a *API) HandleTokenResetTraffic(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "清零流量失败: "+err.Error())
 		return
 	}
-	if err := a.refreshAndApply(c); err != nil {
-		Fail(c, http.StatusBadRequest, err.Error())
+	if err := a.syncQuota(c); err != nil {
 		return
 	}
 	view, err := a.tokenView(id)
@@ -304,16 +304,15 @@ func mustReloadToken(a *API, id uint) db.SubscriptionToken {
 	return record
 }
 
-// refreshAndApply 刷新用户暂停状态；有变化则重新生成并应用内核配置。
-func (a *API) refreshAndApply(c *gin.Context) error {
-	changed, err := a.ReconcileQuota()
-	if err != nil {
+// syncQuota 写操作落库后统一处理：先按配额/到期刷新用户生效状态，再热应用内核。
+// 失败时已写出响应并返回错误（数据库改动保留，便于用户修正后重试）。
+func (a *API) syncQuota(c *gin.Context) error {
+	if _, err := a.ReconcileQuota(); err != nil {
+		Fail(c, http.StatusInternalServerError, "刷新配额状态失败: "+err.Error())
 		return err
 	}
-	if !changed {
-		return nil
-	}
-	if _, _, err := a.applyKernel(c.Request.Context()); err != nil {
+	if err := a.applyKernelConfig(c.Request.Context()); err != nil {
+		Fail(c, http.StatusBadRequest, "已保存，但内核按新配置重建失败: "+err.Error())
 		return err
 	}
 	return nil

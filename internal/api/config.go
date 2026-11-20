@@ -1,59 +1,17 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
-
-	"github.com/gin-gonic/gin"
 
 	"proxy-ui/internal/db"
 	"proxy-ui/internal/singbox"
 )
 
-// HandleKernelApply POST /api/kernel/apply 应用配置：聚合全部启用入站与用户重新生成并
-// 重建内核实例（内置内核下配置变更即重建，无需单独的"校验-写入-重启"三步）。
-func (a *API) HandleKernelApply(c *gin.Context) {
-	// 应用前按配额/到期刷新用户状态，保证写入内核的用户都在有效期内
-	if _, err := a.ReconcileQuota(); err != nil {
-		Fail(c, http.StatusInternalServerError, "刷新配额状态失败: "+err.Error())
-		return
-	}
-	result, status, err := a.applyKernel(c.Request.Context())
-	if err != nil {
-		Fail(c, status, err.Error())
-		return
-	}
-	OK(c, result)
-}
-
-// applyKernel 聚合并应用内核配置，返回结果载荷与错误对应的 HTTP 状态码。
-func (a *API) applyKernel(ctx context.Context) (gin.H, int, error) {
-	cfg, err := a.buildKernelConfig()
-	if err != nil {
-		return nil, http.StatusBadRequest, err
-	}
-	if err := a.core.CheckConfig(cfg); err != nil {
-		return nil, http.StatusBadRequest, err
-	}
-	// 已运行时按新配置重建；未运行时只保存待启动（避免偷偷拉起内核）
-	applied := false
-	if a.core.Status().Running {
-		if err := a.core.Restart(cfg); err != nil {
-			return nil, http.StatusBadRequest, err
-		}
-		applied = true
-	}
-	a.configMu.Lock()
-	a.pendingConfig = cfg
-	a.configMu.Unlock()
-	return gin.H{"applied": applied, "status": a.kernelStatusOf(ctx)}, http.StatusOK, nil
-}
-
 // buildKernelConfig 从数据库聚合启用中的入站与用户/出站/规则/策略组/DNS 生成完整内核配置。
+// 没有任何可启动入站时返回最小配置（内核仍运行，只是不监听代理端口）。
 func (a *API) buildKernelConfig() (singbox.Config, error) {
 	var inbounds []db.Inbound
 	if err := a.db.Where("enabled = ?", true).Order("id").Find(&inbounds).Error; err != nil {
@@ -85,6 +43,10 @@ func (a *API) buildKernelConfig() (singbox.Config, error) {
 			Tag: in.Name, Protocol: in.Protocol, Listen: in.Listen, Port: in.ListenPort,
 			Config: in.Config, Users: entries, Cert: a.resolveCertPaths,
 		})
+	}
+	if len(inEntries) == 0 {
+		// 暂无可用入站：以最小配置运行，让面板与统计链路可用而不报错
+		return singbox.MinConfig(), nil
 	}
 	var outbounds []db.Outbound
 	if err := a.db.Where("enabled = ?", true).Order("id").Find(&outbounds).Error; err != nil {

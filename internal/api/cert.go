@@ -51,6 +51,9 @@ func (a *API) HandleCertCreate(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "创建证书失败: "+err.Error())
 		return
 	}
+	if !a.applyOrFail(c) {
+		return
+	}
 	OK(c, cert)
 }
 
@@ -76,6 +79,9 @@ func (a *API) HandleCertUpdate(c *gin.Context) {
 	}
 	if err := a.db.Save(&cert).Error; err != nil {
 		Fail(c, http.StatusInternalServerError, "保存证书失败: "+err.Error())
+		return
+	}
+	if !a.applyOrFail(c) {
 		return
 	}
 	OK(c, cert)
@@ -113,6 +119,9 @@ func (a *API) HandleCertDelete(c *gin.Context) {
 	}
 	if err := a.db.Delete(&db.Certificate{}, id).Error; err != nil {
 		Fail(c, http.StatusInternalServerError, "删除证书失败: "+err.Error())
+		return
+	}
+	if !a.applyOrFail(c) {
 		return
 	}
 	OK(c, gin.H{"deleted": id})
