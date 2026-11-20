@@ -93,43 +93,35 @@ onMounted(init)
 
 <template>
   <div class="ai-page">
-    <u-card v-if="loading" class="ai-status-card">
-      <u-card-content>
-        <EmptyState title="正在加载 AI 配置…" />
-      </u-card-content>
-    </u-card>
-
-    <u-card v-else-if="configError" class="ai-status-card">
-      <u-card-header>AI 助手</u-card-header>
-      <u-card-content>
-        <EmptyState
-          :icon="TriangleAlert"
-          title="AI 配置加载失败"
-          :description="configError"
-          cta-text="重试"
-          @cta="retry"
-        />
-        <div class="ai-status-ops">
-          <u-button @click="gotoSettings">前往设置</u-button>
-        </div>
-      </u-card-content>
-    </u-card>
-
-    <u-card v-else-if="!ready" class="ai-status-card">
-      <u-card-header>AI 助手</u-card-header>
-      <u-card-content>
-        <EmptyState
-          :icon="AiChat"
-          title="尚未配置 AI 供应商"
-          description="请在设置页填写 OpenAI 兼容供应商的接口地址、模型与 API Key 后开始对话"
-          cta-text="前往设置配置 AI 供应商"
-          @cta="gotoSettings"
-        />
-        <div class="ai-status-ops">
-          <u-button @click="retry">我已配置，刷新</u-button>
-        </div>
-      </u-card-content>
-    </u-card>
+    <!-- 未就绪三态（加载中/加载失败/未配置）共用一张居中状态卡 -->
+    <div v-if="!ready" class="ai-status-wrap">
+      <u-card class="ai-status-card">
+        <u-card-header>AI 助手</u-card-header>
+        <u-card-content>
+          <EmptyState v-if="loading" title="正在加载 AI 配置…" />
+          <EmptyState
+            v-else-if="configError"
+            :icon="TriangleAlert"
+            title="AI 配置加载失败"
+            :description="configError"
+            cta-text="重试"
+            @cta="retry"
+          />
+          <template v-else>
+            <EmptyState
+              :icon="AiChat"
+              title="尚未配置 AI 供应商"
+              description="请在设置页填写 OpenAI 兼容供应商的接口地址、模型与 API Key 后开始对话"
+              cta-text="前往设置配置 AI 供应商"
+              @cta="gotoSettings"
+            />
+            <div class="ai-status-ops">
+              <u-button @click="retry">我已配置，刷新</u-button>
+            </div>
+          </template>
+        </u-card-content>
+      </u-card>
+    </div>
 
     <u-ai-chat
       v-else
@@ -159,7 +151,17 @@ onMounted(init)
   height: 100%;
 }
 
+/* 状态卡在整页居中，不再左上角留半屏空白 */
+.ai-status-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .ai-status-card {
+  width: 100%;
   max-width: 560px;
 }
 
