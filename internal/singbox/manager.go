@@ -1,28 +1,30 @@
-// Package singbox 管理 sing-box 内核：配置文件生成、子进程启停与状态、日志采集。
+// Package singbox 管理内置 sing-box 内核：配置生成、进程内实例生命周期与统计采集。
+//
+// 内核以库形式编进面板（见 embedded.go），不再下载外部二进制；这样能启用
+// v2ray_api，从而按「用户」统计流量——这是共享入站下实现配额的前提。
 package singbox
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
+
+	box "github.com/sagernet/sing-box"
+	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/include"
+	"github.com/sagernet/sing-box/log"
+	"github.com/sagernet/sing-box/option"
+	"github.com/sagernet/sing/service/filemanager"
 )
 
 // 进程控制参数。
 const (
-	startGrace  = 500 * time.Millisecond // 启动后观察窗口：进程立即退出视为启动失败
-	stopTimeout = 5 * time.Second        // 优雅停止等待，超时强杀
-	logCapacity = 1000                   // 日志环形缓冲行数
-
-	trafficFirstLine = 3 * time.Second // Clash API /traffic 首行（每秒一拍）最长等待
+	stopTimeout = 5 * time.Second // 优雅停止等待，超时视为失败
+	logCapacity = 1000            // 日志环形缓冲行数
 )
 
 // LogLine 内核日志行。
@@ -34,171 +36,56 @@ type LogLine struct {
 
 // Status 内核运行状态。
 type Status struct {
-	Installed bool   `json:"installed"`               // 内核是否已安装
+	Installed bool   `json:"installed"`               // 内核是否可用（内置内核实为恒真）
 	Running   bool   `json:"running"`                 // 是否运行中
-	PID       int    `json:"pid,omitempty"`           // 进程 PID（运行中时有值）
-	Version   string `json:"version,omitempty"`       // 内核版本号（已安装时有值）
-	Uptime    int64  `json:"uptimeSeconds,omitempty"` // 运行时长（秒，运行中时有值）
-	CorePath  string `json:"corePath,omitempty"`      // 内核可执行文件路径
+	Version   string `json:"version,omitempty"`       // 内核版本号
+	Uptime    int64  `json:"uptimeSeconds,omitempty"` // 运行时长（秒）
+	Embedded  bool   `json:"embedded"`                // 是否内置内核（恒真）
 }
 
-// Manager sing-box 内核子进程管理。
+// Manager sing-box 内核实例管理：进程内构建、启动、停止与重建。
 type Manager struct {
-	dir     string        // 内核工作目录（可执行文件与 config.json 所在）
-	mu      sync.Mutex    // 保护以下字段
-	cmd     *exec.Cmd     // 当前内核进程
-	exited  chan struct{} // 当前进程退出信号
-	started time.Time     // 当前进程启动时间
-	version string        // 已安装内核版本缓存（sing-box version 解析）
-	logs    logBuffer     // 日志环形缓冲
+	dir string // 工作目录（cache.db 等内核落盘文件）
+
+	startMu    sync.Mutex // 串行化「停旧-起新」全过程（并发应用会互相踩踏独占资源）
+	mu         sync.Mutex
+	box        *box.Box
+	started    time.Time
+	generation uint64  // 实例代号：每次成功重建递增，统计采集据此重置基线
+	lastGood   *Config // 上一个成功启动的配置（新配置启动失败时回滚）
+	logs       logBuffer
 }
 
-// New 构造内核管理器；dir 为内核目录（<data>/core）。
+// New 构造内核管理器；dir 为工作目录（<data>/core）。
 func New(dir string) *Manager {
 	return &Manager{dir: dir}
 }
 
-// CorePath 内核可执行文件路径。
-func (m *Manager) CorePath() string { return filepath.Join(m.dir, "sing-box") }
+// Dir 内核工作目录。
+func (m *Manager) Dir() string { return m.dir }
 
-// ConfigPath 内核配置文件路径。
-func (m *Manager) ConfigPath() string { return filepath.Join(m.dir, "config.json") }
+// statsAddr 本进程内核的 v2ray 统计监听地址（固定本机回环，随实例固定）。
+const statsAddr = "127.0.0.1:19091"
 
-// Installed 内核是否已安装。
-func (m *Manager) Installed() bool {
-	_, err := os.Stat(m.CorePath())
-	return err == nil
-}
+// StatsAddr 返回本进程内核的统计服务监听地址。
+func (m *Manager) StatsAddr() string { return statsAddr }
 
-// WriteConfig 将配置对象序列化为 JSON（缩进两格）写入 config.json。
-func (m *Manager) WriteConfig(v any) error {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return fmt.Errorf("序列化内核配置失败: %w", err)
-	}
-	if err := os.MkdirAll(m.dir, 0o755); err != nil {
-		return fmt.Errorf("创建内核目录失败: %w", err)
-	}
-	if err := os.WriteFile(m.ConfigPath(), data, 0o600); err != nil {
-		return fmt.Errorf("写入内核配置失败: %w", err)
-	}
-	return nil
-}
+// StatsListen 统计服务监听地址（供配置生成写入 v2ray_api.listen）。
+func StatsListen() string { return statsAddr }
 
-// EnsureConfig 确保 config.json 存在；不存在时生成最小可运行配置。
-func (m *Manager) EnsureConfig() error {
-	if _, err := os.Stat(m.ConfigPath()); err == nil {
-		return nil
-	}
-	return m.WriteConfig(MinConfig())
-}
+// Installed 内核是否可用（内置内核恒为 true）。
+func (m *Manager) Installed() bool { return true }
 
-// CheckConfig 以 `sing-box check` 校验当前 config.json；未安装内核时跳过（返回 nil）。
-func (m *Manager) CheckConfig(ctx context.Context) error {
-	if !m.Installed() {
-		return nil
-	}
-	// -c 传相对 -D 的文件名：sing-box 会把相对 -c 路径按 -D 目录解析，传完整路径会拼错位置
-	out, err := exec.CommandContext(ctx, m.CorePath(), "check", "-D", m.dir, "-c", "config.json").CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(out))
-		if msg == "" {
-			msg = err.Error()
-		}
-		return fmt.Errorf("内核配置校验失败: %s", msg)
-	}
-	return nil
-}
+// Version 内置内核版本号。
+func (m *Manager) Version(context.Context) string { return EmbeddedVersion }
 
-// Start 拉起内核子进程；已在运行时幂等返回，未安装内核或进程立即退出（多为配置错误）时报错。
-func (m *Manager) Start() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.cmd != nil {
-		return nil // 已在运行
-	}
-	if !m.Installed() {
-		return errors.New("sing-box 内核未安装，请先在设置页下载安装")
-	}
-	if err := m.EnsureConfig(); err != nil {
-		return err
-	}
-	// 注意不用请求 ctx：内核生命周期独立于触发启动的 HTTP 请求；-c 相对 -D 解析，只传文件名
-	cmd := exec.Command(m.CorePath(), "run", "-D", m.dir, "-c", "config.json")
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("接管内核输出失败: %w", err)
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("接管内核输出失败: %w", err)
-	}
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("启动内核进程失败: %w", err)
-	}
-	exited := make(chan struct{})
-	m.cmd, m.started, m.exited = cmd, time.Now(), exited
-	go m.pipeLogs("stdout", stdout)
-	go m.pipeLogs("stderr", stderr)
-	go func() {
-		err := cmd.Wait()
-		m.mu.Lock()
-		m.cmd = nil
-		m.mu.Unlock()
-		if err != nil {
-			m.logs.add("panel", "内核进程退出: "+err.Error())
-		} else {
-			m.logs.add("panel", "内核进程已退出")
-		}
-		close(exited)
-	}()
-	// 观察窗口内进程即退出视为启动失败，日志里已有原因
-	select {
-	case <-exited:
-		return errors.New("内核启动失败，进程已退出，请查看内核日志")
-	case <-time.After(startGrace):
-		return nil
-	}
-}
-
-// Stop 停止内核：先发中断信号，超时未退出则强杀；未运行时幂等返回。
-func (m *Manager) Stop() error {
-	m.mu.Lock()
-	cmd, exited := m.cmd, m.exited
-	m.mu.Unlock()
-	if cmd == nil || cmd.Process == nil {
-		return nil
-	}
-	if err := cmd.Process.Signal(os.Interrupt); err != nil {
-		_ = cmd.Process.Kill()
-	}
-	select {
-	case <-exited:
-	case <-time.After(stopTimeout):
-		_ = cmd.Process.Kill()
-		<-exited
-	}
-	return nil
-}
-
-// Restart 重启内核（先停再起，配置沿用现有 config.json）。
-func (m *Manager) Restart() error {
-	if err := m.Stop(); err != nil {
-		return err
-	}
-	return m.Start()
-}
-
-// Status 采集内核状态；Version 由调用方经 Version(ctx) 补充（内部有缓存）。
+// Status 采集内核运行状态。
 func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	st := Status{Installed: m.Installed(), Version: m.version, CorePath: m.CorePath()}
-	if m.cmd != nil {
+	st := Status{Installed: true, Embedded: true, Version: EmbeddedVersion}
+	if m.box != nil {
 		st.Running = true
-		if m.cmd.Process != nil {
-			st.PID = m.cmd.Process.Pid
-		}
 		st.Uptime = int64(time.Since(m.started).Seconds())
 	}
 	return st
@@ -207,55 +94,156 @@ func (m *Manager) Status() Status {
 // Logs 返回最近 limit 条日志（时间升序）；limit<=0 返回全部缓冲。
 func (m *Manager) Logs(limit int) []LogLine { return m.logs.snapshot(limit) }
 
-// Version 返回已安装内核版本号（执行 sing-box version 解析并缓存；未安装返回空）。
-func (m *Manager) Version(ctx context.Context) string {
+// Start 以给定配置启动内核。
+//
+// 内核的缓存文件与统计监听端口是独占资源，两个实例无法共存，因此必须先停旧实例。
+// 为避免并发应用（配额核对与手动应用同时触发）互相踩踏，整个「停旧-起新」过程串行化；
+// 为免一次错误配置把代理整个停掉，新配置启动失败时自动回滚到上一个可用配置。
+func (m *Manager) Start(cfg Config) error {
+	m.startMu.Lock()
+	defer m.startMu.Unlock()
 	m.mu.Lock()
-	cached := m.version
+	last := m.lastGood
 	m.mu.Unlock()
-	if cached != "" {
-		return cached
+	if err := m.stopLocked(); err != nil {
+		return err
 	}
-	if !m.Installed() {
-		return ""
-	}
-	out, err := exec.CommandContext(ctx, m.CorePath(), "version").Output()
-	if err != nil {
-		return ""
-	}
-	v := parseVersionOutput(string(out))
-	if v != "" {
-		m.mu.Lock()
-		m.version = v
-		m.mu.Unlock()
-	}
-	return v
-}
-
-// InvalidateVersion 清空版本缓存（内核重装后由调用方触发重新解析）。
-func (m *Manager) InvalidateVersion() {
-	m.mu.Lock()
-	m.version = ""
-	m.mu.Unlock()
-}
-
-// parseVersionOutput 从 `sing-box version` 输出解析版本号（第一行第三个字段）。
-func parseVersionOutput(out string) string {
-	for _, line := range strings.Split(out, "\n") {
-		fields := strings.Fields(strings.TrimSpace(line))
-		if len(fields) >= 3 && fields[0] == "sing-box" && fields[1] == "version" {
-			return fields[2]
+	if err := m.start(cfg); err != nil {
+		if last != nil {
+			if rollbackErr := m.start(*last); rollbackErr == nil {
+				return fmt.Errorf("%w（已回滚到上一个可用配置，代理未中断）", err)
+			}
 		}
+		return err
 	}
-	return ""
+	return nil
 }
 
-// pipeLogs 逐行读取子进程输出写入日志缓冲，直至管道关闭。
-func (m *Manager) pipeLogs(stream string, r io.Reader) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 64*1024), 512*1024)
-	for scanner.Scan() {
-		m.logs.add(stream, scanner.Text())
+// start 构建并启动实例，成功后记为「上一个可用配置」（调用方持 startMu）。
+func (m *Manager) start(cfg Config) error {
+	instance, err := m.build(cfg)
+	if err != nil {
+		return err
 	}
+	if err := instance.Start(); err != nil {
+		_ = instance.Close()
+		return fmt.Errorf("内核启动失败: %w", err)
+	}
+	m.mu.Lock()
+	m.box, m.started, m.generation = instance, time.Now(), m.generation+1
+	m.lastGood = &cfg
+	m.mu.Unlock()
+	m.log("panel", "内核已启动")
+	return nil
+}
+
+// Generation 返回内核实例代号（每次成功重建递增）；统计采集据此重置差分基线。
+func (m *Manager) Generation() uint64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.generation
+}
+
+// Restart 以给定配置重建内核（等价于 Start：内置内核下配置变更即重建实例）。
+func (m *Manager) Restart(cfg Config) error { return m.Start(cfg) }
+
+// Stop 停止内核；未运行时幂等返回。
+func (m *Manager) Stop() error {
+	m.startMu.Lock()
+	defer m.startMu.Unlock()
+	m.mu.Lock()
+	err := m.stopLocked()
+	m.mu.Unlock()
+	if err == nil {
+		m.log("panel", "内核已停止")
+	}
+	return err
+}
+
+// stopLocked 关闭当前实例（调用方持锁）。
+func (m *Manager) stopLocked() error {
+	if m.box == nil {
+		return nil
+	}
+	done := make(chan error, 1)
+	instance := m.box
+	m.box = nil
+	go func() { done <- instance.Close() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			m.log("panel", "内核关闭异常: "+err.Error())
+		}
+		return nil
+	case <-time.After(stopTimeout):
+		// 超时也继续持有引用，便于下次关闭重试，避免端口/缓存文件被泄漏占用
+		m.box = instance
+		m.log("panel", "内核停止超时")
+		return errors.New("内核停止超时")
+	}
+}
+
+// build 把配置 JSON 解析为内核选项并构建实例（不持锁：box.New 可能耗时）。
+func (m *Manager) build(cfg Config) (*box.Box, error) {
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("序列化内核配置失败: %w", err)
+	}
+	ctx := m.boxContext()
+	var opts option.Options
+	if err := opts.UnmarshalJSONContext(ctx, raw); err != nil {
+		return nil, fmt.Errorf("内核配置不合法: %w", err)
+	}
+	instance, err := box.New(box.Options{
+		Context:           ctx,
+		Options:           opts,
+		PlatformLogWriter: &panelPlatformWriter{mgr: m},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("构建内核失败: %w", err)
+	}
+	return instance, nil
+}
+
+// boxContext 构建带全部注册表、日志写入与工作目录的 sing-box 上下文。
+func (m *Manager) boxContext() context.Context {
+	ctx := box.Context(context.Background(),
+		include.InboundRegistry(), include.OutboundRegistry(), include.EndpointRegistry(),
+		include.DNSTransportRegistry(), include.ServiceRegistry(), include.CertificateProviderRegistry())
+	// 内核用 filemanager 的 basePath 解析相对路径（cache.db 等）；不设置会落到进程工作目录，
+	// 与数据目录分离且可能因不可写导致缓存失效，因此固定为内核工作目录。
+	dir := m.dir
+	if dir == "" {
+		dir = "."
+	}
+	_ = os.MkdirAll(dir, 0o755)
+	return filemanager.WithDefault(ctx, dir, "", os.Getuid(), os.Getgid())
+}
+
+// CheckConfig 校验配置能否被内核解析（不启动），未通过返回错误。
+func (m *Manager) CheckConfig(cfg Config) error {
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("序列化内核配置失败: %w", err)
+	}
+	var opts option.Options
+	if err := opts.UnmarshalJSONContext(m.boxContext(), raw); err != nil {
+		return fmt.Errorf("内核配置校验失败: %w", err)
+	}
+	return nil
+}
+
+// panelPlatformWriter 把内核日志写入面板环形缓冲（替代旧子进程 stdout 采集）。
+type panelPlatformWriter struct{ mgr *Manager }
+
+// WriteMessage 实现 log.PlatformWriter。
+func (w *panelPlatformWriter) WriteMessage(_ log.Level, message string) {
+	w.mgr.log("core", message)
+}
+
+// log 追加一行日志（不持管理器锁，可从内核回调任意线程安全调用）。
+func (m *Manager) log(stream, line string) {
+	m.logs.add(stream, line)
 }
 
 // logBuffer 固定容量日志环形缓冲。
@@ -285,3 +273,6 @@ func (b *logBuffer) snapshot(limit int) []LogLine {
 	copy(out, b.lines[len(b.lines)-limit:])
 	return out
 }
+
+// 保证 adapter 类型被引用（避免依赖被裁掉时编译报错）。
+var _ = adapter.V2RayServer(nil)

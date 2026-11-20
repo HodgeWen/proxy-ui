@@ -1,4 +1,7 @@
-// Package update 提供 GitHub Releases 版本查询与 sing-box 内核 / 面板自身下载、完整性校验与安装。
+// Package update 提供面板自身（proxy-ui）的 GitHub Releases 版本查询与自更新。
+//
+// 内核已改为编进面板（见 internal/singbox），不再从 Releases 下载内核二进制，
+// 因此这里只保留面板自更新所需的最小实现。
 package update
 
 import (
@@ -11,26 +14,18 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
-
-	"gorm.io/gorm"
-
-	"proxy-ui/internal/db"
 )
 
 // defaultAPIBase GitHub API 基址。
 const defaultAPIBase = "https://api.github.com"
 
-// repo sing-box 内核所在 GitHub 仓库。
-const repo = "SagerNet/sing-box"
-
 // ghRelease GitHub Releases API 响应精简结构。
 type ghRelease struct {
-	TagName     string    `json:"tag_name"`   // 版本 tag（v1.14.4）
+	TagName     string    `json:"tag_name"`   // 版本 tag（v1.2.3）
 	Draft       bool      `json:"draft"`      // 是否草稿
 	Prerelease  bool      `json:"prerelease"` // 是否预发布
 	PublishedAt time.Time `json:"published_at"`
@@ -45,9 +40,9 @@ type ghAsset struct {
 	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
-// Version 面板展示的内核版本条目。
+// Version 面板展示的版本条目。
 type Version struct {
-	Tag         string `json:"tag"`         // 版本 tag（v1.14.4）
+	Tag         string `json:"tag"`         // 版本 tag
 	Version     string `json:"version"`     // 不带 v 的版本号
 	Prerelease  bool   `json:"prerelease"`  // 是否预发布
 	PublishedAt string `json:"publishedAt"` // 发布时间（RFC3339）
@@ -60,7 +55,7 @@ type parsedVersion struct {
 	pre                 string // 预发布段（alpha.13 等），空表示稳定版
 }
 
-// parseVersionTag 解析 v1.14.4 / 1.15.0-alpha.13 形式 tag；无法解析返回 ok=false。
+// parseVersionTag 解析 v1.2.3 / 1.2.3-alpha.1 形式 tag；无法解析返回 ok=false。
 func parseVersionTag(tag string) (parsedVersion, bool) {
 	core, pre, _ := strings.Cut(strings.TrimPrefix(tag, "v"), "-")
 	parts := strings.Split(core, ".")
@@ -136,7 +131,7 @@ func parseNonNegative(s string) (int, error) {
 }
 
 // verifyDigestHex 比对 sha256 十六进制摘要与 GitHub 资产 digest（"sha256:<hex>"）；
-// digest 为空时跳过校验（依赖解压时的 gzip CRC 兜底）。
+// digest 为空时跳过校验。
 func verifyDigestHex(got, digest string) error {
 	if digest == "" {
 		return nil
@@ -149,11 +144,6 @@ func verifyDigestHex(got, digest string) error {
 		return fmt.Errorf("安装包完整性校验失败：期望 sha256 %s，实际 %s", want, got)
 	}
 	return nil
-}
-
-// assetName 计算当前平台对应的 release 资产名（sing-box-<版本>-<os>-<arch>.tar.gz）。
-func assetName(tag string) string {
-	return fmt.Sprintf("sing-box-%s-%s-%s.tar.gz", strings.TrimPrefix(tag, "v"), runtime.GOOS, runtime.GOARCH)
 }
 
 // pickRelease 选取目标 release：version 归一化匹配 tag，空则取最新稳定版。
@@ -194,7 +184,55 @@ func findAsset(rel ghRelease, name string) *ghAsset {
 	return nil
 }
 
-// ghClient 内核与面板更新共用的 GitHub Releases 访问底座：请求、下载校验与版本列表。
+// curateVersions 列出版本：稳定版 + 最新一条预发布（若有），按版本降序，最多 10 条。
+func curateVersions(rels []ghRelease, installedTag string) []Version {
+	installed := strings.TrimPrefix(installedTag, "v")
+	type entry struct {
+		rel ghRelease
+		v   parsedVersion
+	}
+	var stable, pre []entry
+	for _, r := range rels {
+		if r.Draft {
+			continue
+		}
+		v, ok := parseVersionTag(r.TagName)
+		if !ok {
+			continue
+		}
+		if v.pre == "" {
+			stable = append(stable, entry{rel: r, v: v})
+		} else {
+			pre = append(pre, entry{rel: r, v: v})
+		}
+	}
+	desc := func(a, b entry) int { return -a.v.compare(b.v) }
+	slices.SortFunc(stable, desc)
+	slices.SortFunc(pre, desc)
+	entries := stable
+	if len(pre) > 0 {
+		entries = append(entries, pre[0]) // 最新预发布作「尝鲜」项
+	}
+	out := make([]Version, 0, min(len(entries), maxCuratedVersions))
+	for _, e := range entries {
+		if len(out) >= maxCuratedVersions {
+			break
+		}
+		out = append(out, Version{
+			Tag:         e.rel.TagName,
+			Version:     e.v.String(),
+			Prerelease:  e.rel.Prerelease || e.v.pre != "",
+			PublishedAt: e.rel.PublishedAt.Format(time.RFC3339),
+			Installed:   strings.TrimPrefix(e.rel.TagName, "v") == installed,
+		})
+	}
+	return out
+}
+
+// maxCuratedVersions 版本列表最大条数。
+const maxCuratedVersions = 10
+
+// ghClient GitHub Releases 访问底座：请求与下载校验。
 type ghClient struct {
 	apiBase string // GitHub API 基址（测试可替换）
 	client  *http.Client
@@ -239,87 +277,13 @@ func (g *ghClient) fetchReleases(ctx context.Context, repo string) ([]ghRelease,
 	return rels, nil
 }
 
-// listVersions 查询仓库可用版本列表（策展规则见 curateVersions）；installedTag 归一化命中当前版本。
+// listVersions 查询仓库可用版本列表（策展规则见 curateVersions）。
 func (g *ghClient) listVersions(ctx context.Context, repo, installedTag string) ([]Version, error) {
 	rels, err := g.fetchReleases(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
 	return curateVersions(rels, installedTag), nil
-}
-
-// maxCuratedVersions 策展后版本列表的最大条数。
-const maxCuratedVersions = 10
-
-// versionLine 大版本线（major.minor）。
-type versionLine struct{ major, minor int }
-
-// curateVersions 策展版本列表：每个大版本线取最新稳定版（tag 无预发布段）作代表，按线降序；
-// 若最高的大版本线只有预发布（即比所有稳定线都新），取其最新预发布作「尝鲜」项排在稳定列表之后，
-// 稳定线自身的预发布不展示；总条数不超过 maxCuratedVersions，稳定代表优先占位。
-func curateVersions(rels []ghRelease, installedTag string) []Version {
-	installed := strings.TrimPrefix(installedTag, "v")
-	type entry struct {
-		rel ghRelease
-		v   parsedVersion
-	}
-	var entries []entry
-	for _, r := range rels {
-		if r.Draft {
-			continue
-		}
-		if v, ok := parseVersionTag(r.TagName); ok {
-			entries = append(entries, entry{rel: r, v: v})
-		}
-	}
-	type lineInfo struct {
-		latest *entry // 线内最新版本
-		stable *entry // 线内最新稳定版
-	}
-	lines := make(map[versionLine]*lineInfo)
-	for i := range entries {
-		e := &entries[i]
-		key := versionLine{major: e.v.major, minor: e.v.minor}
-		info := lines[key]
-		if info == nil {
-			info = &lineInfo{}
-			lines[key] = info
-		}
-		if info.latest == nil || e.v.compare(info.latest.v) > 0 {
-			info.latest = e
-		}
-		if e.v.pre == "" && (info.stable == nil || e.v.compare(info.stable.v) > 0) {
-			info.stable = e
-		}
-	}
-	keys := make([]versionLine, 0, len(lines))
-	for k := range lines {
-		keys = append(keys, k)
-	}
-	slices.SortFunc(keys, func(a, b versionLine) int {
-		return cmp.Or(cmp.Compare(a.major, b.major), cmp.Compare(a.minor, b.minor))
-	})
-	out := make([]Version, 0, min(len(keys), maxCuratedVersions))
-	add := func(e *entry) {
-		out = append(out, Version{
-			Tag:         e.rel.TagName,
-			Version:     e.v.String(),
-			Prerelease:  e.rel.Prerelease || e.v.pre != "",
-			PublishedAt: e.rel.PublishedAt.Format(time.RFC3339),
-			Installed:   strings.TrimPrefix(e.rel.TagName, "v") == installed,
-		})
-	}
-	for i := len(keys) - 1; i >= 0 && len(out) < maxCuratedVersions; i-- {
-		if info := lines[keys[i]]; info.stable != nil {
-			add(info.stable)
-		}
-	}
-	if len(out) < maxCuratedVersions && len(keys) > 0 {
-		if top := lines[keys[len(keys)-1]]; top.stable == nil {
-			add(top.latest)
-		}
-	}
-	return out
 }
 
 // downloadFile 下载 url 到 tmpDir 下临时文件并按 digest 校验完整性，返回临时文件路径（调用方负责删除）。
@@ -348,21 +312,4 @@ func (g *ghClient) downloadFile(ctx context.Context, url, digest, tmpDir string)
 		return "", err
 	}
 	return tmp.Name(), nil
-}
-
-// getSetting 读取设置值，不存在返回空字符串。
-func getSetting(database *gorm.DB, key string) string {
-	if database == nil {
-		return ""
-	}
-	var s db.Setting
-	if err := database.Where("`key` = ?", key).First(&s).Error; err != nil {
-		return ""
-	}
-	return s.Value
-}
-
-// setSetting 写入设置值（upsert）。
-func setSetting(database *gorm.DB, key, value string) error {
-	return database.Save(&db.Setting{Key: key, Value: value}).Error
 }

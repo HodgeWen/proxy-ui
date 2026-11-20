@@ -21,7 +21,24 @@ const (
 	ProtoTrojan      = "trojan"      // Trojan
 	ProtoVMess       = "vmess"       // VMess（WS + TLS）
 	ProtoShadowsocks = "shadowsocks" // Shadowsocks-2022
-	ProtoDirect      = "direct"      // Direct
+)
+
+// SupportedProtocols 面板支持的入站协议（推荐组排前）。
+var SupportedProtocols = []string{
+	ProtoVLESS, ProtoHysteria2, ProtoTUIC, ProtoAnyTLS,
+	ProtoTrojan, ProtoVMess, ProtoShadowsocks,
+}
+
+// 监听地址语义常量。
+const (
+	ListenAll      = "::"        // 双栈监听（IPv4 + IPv6）
+	ListenIPv4     = "0.0.0.0"   // 仅 IPv4
+	ListenLoopback = "127.0.0.1" // 仅本机（走反向代理）
+	DefaultListen  = ListenAll   // 默认双栈
+
+	// 随机端口段：避开常见服务端口段与 443，降低与既有服务冲突的概率。
+	RandomPortMin = 10000
+	RandomPortMax = 60000
 )
 
 // 证书引用方式常量。
@@ -30,11 +47,25 @@ const (
 	CertModePath    = "path"    // 服务器本地路径引用
 )
 
-// SupportedProtocols 面板支持的入站协议（推荐组排前）。
-var SupportedProtocols = []string{
-	ProtoVLESS, ProtoHysteria2, ProtoTUIC, ProtoAnyTLS,
-	ProtoTrojan, ProtoVMess, ProtoShadowsocks, ProtoDirect,
-}
+// Hysteria2 BBR 配置档位（sing-box 1.14+）。
+const (
+	BBRProfileConservative = "conservative" // 保守：低带宽/弱机器
+	BBRProfileStandard     = "standard"     // 标准（默认）
+	BBRProfileAggressive   = "aggressive"   // 激进：高带宽/低丢包
+)
+
+// SupportedBBRProfiles Hysteria2 BBR 配置档位列表。
+var SupportedBBRProfiles = []string{BBRProfileConservative, BBRProfileStandard, BBRProfileAggressive}
+
+// 拥塞控制算法常量（TUIC）。
+const (
+	CongestionBBR     = "bbr" // BBR（默认，高丢包链路表现最好）
+	CongestionCubic   = "cubic"
+	CongestionNewReno = "new_reno"
+)
+
+// SupportedCongestionControls TUIC 拥塞控制算法列表。
+var SupportedCongestionControls = []string{CongestionBBR, CongestionCubic, CongestionNewReno}
 
 // TLSConfig TLS 类入站通用配置；证书二选一：面板存储证书（CertID）或服务器本地路径。
 type TLSConfig struct {
@@ -47,71 +78,73 @@ type TLSConfig struct {
 	KeyPath    string   `json:"keyPath,omitempty"`    // path：私钥文件路径
 }
 
-// RealityConfig Reality 配置（VLESS 专用，无需面板证书）。
+// RealityConfig Reality 配置（VLESS 专用，无需面板证书；入站级共享）。
 type RealityConfig struct {
 	Enabled         bool   `json:"enabled"`                   // 是否启用 Reality
 	PrivateKey      string `json:"privateKey,omitempty"`      // x25519 私钥 base64(raw url)
-	PublicKey       string `json:"publicKey,omitempty"`       // 对应公钥（客户端/订阅使用，内核不需要）
+	PublicKey       string `json:"publicKey,omitempty"`       // 对应公钥（客户端订阅使用，内核不需要）
 	ShortID         string `json:"shortId,omitempty"`         // hex 短 ID（0-8 位）
 	HandshakeServer string `json:"handshakeServer,omitempty"` // 握手目标站点，默认 www.microsoft.com
 	HandshakePort   int    `json:"handshakePort,omitempty"`   // 握手目标端口，默认 443
 }
 
-// VLESSConfig VLESS 入站字段模型。
+// VLESSConfig VLESS 入站连接层配置（用户凭据在 InboundUser.Credential）。
 type VLESSConfig struct {
-	UUID    string        `json:"uuid"`           // 用户 UUID
 	Flow    string        `json:"flow,omitempty"` // 流控，默认 xtls-rprx-vision
 	Reality RealityConfig `json:"reality"`        // Reality 配置
-	TLS     TLSConfig     `json:"tls"`            // 普通TLS（Reality 关闭时使用）
+	TLS     TLSConfig     `json:"tls"`            // 普通 TLS（Reality 关闭时使用）
 }
 
-// Hysteria2Config Hysteria2 入站字段模型。
+// Hysteria2Config Hysteria2 入站连接层配置。
 type Hysteria2Config struct {
-	Password     string    `json:"password"`               // 认证密码
-	ObfsPassword string    `json:"obfsPassword,omitempty"` // salamander 混淆密码，空为不启用
-	UpMbps       int       `json:"upMbps,omitempty"`       // 上行带宽上限（Mbps），0 为不限
-	DownMbps     int       `json:"downMbps,omitempty"`     // 下行带宽上限（Mbps），0 为不限
-	TLS          TLSConfig `json:"tls"`                    // TLS（必须启用）
+	ObfsEnabled           bool      `json:"obfsEnabled,omitempty"`           // 是否启用 salamander 混淆
+	ObfsPassword          string    `json:"obfsPassword,omitempty"`          // 混淆密码（入站级共享）
+	UpMbps                int       `json:"upMbps"`                          // 上行带宽上限（Mbps），0 为不限
+	DownMbps              int       `json:"downMbps"`                        // 下行带宽上限（Mbps），0 为不限
+	IgnoreClientBandwidth bool      `json:"ignoreClientBandwidth,omitempty"` // 忽略客户端带宽设置（要求客户端用 BBR）
+	BBRProfile            string    `json:"bbrProfile,omitempty"`            // BBR 档位，默认 standard
+	TLS                   TLSConfig `json:"tls"`                             // TLS（必须启用，ALPN 默认 h3）
 }
 
-// TUICConfig TUIC v5 入站字段模型。
+// TUICConfig TUIC v5 入站连接层配置。
 type TUICConfig struct {
-	UUID              string    `json:"uuid"`                        // 用户 UUID
-	Password          string    `json:"password"`                    // 认证密码
-	CongestionControl string    `json:"congestionControl,omitempty"` // 拥塞控制：cubic/new_reno/bbr，默认 bbr
+	CongestionControl string    `json:"congestionControl,omitempty"` // 拥塞控制：bbr/cubic/new_reno，默认 bbr
 	TLS               TLSConfig `json:"tls"`                         // TLS（必须启用，ALPN 默认 h3）
 }
 
-// AnyTLSConfig AnyTLS 入站字段模型。
+// AnyTLSConfig AnyTLS 入站连接层配置。
 type AnyTLSConfig struct {
-	Password string    `json:"password"` // 认证密码
-	TLS      TLSConfig `json:"tls"`      // TLS（必须启用）
+	TLS TLSConfig `json:"tls"` // TLS（必须启用）
 }
 
-// TrojanConfig Trojan 入站字段模型。
+// TrojanConfig Trojan 入站连接层配置。
 type TrojanConfig struct {
-	Password string    `json:"password"` // 认证密码
-	TLS      TLSConfig `json:"tls"`      // TLS
+	TLS TLSConfig `json:"tls"` // TLS
 }
 
-// VMessConfig VMess（WS + TLS）入站字段模型。
+// VMessConfig VMess（WS + TLS）入站连接层配置。
 type VMessConfig struct {
-	UUID   string    `json:"uuid"`             // 用户 UUID
 	WSPath string    `json:"wsPath,omitempty"` // WebSocket 路径，默认 /
 	TLS    TLSConfig `json:"tls"`              // TLS
 }
 
-// ShadowsocksConfig Shadowsocks-2022 入站字段模型。
+// ShadowsocksConfig Shadowsocks-2022 入站连接层配置。
 type ShadowsocksConfig struct {
-	Method   string `json:"method,omitempty"` // 加密方法，默认 2022-blake3-aes-128-gcm
-	Password string `json:"password"`         // 密钥（2022 方法为 base64 编码的定长密钥）
+	Method string `json:"method,omitempty"` // 加密方法，默认 2022-blake3-aes-128-gcm
+	// PSK 入站级预共享密钥（服务端身份）。Shadowsocks-2022 多用户模式下客户端密码为
+	// 「PSK:用户密钥」，因此它必须在入站上固定下来，而不能每次生成。
+	PSK string `json:"psk,omitempty"`
 }
 
-// DirectConfig Direct 入站字段模型（无协议特定字段）。
-type DirectConfig struct{}
+// Credential 入站内单用户凭据（按协议只填相关字段）。
+type Credential struct {
+	UUID     string `json:"uuid,omitempty"`     // VLESS / TUIC / VMess
+	Password string `json:"password,omitempty"` // Hysteria2 / TUIC / AnyTLS / Trojan / Shadowsocks
+	Flow     string `json:"flow,omitempty"`     // VLESS 用户级流控（缺省用入站级）
+}
 
-// DefaultInboundConfig 生成带随机凭据的协议默认配置（证书引用默认 managed 且待选择，保存时按弱配置警示提示）。
-func DefaultInboundConfig(protocol string) (any, error) {
+// NewTemplateConfig 生成协议默认连接层配置（TLS/Reality/混淆/算法），不含任何用户凭据。
+func NewTemplateConfig(protocol string) (any, error) {
 	managedTLS := TLSConfig{Enabled: true, CertMode: CertModeManaged}
 	switch protocol {
 	case ProtoVLESS:
@@ -120,7 +153,6 @@ func DefaultInboundConfig(protocol string) (any, error) {
 			return nil, err
 		}
 		return &VLESSConfig{
-			UUID: uuid.NewString(),
 			Flow: "xtls-rprx-vision",
 			Reality: RealityConfig{
 				Enabled:         true,
@@ -133,53 +165,43 @@ func DefaultInboundConfig(protocol string) (any, error) {
 			TLS: TLSConfig{Enabled: true, ServerName: "www.microsoft.com"},
 		}, nil
 	case ProtoHysteria2:
-		return &Hysteria2Config{Password: randBase64(16), TLS: managedTLS}, nil
+		// QUIC 类协议 ALPN 必须含 h3，默认即给上，避免保存后握手失败
+		return &Hysteria2Config{
+			ObfsEnabled:  true,
+			ObfsPassword: randBase64(16),
+			BBRProfile:   BBRProfileStandard,
+			TLS:          TLSConfig{Enabled: true, CertMode: CertModeManaged, ALPN: []string{"h3"}},
+		}, nil
 	case ProtoTUIC:
 		return &TUICConfig{
-			UUID:              uuid.NewString(),
-			Password:          randBase64(16),
-			CongestionControl: "bbr",
+			CongestionControl: CongestionBBR,
 			TLS:               TLSConfig{Enabled: true, CertMode: CertModeManaged, ALPN: []string{"h3"}},
 		}, nil
 	case ProtoAnyTLS:
-		return &AnyTLSConfig{Password: randBase64(16), TLS: managedTLS}, nil
+		return &AnyTLSConfig{TLS: managedTLS}, nil
 	case ProtoTrojan:
-		return &TrojanConfig{Password: randBase64(16), TLS: managedTLS}, nil
+		return &TrojanConfig{TLS: managedTLS}, nil
 	case ProtoVMess:
-		return &VMessConfig{UUID: uuid.NewString(), WSPath: "/", TLS: managedTLS}, nil
+		return &VMessConfig{WSPath: "/", TLS: managedTLS}, nil
 	case ProtoShadowsocks:
-		return &ShadowsocksConfig{Method: "2022-blake3-aes-128-gcm", Password: randBase64(16)}, nil
-	case ProtoDirect:
-		return &DirectConfig{}, nil
+		const method = "2022-blake3-aes-128-gcm"
+		psk, err := NewSSKey(method)
+		if err != nil {
+			return nil, err
+		}
+		return &ShadowsocksConfig{Method: method, PSK: psk}, nil
 	}
 	return nil, fmt.Errorf("不支持的入站协议: %s", protocol)
 }
 
-// ParseInboundConfig 按协议解析入站配置 JSON；空白配置返回该协议默认配置。
+// ParseInboundConfig 按协议解析连接层配置 JSON；空白配置返回协议默认值。
 func ParseInboundConfig(protocol, raw string) (any, error) {
-	var dst any
-	switch protocol {
-	case ProtoVLESS:
-		dst = &VLESSConfig{}
-	case ProtoHysteria2:
-		dst = &Hysteria2Config{}
-	case ProtoTUIC:
-		dst = &TUICConfig{}
-	case ProtoAnyTLS:
-		dst = &AnyTLSConfig{}
-	case ProtoTrojan:
-		dst = &TrojanConfig{}
-	case ProtoVMess:
-		dst = &VMessConfig{}
-	case ProtoShadowsocks:
-		dst = &ShadowsocksConfig{}
-	case ProtoDirect:
-		dst = &DirectConfig{}
-	default:
+	dst := newConfigOf(protocol)
+	if dst == nil {
 		return nil, fmt.Errorf("不支持的入站协议: %s", protocol)
 	}
 	if strings.TrimSpace(raw) == "" {
-		return DefaultInboundConfig(protocol)
+		return NewTemplateConfig(protocol)
 	}
 	if err := json.Unmarshal([]byte(raw), dst); err != nil {
 		return nil, fmt.Errorf("入站配置 JSON 不合法: %w", err)
@@ -187,7 +209,85 @@ func ParseInboundConfig(protocol, raw string) (any, error) {
 	return dst, nil
 }
 
-// InboundTLS 返回入站配置中的 TLS 段（Direct/Shadowsocks 等无 TLS 概念的协议返回 nil）。
+// newConfigOf 按协议返回空连接层配置指针；不支持的协议返回 nil。
+func newConfigOf(protocol string) any {
+	switch protocol {
+	case ProtoVLESS:
+		return &VLESSConfig{}
+	case ProtoHysteria2:
+		return &Hysteria2Config{}
+	case ProtoTUIC:
+		return &TUICConfig{}
+	case ProtoAnyTLS:
+		return &AnyTLSConfig{}
+	case ProtoTrojan:
+		return &TrojanConfig{}
+	case ProtoVMess:
+		return &VMessConfig{}
+	case ProtoShadowsocks:
+		return &ShadowsocksConfig{}
+	}
+	return nil
+}
+
+// NewCredential 为某用户在指定入站下生成独立凭据。
+func NewCredential(protocol string) (Credential, error) {
+	switch protocol {
+	case ProtoVLESS, ProtoVMess:
+		return Credential{UUID: uuid.NewString()}, nil
+	case ProtoTUIC:
+		return Credential{UUID: uuid.NewString(), Password: randBase64(16)}, nil
+	case ProtoHysteria2, ProtoAnyTLS, ProtoTrojan:
+		return Credential{Password: randBase64(16)}, nil
+	case ProtoShadowsocks:
+		// 密钥长度取决于入站方法，由调用方按方法补齐（见 SSKeyLength）
+		return Credential{Password: ""}, nil
+	}
+	return Credential{}, fmt.Errorf("不支持的入站协议: %s", protocol)
+}
+
+// ParseCredential 解析用户凭据 JSON；空白返回该协议的默认凭据。
+func ParseCredential(protocol, raw string) (Credential, error) {
+	if strings.TrimSpace(raw) == "" {
+		return NewCredential(protocol)
+	}
+	var cred Credential
+	if err := json.Unmarshal([]byte(raw), &cred); err != nil {
+		return Credential{}, fmt.Errorf("用户凭据 JSON 不合法: %w", err)
+	}
+	return cred, nil
+}
+
+// SSMethodMultiUser 判断 Shadowsocks 方法是否支持多用户（sing-box 的多用户服务只支持两种 AES 方法）。
+func SSMethodMultiUser(method string) bool {
+	switch method {
+	case "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm":
+		return true
+	}
+	return false
+}
+
+// SSKeyLength 返回 Shadowsocks-2022 方法所需密钥字节数。
+func SSKeyLength(method string) (int, bool) {
+	switch method {
+	case "2022-blake3-aes-128-gcm":
+		return 16, true
+	case "2022-blake3-aes-256-gcm", "2022-blake3-chacha20-poly1305":
+		return 32, true
+	}
+	return 0, false
+}
+
+// NewSSKey 生成 Shadowsocks 指定方法所需长度的 base64 密钥。
+func NewSSKey(method string) (string, error) {
+	n, ok := SSKeyLength(method)
+	if !ok {
+		return "", fmt.Errorf("不支持的 Shadowsocks 方法: %s", method)
+	}
+	return randBytesBase64(n), nil
+}
+
+// InboundTLS 返回入站配置中的 TLS 段（Shadowsocks 等无 TLS 概念的协议返回 nil）。
 func InboundTLS(cfg any) *TLSConfig {
 	switch c := cfg.(type) {
 	case *VLESSConfig:
@@ -206,7 +306,12 @@ func InboundTLS(cfg any) *TLSConfig {
 	return nil
 }
 
-// InboundWarnings 弱配置判定：不阻断保存，但以明确警示返回（明文传输、空密码、弱密钥、缺证书等）。
+// QUICProtocol 是否为 QUIC 类协议（ALPN 必须含 h3）。
+func QUICProtocol(protocol string) bool {
+	return protocol == ProtoHysteria2 || protocol == ProtoTUIC
+}
+
+// InboundWarnings 弱配置判定：不阻断保存，但以明确警示返回（明文传输、缺证书、ALPN 缺 h3 等）。
 func InboundWarnings(protocol string, cfg any) []string {
 	var warnings []string
 	add := func(format string, args ...any) { warnings = append(warnings, fmt.Sprintf(format, args...)) }
@@ -222,64 +327,62 @@ func InboundWarnings(protocol string, cfg any) []string {
 			add("Reality 已启用，将忽略 TLS 开关强制启用 TLS（无需证书）")
 		}
 	case *Hysteria2Config:
-		if c.Password == "" {
-			add("Hysteria2 密码为空")
-		}
 		if !c.TLS.Enabled {
 			add("Hysteria2 必须启用 TLS，当前已关闭")
 		} else {
 			c.TLS.certWarnings(add)
+			c.TLS.alpnWarn(add)
+		}
+		if c.ObfsEnabled && c.ObfsPassword == "" {
+			add("已启用混淆但混淆密码为空")
+		}
+		if c.UpMbps > 0 && c.DownMbps > 0 {
+			add("已设置带宽上限，客户端将无法使用 BBR（如需 BBR 请保持带宽不限）")
 		}
 	case *TUICConfig:
-		if c.UUID == "" || c.Password == "" {
-			add("UUID 或密码为空")
-		}
 		if !c.TLS.Enabled {
 			add("TUIC 必须启用 TLS，当前已关闭")
 		} else {
 			c.TLS.certWarnings(add)
+			c.TLS.alpnWarn(add)
 		}
 	case *AnyTLSConfig:
-		if c.Password == "" {
-			add("AnyTLS 密码为空")
-		}
 		if !c.TLS.Enabled {
 			add("AnyTLS 必须启用 TLS，当前已关闭")
 		} else {
 			c.TLS.certWarnings(add)
 		}
 	case *TrojanConfig:
-		if c.Password == "" {
-			add("Trojan 密码为空")
-		}
 		if !c.TLS.Enabled {
 			add("Trojan 未启用 TLS，密码将明文传输")
 		} else {
 			c.TLS.certWarnings(add)
 		}
 	case *VMessConfig:
-		if c.UUID == "" {
-			add("UUID 为空")
-		}
 		if !c.TLS.Enabled {
 			add("VMess 未启用 TLS，流量将明文传输")
 		} else {
 			c.TLS.certWarnings(add)
 		}
 	case *ShadowsocksConfig:
-		switch {
-		case c.Password == "":
-			add("密钥为空")
-		case !strings.HasPrefix(c.Method, "2022-"):
+		if !strings.HasPrefix(c.Method, "2022-") {
 			add("非 Shadowsocks-2022 加密方法，强度较弱")
-		default:
-			n, _ := ss2022KeyLength(c.Method) // 2022- 前缀方法均在表内
-			if keyMismatch(c.Password, n) {
-				add("SS2022 密钥强度不足，需 base64 编码的 %d 字节密钥", n)
-			}
 		}
 	}
 	return warnings
+}
+
+// alpnWarn QUIC 类协议配置了 ALPN 但不含 h3 时提示（内核会补默认值，但客户端未必对齐）。
+func (t *TLSConfig) alpnWarn(add func(string, ...any)) {
+	if len(t.ALPN) == 0 {
+		return
+	}
+	for _, a := range t.ALPN {
+		if a == "h3" {
+			return
+		}
+	}
+	add("QUIC 类协议 ALPN 需含 h3，当前配置不含 h3")
 }
 
 // certWarnings 已启用 TLS 时校验证书引用是否齐备。
@@ -290,118 +393,6 @@ func (t *TLSConfig) certWarnings(add func(string, ...any)) {
 	if missing {
 		add("TLS 已启用但未配置证书，应用配置将失败")
 	}
-}
-
-// keyMismatch 判断 base64 密钥解码后长度是否与方法要求不符（解码失败视为不合规）。
-func keyMismatch(password string, want int) bool {
-	raw, err := base64.StdEncoding.DecodeString(password)
-	return err != nil || len(raw) != want
-}
-
-// ss2022KeyLength 返回 Shadowsocks-2022 方法所需密钥字节数。
-func ss2022KeyLength(method string) (int, bool) {
-	switch method {
-	case "2022-blake3-aes-128-gcm":
-		return 16, true
-	case "2022-blake3-aes-256-gcm", "2022-blake3-chacha20-poly1305":
-		return 32, true
-	}
-	return 0, false
-}
-
-// inboundJSON 把解析后的协议配置映射为 sing-box inbound JSON 对象。
-func inboundJSON(e InboundEntry, cfg any) (map[string]any, error) {
-	in := map[string]any{"type": e.Protocol, "tag": e.Tag, "listen": "::", "listen_port": e.ListenPort}
-	switch c := cfg.(type) {
-	case *VLESSConfig:
-		user := map[string]any{"name": e.Tag, "uuid": c.UUID}
-		if c.Flow != "" {
-			user["flow"] = c.Flow
-		}
-		in["users"] = []any{user}
-		// Reality 隐含 TLS：开启时即使 TLS 开关关闭也强制产出 tls 段，且无需面板证书。
-		tls, err := c.TLS.tlsJSON(c.Reality.Enabled, !c.Reality.Enabled, e.Cert)
-		if err != nil {
-			return nil, err
-		}
-		if c.Reality.Enabled {
-			tls["reality"] = c.Reality.json()
-		}
-		if tls != nil {
-			in["tls"] = tls
-		}
-	case *Hysteria2Config:
-		in["users"] = []any{map[string]any{"name": e.Tag, "password": c.Password}}
-		if c.ObfsPassword != "" {
-			in["obfs"] = map[string]any{"type": "salamander", "password": c.ObfsPassword}
-		}
-		if c.UpMbps > 0 {
-			in["up_mbps"] = c.UpMbps
-		}
-		if c.DownMbps > 0 {
-			in["down_mbps"] = c.DownMbps
-		}
-		tls, err := c.TLS.tlsJSON(true, true, e.Cert)
-		if err != nil {
-			return nil, err
-		}
-		in["tls"] = tls
-	case *TUICConfig:
-		in["users"] = []any{map[string]any{"name": e.Tag, "uuid": c.UUID, "password": c.Password}}
-		if c.CongestionControl != "" {
-			in["congestion_control"] = c.CongestionControl
-		}
-		tls, err := c.TLS.tlsJSON(true, true, e.Cert)
-		if err != nil {
-			return nil, err
-		}
-		if _, ok := tls["alpn"]; !ok {
-			tls["alpn"] = []string{"h3"}
-		}
-		in["tls"] = tls
-	case *AnyTLSConfig:
-		in["users"] = []any{map[string]any{"name": e.Tag, "password": c.Password}}
-		tls, err := c.TLS.tlsJSON(true, true, e.Cert)
-		if err != nil {
-			return nil, err
-		}
-		in["tls"] = tls
-	case *TrojanConfig:
-		in["users"] = []any{map[string]any{"name": e.Tag, "password": c.Password}}
-		tls, err := c.TLS.tlsJSON(false, true, e.Cert)
-		if err != nil {
-			return nil, err
-		}
-		if tls != nil {
-			in["tls"] = tls
-		}
-	case *VMessConfig:
-		in["users"] = []any{map[string]any{"name": e.Tag, "uuid": c.UUID}}
-		path := c.WSPath
-		if path == "" {
-			path = "/"
-		}
-		in["transport"] = map[string]any{"type": "ws", "path": path}
-		tls, err := c.TLS.tlsJSON(false, true, e.Cert)
-		if err != nil {
-			return nil, err
-		}
-		if tls != nil {
-			in["tls"] = tls
-		}
-	case *ShadowsocksConfig:
-		method := c.Method
-		if method == "" {
-			method = "2022-blake3-aes-128-gcm"
-		}
-		in["method"] = method
-		in["password"] = c.Password
-	case *DirectConfig:
-		// 无协议特定字段
-	default:
-		return nil, fmt.Errorf("入站 %s: 配置类型不符: %T", e.Tag, cfg)
-	}
-	return in, nil
 }
 
 // json 渲染 sing-box Reality 配置段。
@@ -476,7 +467,10 @@ func generateRealityKeypair() (private, public string, err error) {
 }
 
 // randBase64 生成 n 字节安全随机数的 base64 字符串。
-func randBase64(n int) string {
+func randBase64(n int) string { return randBytesBase64(n) }
+
+// randBytesBase64 生成 n 字节安全随机数的 base64 字符串。
+func randBytesBase64(n int) string {
 	buf := make([]byte, n)
 	if _, err := rand.Read(buf); err != nil {
 		panic(err) // 系统随机源不可用属致命错误

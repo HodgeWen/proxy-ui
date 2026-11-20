@@ -7,7 +7,6 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"testing/fstest"
 
@@ -75,6 +74,47 @@ func doJSON(t *testing.T, client *http.Client, method, url string, body any) (in
 	return resp.StatusCode, env
 }
 
+// setupAdmin 完成首次设置并返回带会话的客户端。
+func setupAdmin(t *testing.T, srvURL string) *http.Client {
+	t.Helper()
+	client := newClient(t)
+	if code, env := doJSON(t, client, http.MethodPost, srvURL+"/api/setup",
+		map[string]string{"username": "admin", "password": "password123"}); code != http.StatusOK {
+		t.Fatalf("setup 失败: %s", env.Msg)
+	}
+	return client
+}
+
+// decodeData 把 envelope.Data 解析到目标结构。
+func decodeData(t *testing.T, env envelope, dst any) {
+	t.Helper()
+	if err := json.Unmarshal(env.Data, dst); err != nil {
+		t.Fatalf("解析响应数据失败: %v, data=%s", err, env.Data)
+	}
+}
+
+// inboundResp 入站响应视图（测试断言用）。
+type inboundResp struct {
+	ID         uint   `json:"id"`
+	Name       string `json:"name"`
+	Protocol   string `json:"protocol"`
+	Listen     string `json:"listen"`
+	ListenPort int    `json:"listenPort"`
+	Enabled    bool   `json:"enabled"`
+	Config     map[string]any
+	Warnings   []string `json:"warnings"`
+	Users      []struct {
+		ID        uint   `json:"id"`
+		InboundID uint   `json:"inboundId"`
+		Name      string `json:"name"`
+		Enabled   bool   `json:"enabled"`
+		Suspended bool   `json:"suspended"`
+		TokenID   uint   `json:"tokenId"`
+		TokenName string `json:"tokenName"`
+	} `json:"users"`
+}
+
+// TestUninitialized 未初始化时的守卫行为。
 func TestUninitialized(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -85,7 +125,7 @@ func TestUninitialized(t *testing.T) {
 		{"健康检查放行", http.MethodGet, "/api/health", http.StatusOK},
 		{"未初始化登录拒绝", http.MethodPost, "/api/login", http.StatusUnauthorized},
 		{"未初始化受保护接口拒绝", http.MethodGet, "/api/me", http.StatusUnauthorized},
-		{"未初始化登出拒绝", http.MethodPost, "/api/logout", http.StatusUnauthorized},
+		{"未初始化入站接口拒绝", http.MethodGet, "/api/inbounds", http.StatusUnauthorized},
 	}
 	srv, _ := newTestServer(t)
 	for _, tt := range tests {
@@ -98,6 +138,7 @@ func TestUninitialized(t *testing.T) {
 	}
 }
 
+// TestSetupLoginFlow 首次设置 + 登录 + 改密 + 登出全链路。
 func TestSetupLoginFlow(t *testing.T) {
 	srv, _ := newTestServer(t)
 	client := newClient(t)
@@ -111,6 +152,23 @@ func TestSetupLoginFlow(t *testing.T) {
 	// 自动登录后可访问受保护接口
 	if code, env = doJSON(t, client, http.MethodGet, srv.URL+"/api/me", nil); code != http.StatusOK {
 		t.Fatalf("me 应放行: code=%d msg=%s", code, env.Msg)
+	}
+	var me struct {
+		Username string `json:"username"`
+	}
+	decodeData(t, env, &me)
+	if me.Username != "admin" {
+		t.Errorf("当前管理员 = %q, want admin", me.Username)
+	}
+	// 健康检查反映已初始化
+	code, env = doJSON(t, client, http.MethodGet, srv.URL+"/api/health", nil)
+	var health struct {
+		Status      string `json:"status"`
+		Initialized bool   `json:"initialized"`
+	}
+	decodeData(t, env, &health)
+	if code != http.StatusOK || !health.Initialized || health.Status != "ok" {
+		t.Fatalf("健康检查不符: code=%d %+v", code, health)
 	}
 	// 重复 setup 被拒
 	if code, _ = doJSON(t, client, http.MethodPost, srv.URL+"/api/setup",
@@ -150,159 +208,129 @@ func TestSetupLoginFlow(t *testing.T) {
 	}
 }
 
-func TestStatsEndpoints(t *testing.T) {
-	srv, dbPath := newTestServer(t)
-	client := newClient(t)
-	if code, env := doJSON(t, client, http.MethodPost, srv.URL+"/api/setup",
-		map[string]string{"username": "admin", "password": "password123"}); code != http.StatusOK {
-		t.Fatalf("setup 失败: %s", env.Msg)
-	}
+// TestCreateInboundDefaults 新建入站：端口随机且不为 443、配置不含凭据、用户为空。
+func TestCreateInboundDefaults(t *testing.T) {
+	srv, _ := newTestServer(t)
+	client := setupAdmin(t, srv.URL)
 
-	// 统计接口受会话守卫：未登录 401
-	anon := newClient(t)
-	if code, _ := doJSON(t, anon, http.MethodGet, srv.URL+"/api/stats/realtime", nil); code != http.StatusUnauthorized {
-		t.Errorf("未登录访问实时统计应 401, got %d", code)
-	}
-
-	// 内核未运行：实时统计零值、连接快照为空
-	code, env := doJSON(t, client, http.MethodGet, srv.URL+"/api/stats/realtime", nil)
-	if code != http.StatusOK || !env.Success {
-		t.Fatalf("realtime 应成功: code=%d msg=%s", code, env.Msg)
-	}
-	var realtime struct {
-		Up                int64 `json:"up"`
-		Down              int64 `json:"down"`
-		Memory            int64 `json:"memory"`
-		ActiveConnections int   `json:"activeConnections"`
-	}
-	if err := json.Unmarshal(env.Data, &realtime); err != nil {
-		t.Fatalf("解析 realtime 失败: %v", err)
-	}
-	if realtime.Up != 0 || realtime.Down != 0 || realtime.Memory != 0 || realtime.ActiveConnections != 0 {
-		t.Errorf("内核未运行时统计应为零值: %+v", realtime)
-	}
-	if code, env = doJSON(t, client, http.MethodGet, srv.URL+"/api/stats/connections", nil); code != http.StatusOK {
-		t.Fatalf("connections 应成功: %s", env.Msg)
-	}
-	var snapshot struct {
-		Connections []any `json:"connections"`
-	}
-	if err := json.Unmarshal(env.Data, &snapshot); err != nil || len(snapshot.Connections) != 0 {
-		t.Errorf("内核未运行时连接应为空: %v %s", err, env.Data)
-	}
-
-	// 建入站后累计查询应包含零值行
-	code, env = doJSON(t, client, http.MethodPost, srv.URL+"/api/inbounds",
-		map[string]any{"protocol": "hysteria2", "listenPort": 18443, "name": "hy-in"})
+	// 未指定端口 → 随机分配
+	code, env := doJSON(t, client, http.MethodPost, srv.URL+"/api/inbounds", map[string]any{"protocol": "vless"})
 	if code != http.StatusOK {
 		t.Fatalf("创建入站失败: %s", env.Msg)
 	}
 	var created struct {
-		ID uint `json:"id"`
+		ID         uint            `json:"id"`
+		Name       string          `json:"name"`
+		Protocol   string          `json:"protocol"`
+		Listen     string          `json:"listen"`
+		ListenPort int             `json:"listenPort"`
+		Enabled    bool            `json:"enabled"`
+		Config     json.RawMessage `json:"config"`
+		Users      []any           `json:"users"`
 	}
-	if err := json.Unmarshal(env.Data, &created); err != nil {
-		t.Fatalf("解析入站响应失败: %v", err)
+	decodeData(t, env, &created)
+	if created.ListenPort < 10000 || created.ListenPort > 60000 {
+		t.Errorf("默认端口 = %d, 应在 %d-%d 之间", created.ListenPort, 10000, 60000)
 	}
-	if code, env = doJSON(t, client, http.MethodGet, srv.URL+"/api/stats/inbound-traffic", nil); code != http.StatusOK {
-		t.Fatalf("inbound-traffic 应成功: %s", env.Msg)
+	if created.ListenPort == 443 {
+		t.Error("默认端口不应为 443")
 	}
-	var rows []struct {
-		InboundID     uint   `json:"inboundId"`
-		Name          string `json:"name"`
-		UploadBytes   int64  `json:"uploadBytes"`
-		DownloadBytes int64  `json:"downloadBytes"`
+	if created.Protocol != "vless" || created.Name == "" || !created.Enabled {
+		t.Errorf("入站基础字段不符: %+v", created)
 	}
-	if err := json.Unmarshal(env.Data, &rows); err != nil || len(rows) != 1 {
-		t.Fatalf("应返回一条累计行: %v %s", err, env.Data)
+	if created.Listen != "::" {
+		t.Errorf("默认监听地址 = %q, want ::", created.Listen)
 	}
-	if rows[0].Name != "hy-in" || rows[0].UploadBytes != 0 || rows[0].DownloadBytes != 0 {
-		t.Errorf("累计行不符: %+v", rows[0])
+	if len(created.Users) != 0 {
+		t.Errorf("新建入站不应有用户: %v", created.Users)
+	}
+	// 连接层配置为对象且不含任何用户凭据
+	cfg := map[string]any{}
+	if err := json.Unmarshal(created.Config, &cfg); err != nil {
+		t.Fatalf("配置应为 JSON 对象: %v", err)
+	}
+	for _, key := range []string{"uuid", "password", "psk"} {
+		if _, ok := cfg[key]; ok {
+			t.Errorf("入站配置不应包含用户凭据字段 %s: %v", key, cfg)
+		}
+	}
+	if cfg["reality"] == nil {
+		t.Errorf("VLESS 默认配置应含 Reality 段: %v", cfg)
 	}
 
-	// 删除入站应连带删除累计流量记录
-	gormDB, err := db.Open(dbPath)
-	if err != nil {
-		t.Fatalf("打开数据库失败: %v", err)
+	// 显式端口被占用时拒绝
+	code, env = doJSON(t, client, http.MethodPost, srv.URL+"/api/inbounds",
+		map[string]any{"protocol": "tuic", "listenPort": created.ListenPort, "name": "dup-port"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("端口重复应 400, got %d: %s", code, env.Msg)
 	}
-	if err := gormDB.Create(&db.InboundTraffic{InboundID: created.ID, UploadBytes: 100, DownloadBytes: 200}).Error; err != nil {
-		t.Fatalf("写入累计流量失败: %v", err)
+
+	// 不支持的协议被拒
+	code, _ = doJSON(t, client, http.MethodPost, srv.URL+"/api/inbounds", map[string]any{"protocol": "wireguard"})
+	if code != http.StatusBadRequest {
+		t.Errorf("不支持的协议应 400, got %d", code)
 	}
-	if code, env = doJSON(t, client, http.MethodDelete, srv.URL+"/api/inbounds/"+strconv.FormatUint(uint64(created.ID), 10), nil); code != http.StatusOK {
-		t.Fatalf("删除入站失败: %s", env.Msg)
+
+	// 列表可查回该入站
+	code, env = doJSON(t, client, http.MethodGet, srv.URL+"/api/inbounds", nil)
+	if code != http.StatusOK {
+		t.Fatalf("查询入站列表失败: %s", env.Msg)
 	}
-	var count int64
-	if err := gormDB.Model(&db.InboundTraffic{}).Count(&count).Error; err != nil || count != 0 {
-		t.Errorf("删除入站后累计记录应清除: count=%d err=%v", count, err)
+	var list []inboundResp
+	decodeData(t, env, &list)
+	if len(list) != 1 || list[0].ID != created.ID {
+		t.Fatalf("入站列表不符: %+v", list)
 	}
 }
 
-func TestRestartPersistence(t *testing.T) {
-	srv, dbPath := newTestServer(t)
-	client := newClient(t)
-	if code, env := doJSON(t, client, http.MethodPost, srv.URL+"/api/setup",
-		map[string]string{"username": "admin", "password": "password123"}); code != http.StatusOK {
-		t.Fatalf("setup 失败: %s", env.Msg)
-	}
-	// 直接写一条设置，验证设置数据随库文件保留
-	gormDB, err := db.Open(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := gormDB.Create(&db.Setting{Key: "sample_setting", Value: "https://gh.example.com"}).Error; err != nil {
-		t.Fatal(err)
-	}
+// TestSystemStatus 系统状态接口不得要求 root 或特定系统。
+func TestSystemStatus(t *testing.T) {
+	srv, _ := newTestServer(t)
+	client := setupAdmin(t, srv.URL)
 
-	// 模拟重启：在同一个库文件上重新装配服务
-	srv2 := httptest.NewServer(mustNewEngine(dbPath, t.TempDir()))
-	defer srv2.Close()
-	if code, env := doJSON(t, newClient(t), http.MethodGet, srv2.URL+"/api/health", nil); code != http.StatusOK {
-		t.Fatalf("重启后健康检查异常: code=%d msg=%s", code, env.Msg)
+	code, env := doJSON(t, client, http.MethodGet, srv.URL+"/api/system/status", nil)
+	if code != http.StatusOK {
+		t.Fatalf("系统状态接口失败: code=%d msg=%s", code, env.Msg)
 	}
-	// 管理员与设置数据保留，旧凭据可直接登录
-	if code, env := doJSON(t, newClient(t), http.MethodPost, srv2.URL+"/api/login",
-		map[string]string{"username": "admin", "password": "password123"}); code != http.StatusOK {
-		t.Fatalf("重启后登录失败: code=%d msg=%s", code, env.Msg)
+	var status struct {
+		Platform      string   `json:"platform"`
+		Supported     bool     `json:"supported"`
+		Privileged    bool     `json:"privileged"`
+		BBREnabled    bool     `json:"bbrEnabled"`
+		AvailableCC   []string `json:"availableCc"`
+		Reason        string   `json:"reason"`
+		ManualCommand string   `json:"manualCommand"`
 	}
-	var count int64
-	gormDB.Model(&db.Setting{}).Count(&count)
-	if count != 1 {
-		t.Fatalf("设置数据丢失: count=%d", count)
+	decodeData(t, env, &status)
+	if status.Platform == "" {
+		t.Error("platform 不应为空")
 	}
-	// 重启后重复 setup 仍被拒
-	if code, _ := doJSON(t, newClient(t), http.MethodPost, srv2.URL+"/api/setup",
-		map[string]string{"username": "x", "password": "password123"}); code != http.StatusConflict {
-		t.Fatalf("重启后重复 setup 状态码 = %d, want 409", code)
+	// 非 Linux 或非 root 时可一键开启应为 false，且给出原因与手动命令
+	if status.ManualCommand == "" {
+		t.Error("应提供手动命令")
+	}
+	if !status.Supported && status.Reason == "" {
+		t.Error("不可一键开启时应说明原因")
 	}
 }
 
+// TestSpaFallback 前端回退与未知 API 404。
 func TestSpaFallback(t *testing.T) {
 	srv, _ := newTestServer(t)
 	client := newClient(t)
-	tests := []struct {
-		name string
-		path string
-		want string // 期望响应体包含
-	}{
-		{"根路径返回 index", "/", "proxy-ui"},
-		{"未知前端路由回退 index", "/inbounds/3", "proxy-ui"},
+
+	resp, err := client.Get(srv.URL + "/inbounds/3")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resp, err := client.Get(srv.URL + tt.path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer resp.Body.Close()
-			buf := new(bytes.Buffer)
-			if _, err := buf.ReadFrom(resp.Body); err != nil {
-				t.Fatal(err)
-			}
-			if !bytes.Contains(buf.Bytes(), []byte(tt.want)) {
-				t.Fatalf("响应体 = %q, want 包含 %q", buf.String(), tt.want)
-			}
-		})
+	defer resp.Body.Close()
+	buf := new(bytes.Buffer)
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
+		t.Fatal(err)
 	}
-	// 未知 API 返回 envelope 404
+	if !bytes.Contains(buf.Bytes(), []byte("proxy-ui")) {
+		t.Fatalf("未知前端路由应回退 index.html: %q", buf.String())
+	}
 	if code, env := doJSON(t, client, http.MethodGet, srv.URL+"/api/nope", nil); code != http.StatusNotFound {
 		t.Fatalf("未知 API 状态码 = %d, msg=%s", code, env.Msg)
 	}

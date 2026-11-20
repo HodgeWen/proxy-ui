@@ -24,7 +24,7 @@ export const router = createRouter({
           path: 'dashboard',
           name: 'dashboard',
           component: () => import('../views/DashboardView.vue'),
-          meta: { title: '仪表盘', subtitle: '内核运行状态、实时流量与连接总览' },
+          meta: { title: '仪表盘', subtitle: '内核运行状态、实时速率与按用户流量' },
         },
         {
           path: 'inbounds',

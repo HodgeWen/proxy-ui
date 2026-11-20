@@ -1,6 +1,14 @@
 // 面板自身更新相关接口：版本检查 / 一键更新。
 import { request } from './http'
-import type { ReleaseVersion } from './kernel'
+
+/** 面板 release 版本条目 */
+export interface ReleaseVersion {
+  tag: string
+  version: string
+  prerelease: boolean
+  publishedAt: string
+  installed: boolean
+}
 
 /** 面板版本检查结果 */
 export interface PanelVersions {

@@ -8,6 +8,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// versionReq 面板更新的目标版本请求。
+type versionReq struct {
+	Version string `json:"version"` // 目标版本 tag；空表示最新稳定版
+}
+
 // HandlePanelVersions GET /api/panel/versions 面板当前版本与可用版本列表。
 func (a *API) HandlePanelVersions(c *gin.Context) {
 	versions, err := a.selfUpdates.ListVersions(c.Request.Context())
@@ -18,7 +23,7 @@ func (a *API) HandlePanelVersions(c *gin.Context) {
 	OK(c, gin.H{"currentVersion": a.selfUpdates.CurrentVersion(), "versions": versions})
 }
 
-// HandlePanelUpdate POST /api/panel/update 下载替换面板二进制并自动重启进程。
+// HandlePanelUpdate POST /api/panel/update 下载替换面板二进制并自动重启进程（内核随二进制一起更新）。
 func (a *API) HandlePanelUpdate(c *gin.Context) {
 	var req versionReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -34,7 +39,7 @@ func (a *API) HandlePanelUpdate(c *gin.Context) {
 	go a.restartPanel()
 }
 
-// restartPanel 等响应送达后停止内核子进程并换入新二进制；
+// restartPanel 等响应送达后停止内置内核并换入新二进制；
 // 重启失败仅记录日志：二进制已替换，下次手动重启生效。
 func (a *API) restartPanel() {
 	time.Sleep(time.Second)

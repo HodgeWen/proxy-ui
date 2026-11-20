@@ -5,13 +5,21 @@ import "fmt"
 // CertResolver 把面板存储证书 ID 解析为证书/私钥绝对路径（含存在性校验，由 api 提供）。
 type CertResolver func(certID uint) (certPath, keyPath string, err error)
 
-// InboundEntry 聚合生成的入站条目（Config 为面板存储的协议配置 JSON 原文）。
+// InboundUserEntry 入站内的一个用户（凭据 + 用户名）。
+type InboundUserEntry struct {
+	Name       string     // 用户名（内核统计 user 名、客户端节点名）
+	Credential Credential // 该用户凭据
+}
+
+// InboundEntry 聚合生成的入站条目（Config 为连接层配置 JSON 原文）。
 type InboundEntry struct {
-	Tag        string       // sing-box inbound tag（取入站名称）
-	Protocol   string       // 入站协议
-	ListenPort int          // 监听端口
-	Config     string       // 协议配置 JSON
-	Cert       CertResolver // 面板存储证书解析（managed 模式证书使用）
+	Tag      string             // sing-box inbound tag（入站名称）
+	Protocol string             // 入站协议
+	Listen   string             // 监听地址
+	Port     int                // 监听端口
+	Config   string             // 连接层配置 JSON
+	Users    []InboundUserEntry // 该入站下的启用用户
+	Cert     CertResolver       // 面板存储证书解析（managed 模式证书使用）
 }
 
 // OutboundEntry 聚合生成的出站条目（Config 为 type/tag 之外字段的 JSON 对象）。
@@ -21,11 +29,14 @@ type OutboundEntry struct {
 	Config string // 出站配置 JSON 对象
 }
 
-// BuildConfig 聚合启用中的入站/出站/路由生成完整内核配置（日志、clash_api、缓存文件与
-// direct 兜底出站自动包含）；routing 为 nil 或全空时不生成 route 段。
-func BuildConfig(inbounds []InboundEntry, outbounds []OutboundEntry, routing *Routing) (Config, error) {
+// BuildConfig 聚合启用中的入站/出站/路由生成完整内核配置（日志、统计服务、缓存文件、
+// DNS 与 direct 兜底出站自动包含）；routing 为 nil 或全空时不生成 route 段。
+func BuildConfig(inbounds []InboundEntry, outbounds []OutboundEntry, routing *Routing, dns *DNSConfig) (Config, error) {
 	cfg := MinConfig()
 	cfg.Outbounds = nil // 出站全部由条目聚合，无 direct 出站时末尾补兜底
+	cfg.DNS = dns.JSON()
+	// 统计服务只统计真正生效的入站与用户（与配置一致，避免读到残留计数器）
+	var statsInbounds, statsUsers []string
 	for _, e := range inbounds {
 		parsed, err := ParseInboundConfig(e.Protocol, e.Config)
 		if err != nil {
@@ -36,7 +47,14 @@ func BuildConfig(inbounds []InboundEntry, outbounds []OutboundEntry, routing *Ro
 			return Config{}, fmt.Errorf("入站 %s: %w", e.Tag, err)
 		}
 		cfg.Inbounds = append(cfg.Inbounds, in)
+		statsInbounds = append(statsInbounds, e.Tag)
+		for _, u := range e.Users {
+			statsUsers = append(statsUsers, u.Name)
+		}
 	}
+	cfg.Experimental.V2RayAPI.Stats.Inbounds = statsInbounds
+	cfg.Experimental.V2RayAPI.Stats.Users = statsUsers
+
 	hasDirect := false
 	for _, e := range outbounds {
 		ob, err := outboundJSON(e)
@@ -56,6 +74,13 @@ func BuildConfig(inbounds []InboundEntry, outbounds []OutboundEntry, routing *Ro
 	if !hasDirect {
 		// direct 兜底出站：无任何 direct 出站时补齐，供路由规则引用
 		cfg.Outbounds = append(cfg.Outbounds, map[string]any{"type": "direct", "tag": "direct"})
+	}
+	// 启用 DNS 时给 route.default_domain_resolver 兜底（sing-box 1.14 起出站域名解析依赖它）
+	if resolverTag := dns.ResolverTag(); resolverTag != "" {
+		if cfg.Route == nil {
+			cfg.Route = &RouteConfig{}
+		}
+		cfg.Route.DefaultDomainResolver = resolverTag
 	}
 	return cfg, nil
 }
@@ -96,38 +121,30 @@ func applyRouting(cfg *Config, routing *Routing) error {
 		cfg.Outbounds = append(cfg.Outbounds, ob)
 	}
 	route := &RouteConfig{}
-	var ruleSetTags []string
 	seen := map[string]bool{}
+	var ruleSets []RuleSetConfig
 	for _, r := range routing.Rules {
 		if r.Outbound != OutboundBlock && !tags[r.Outbound] && !groupTags[r.Outbound] {
 			return fmt.Errorf("规则 %s 的出站 %s 不存在", r.Value, r.Outbound)
 		}
-		rule, refs, err := RoutingRuleJSON(r)
+		rule, refSet, err := RoutingRuleJSON(r)
 		if err != nil {
 			return err
 		}
 		route.Rules = append(route.Rules, rule)
-		for _, tag := range refs {
-			if !seen[tag] {
-				seen[tag] = true
-				ruleSetTags = append(ruleSetTags, tag)
-			}
+		if refSet != nil && !seen[refSet.Tag] {
+			seen[refSet.Tag] = true
+			ruleSets = append(ruleSets, *refSet)
 		}
 	}
-	for _, tag := range ruleSetTags {
-		rs, err := RuleSetConfigOf(tag, routing.AntiAD)
-		if err != nil {
-			return err
-		}
-		route.RuleSet = append(route.RuleSet, rs)
-	}
+	route.RuleSet = ruleSets
 	if routing.Final != "" {
 		if !tags[routing.Final] && !groupTags[routing.Final] {
 			return fmt.Errorf("兜底出站 %s 不存在", routing.Final)
 		}
 		route.Final = routing.Final
 	}
-	if len(route.Rules) > 0 || route.Final != "" {
+	if len(route.Rules) > 0 || route.Final != "" || len(route.RuleSet) > 0 {
 		cfg.Route = route
 	}
 	return nil

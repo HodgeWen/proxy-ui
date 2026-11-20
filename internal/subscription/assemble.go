@@ -9,51 +9,52 @@ import (
 // FallbackGroup 无可用策略组时合成的默认组名。
 const FallbackGroup = "proxy"
 
-// Node 订阅节点：由启用入站映射出的客户端连接信息（Direct 入站无凭据，不产生节点）。
+// Node 订阅节点：该订阅用户在某入站下的身份（共享入站端口）。
 type Node struct {
-	Tag      string // 节点 tag（入站名）
-	Protocol string // 入站协议
-	Port     int    // 服务器端口（入站监听端口）
-	Config   any    // singbox.ParseInboundConfig 解析结果
+	Tag      string             // 节点 tag（用户名）
+	Protocol string             // 入站协议
+	Port     int                // 入站端口（同入站下所有用户共享）
+	Config   any                // singbox.ParseInboundConfig 解析的连接层配置
+	Cred     singbox.Credential // 该用户的凭据
 }
 
-// Data 组装后的订阅数据：节点与已映射为客户端可用 tag 的策略组/规则。
+// Data 组装后的订阅数据。
 type Data struct {
-	Server string               // 节点服务器地址（面板设置或请求 Host）
-	Nodes  []Node               // 启用入站对应节点
-	Groups []singbox.GroupEntry // 策略组（成员映射为节点 tag/组名/direct）
-	Rules  []singbox.RuleEntry  // 路由规则（出站映射为 direct/block/组名）
+	Server string               // 节点服务器地址（请求 Host 去端口）
+	Nodes  []Node               // 该订阅用户的节点
+	Groups []singbox.GroupEntry // 策略组
+	Rules  []singbox.RuleEntry  // 路由规则
 	Final  string               // 兜底出站 tag（已映射，非空）
-	AntiAD string               // anti-AD 规则源地址，空用官方默认源
+	DNS    *singbox.DNSConfig   // DNS 配置
 }
 
-// InboundSpec 订阅组装输入的入站条目（Config 为面板存储的协议配置 JSON 原文）。
-type InboundSpec struct {
-	Tag      string // 入站名
+// NodeSpec 订阅组装输入的节点条目。
+type NodeSpec struct {
+	Tag      string // 节点 tag（用户名）
 	Protocol string // 入站协议
-	Port     int    // 监听端口
-	Config   string // 协议配置 JSON
+	Port     int    // 入站端口
+	Config   string // 连接层配置 JSON
+	CredJSON string // 该用户凭据 JSON
 }
 
-// Assemble 组装订阅数据：启用入站解析为节点，策略组成员与规则/兜底出站映射为客户端
-// 可用 tag——入站名保留为节点 tag，direct 与其余策略组名保留，服务端自定义出站在
-// 客户端不存在（成员剔除、规则改走兜底组）；无可用策略组时以全部节点合成默认组。
-func Assemble(server string, inbounds []InboundSpec, groups []singbox.GroupEntry, rules []singbox.RuleEntry, final, antiAD string) (Data, error) {
-	d := Data{Server: server, AntiAD: antiAD}
-	nodeTags := make([]string, 0, len(inbounds))
-	for _, in := range inbounds {
-		if in.Protocol == singbox.ProtoDirect {
-			continue // Direct 入站为明文直连监听，无客户端凭据可导出
-		}
-		cfg, err := singbox.ParseInboundConfig(in.Protocol, in.Config)
+// Assemble 组装订阅数据：节点解析为客户端节点，策略组成员与规则/兜底出站映射为
+// 客户端可用 tag；无可用策略组时以全部节点合成默认组。
+func Assemble(server string, nodes []NodeSpec, groups []singbox.GroupEntry, rules []singbox.RuleEntry, final string, dns *singbox.DNSConfig) (Data, error) {
+	d := Data{Server: server, DNS: dns}
+	nodeTags := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		cfg, err := singbox.ParseInboundConfig(n.Protocol, n.Config)
 		if err != nil {
-			return Data{}, fmt.Errorf("入站 %s: %w", in.Tag, err)
+			return Data{}, fmt.Errorf("节点 %s: %w", n.Tag, err)
 		}
-		d.Nodes = append(d.Nodes, Node{Tag: in.Tag, Protocol: in.Protocol, Port: in.Port, Config: cfg})
-		nodeTags = append(nodeTags, in.Tag)
+		cred, err := singbox.ParseCredential(n.Protocol, n.CredJSON)
+		if err != nil {
+			return Data{}, fmt.Errorf("节点 %s: %w", n.Tag, err)
+		}
+		d.Nodes = append(d.Nodes, Node{Tag: n.Tag, Protocol: n.Protocol, Port: n.Port, Config: cfg, Cred: cred})
+		nodeTags = append(nodeTags, n.Tag)
 	}
 
-	// 策略组成员映射；映射后无成员的组回退为全部节点（面板模板组即此形态）
 	nodeSet := make(map[string]bool, len(nodeTags))
 	for _, t := range nodeTags {
 		nodeSet[t] = true
@@ -71,7 +72,7 @@ func Assemble(server string, inbounds []InboundSpec, groups []singbox.GroupEntry
 		}
 		if len(members) == 0 {
 			if len(nodeTags) == 0 {
-				continue // 无任何节点时组无从取成员，整组剔除
+				continue
 			}
 			members = nodeTags
 		}
@@ -81,17 +82,15 @@ func Assemble(server string, inbounds []InboundSpec, groups []singbox.GroupEntry
 	if len(d.Groups) > 0 {
 		fallback = d.Groups[0].Name
 	} else if len(nodeTags) > 0 {
-		// 无策略组：以全部节点合成固定代理默认组，保证规则与兜底可引用
 		d.Groups = append(d.Groups, singbox.GroupEntry{
 			Name: FallbackGroup, Mode: singbox.GroupModeFixed, Members: nodeTags,
 		})
 		fallback = FallbackGroup
 	}
 	if fallback == "" {
-		fallback = "direct" // 无节点亦无组：规则与兜底退化为直连
+		fallback = "direct"
 	}
 
-	// 规则与兜底出站映射：block/direct/组名保留，其余（服务端自定义出站）改走兜底组
 	mapOutbound := func(tag string) string {
 		switch {
 		case tag == singbox.OutboundBlock, tag == "direct", groupNames[tag]:
@@ -101,7 +100,9 @@ func Assemble(server string, inbounds []InboundSpec, groups []singbox.GroupEntry
 		}
 	}
 	for _, r := range rules {
-		d.Rules = append(d.Rules, singbox.RuleEntry{Type: r.Type, Value: r.Value, Outbound: mapOutbound(r.Outbound)})
+		mapped := r
+		mapped.Outbound = mapOutbound(r.Outbound)
+		d.Rules = append(d.Rules, mapped)
 	}
 	if final != "" {
 		d.Final = mapOutbound(final)

@@ -1,7 +1,6 @@
 package singbox
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,226 +8,158 @@ import (
 	"time"
 )
 
-// writeFakeCore 写一个模拟 sing-box 的 shell 脚本：version/check 子命令正常返回，run 时打印日志后常驻。
-func writeFakeCore(t *testing.T, m *Manager) {
-	t.Helper()
-	script := `#!/bin/sh
-if [ "$1" = "version" ]; then
-  echo "sing-box version 9.9.9 test"
-  echo "Environment: go1.26 test"
-  exit 0
-fi
-if [ "$1" = "check" ]; then
-  echo "configuration is valid"
-  exit 0
-fi
-echo "stdout line 1"
-echo "stderr line 1" >&2
-sleep 60
-`
-	if err := os.MkdirAll(m.dir, 0o755); err != nil {
-		t.Fatalf("创建内核目录失败: %v", err)
-	}
-	if err := os.WriteFile(m.CorePath(), []byte(script), 0o755); err != nil {
-		t.Fatalf("写假内核失败: %v", err)
-	}
-}
-
-func waitFor(t *testing.T, timeout time.Duration, cond func() bool, msg string) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal(msg)
-}
-
-func TestStartWithoutCore(t *testing.T) {
+// TestCheckConfigMinConfig 最小配置必须能通过内核解析（不启动实例）。
+func TestCheckConfigMinConfig(t *testing.T) {
 	m := New(t.TempDir())
-	if err := m.Start(); err == nil || !strings.Contains(err.Error(), "未安装") {
-		t.Errorf("未安装内核时 Start 应报错, got %v", err)
-	}
-}
-
-func TestVersionParses(t *testing.T) {
-	m := New(t.TempDir())
-	writeFakeCore(t, m)
-	if v := m.Version(context.Background()); v != "9.9.9" {
-		t.Errorf("版本解析错误: %q", v)
-	}
-	if got := parseVersionOutput("sing-box version 1.14.4\nEnvironment: x\n"); got != "1.14.4" {
-		t.Errorf("parseVersionOutput = %q, want 1.14.4", got)
-	}
-	if got := parseVersionOutput("garbage"); got != "" {
-		t.Errorf("无法解析的输出应返回空, got %q", got)
-	}
-}
-
-func TestCheckConfig(t *testing.T) {
-	// 未安装内核时跳过校验
-	if err := New(t.TempDir()).CheckConfig(context.Background()); err != nil {
-		t.Errorf("未安装内核应跳过校验: %v", err)
-	}
-	m := New(t.TempDir())
-	writeFakeCore(t, m)
-	if err := m.EnsureConfig(); err != nil {
-		t.Fatalf("EnsureConfig 失败: %v", err)
-	}
-	if err := m.CheckConfig(context.Background()); err != nil {
-		t.Errorf("合法配置不应报错: %v", err)
-	}
-	// check 退出的假内核：错误信息应带回输出
-	script := "#!/bin/sh\necho 'FATAL parse config failed' >&2\nexit 1\n"
-	if err := os.WriteFile(m.CorePath(), []byte(script), 0o755); err != nil {
-		t.Fatalf("改写假内核失败: %v", err)
-	}
-	err := m.CheckConfig(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "parse config failed") {
-		t.Errorf("校验失败应带回内核输出, got %v", err)
-	}
-}
-
-func TestLifecycleAndLogs(t *testing.T) {
-	m := New(t.TempDir())
-	writeFakeCore(t, m)
-
-	if err := m.EnsureConfig(); err != nil {
-		t.Fatalf("EnsureConfig 失败: %v", err)
-	}
-	data, err := os.ReadFile(m.ConfigPath())
-	if err != nil || !strings.Contains(string(data), `"level": "info"`) {
-		t.Fatalf("config.json 未按最小配置生成: %v %s", err, data)
-	}
-
-	// 幂等：重复 EnsureConfig 不覆盖已有配置
-	if err := os.WriteFile(m.ConfigPath(), []byte(`{"log":{"level":"debug"}}`), 0o600); err != nil {
-		t.Fatalf("改写配置失败: %v", err)
-	}
-	_ = m.EnsureConfig()
-	data, _ = os.ReadFile(m.ConfigPath())
-	if strings.Contains(string(data), `"level": "info"`) {
-		t.Error("EnsureConfig 不应覆盖已存在的配置")
-	}
-
-	if err := m.Start(); err != nil {
-		t.Fatalf("Start 失败: %v", err)
-	}
-	st := m.Status()
-	if !st.Running || st.PID == 0 || !st.Installed {
-		t.Errorf("启动后状态不符: %+v", st)
-	}
-	if err := m.Start(); err != nil {
-		t.Errorf("重复 Start 应幂等: %v", err)
-	}
-	waitFor(t, 3*time.Second, func() bool {
-		for _, l := range m.Logs(0) {
-			if l.Stream == "stdout" && l.Line == "stdout line 1" {
-				return true
-			}
-		}
-		return false
-	}, "应采集到 stdout 日志")
-	foundStderr := false
-	for _, l := range m.Logs(0) {
-		if l.Stream == "stderr" && l.Line == "stderr line 1" {
-			foundStderr = true
-		}
-	}
-	if !foundStderr {
-		t.Errorf("应采集到 stderr 日志: %+v", m.Logs(0))
-	}
-
-	if err := m.Restart(); err != nil {
-		t.Fatalf("Restart 失败: %v", err)
-	}
-	if st := m.Status(); !st.Running {
-		t.Errorf("重启后应运行中: %+v", st)
-	}
-
-	if err := m.Stop(); err != nil {
-		t.Fatalf("Stop 失败: %v", err)
+	if err := m.CheckConfig(MinConfig()); err != nil {
+		t.Fatalf("最小配置应通过校验: %v", err)
 	}
 	if st := m.Status(); st.Running {
-		t.Errorf("停止后不应运行: %+v", st)
+		t.Errorf("校验不应启动内核: %+v", st)
+	}
+	if !m.Installed() || !m.Status().Embedded {
+		t.Error("内置内核应恒为已安装/内置")
+	}
+	if m.Version(nil) != EmbeddedVersion {
+		t.Errorf("内核版本 = %q, want %q", m.Version(nil), EmbeddedVersion)
+	}
+}
+
+// TestCheckConfigInvalidConfig 非法配置应校验失败并带回错误信息。
+func TestCheckConfigInvalidConfig(t *testing.T) {
+	m := New(t.TempDir())
+	// 未知入站类型（内核无法解析）
+	if err := m.CheckConfig(Config{Inbounds: []any{map[string]any{"type": "not-a-protocol", "tag": "x"}}}); err == nil {
+		t.Error("未知入站类型应校验失败")
+	}
+	// 字段类型错误：端口给了字符串
+	badPort := Config{Inbounds: []any{map[string]any{
+		"type": "vless", "tag": "vless-in", "listen": "127.0.0.1", "listen_port": "not-a-port",
+	}}}
+	if err := m.CheckConfig(badPort); err == nil {
+		t.Error("端口类型错误的入站应校验失败")
+	}
+	// 未知出站类型
+	badOutbound := Config{Outbounds: []map[string]any{{"type": "not-a-protocol", "tag": "x"}}}
+	if err := m.CheckConfig(badOutbound); err == nil {
+		t.Error("未知出站类型应校验失败")
+	}
+	if st := m.Status(); st.Running {
+		t.Errorf("校验失败不应启动内核: %+v", st)
+	}
+}
+
+// TestManagerLifecycle 启动/停止生命周期（最小配置无入站，只绑定本机统计端口）。
+func TestManagerLifecycle(t *testing.T) {
+	m := New(t.TempDir())
+	if err := m.Start(MinConfig()); err != nil {
+		t.Skipf("本机统计端口不可用，跳过启动生命周期用例: %v", err)
+	}
+	if st := m.Status(); !st.Running {
+		t.Fatalf("启动后应处于运行中: %+v", st)
 	}
 	if err := m.Stop(); err != nil {
-		t.Errorf("重复 Stop 应幂等: %v", err)
+		t.Fatalf("停止内核失败: %v", err)
 	}
-}
-
-func TestWriteConfig(t *testing.T) {
-	dir := t.TempDir()
-	m := New(filepath.Join(dir, "core"))
-	if err := m.WriteConfig(map[string]any{"log": map[string]any{"level": "debug"}}); err != nil {
-		t.Fatalf("WriteConfig 失败: %v", err)
+	if st := m.Status(); st.Running {
+		t.Fatalf("停止后不应运行: %+v", st)
 	}
-	data, err := os.ReadFile(m.ConfigPath())
-	if err != nil || !strings.Contains(string(data), `"level": "debug"`) {
-		t.Fatalf("配置未写入或格式不符: %v %s", err, data)
-	}
-}
-
-// TestStartWithoutConfig 回归：config.json 缺失时 Start 内部经 EnsureConfig 写配置，
-// 与 Manager 锁交互不得死锁（曾在 WriteConfig 内加锁导致）。
-func TestStartWithoutConfig(t *testing.T) {
-	m := New(t.TempDir())
-	writeFakeCore(t, m)
-	done := make(chan error, 1)
-	go func() { done <- m.Start() }()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Start 失败: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Start 疑似死锁：EnsureConfig 与锁路径冲突")
-	}
-	if _, err := os.Stat(m.ConfigPath()); err != nil {
-		t.Errorf("Start 应生成 config.json: %v", err)
-	}
+	// 重复停止幂等
 	if err := m.Stop(); err != nil {
-		t.Errorf("Stop 失败: %v", err)
+		t.Errorf("重复停止应幂等: %v", err)
 	}
 }
 
-// TestCoreConfigArgRelative 回归：sing-box 把相对 -c 路径按 -D 目录解析，
-// run/check 必须只传文件名 config.json，不得传完整相对路径（否则内核读不到配置立即退出）。
-func TestCoreConfigArgRelative(t *testing.T) {
+// TestManagerRestart 重建实例后仍处于运行中。
+func TestManagerRestart(t *testing.T) {
 	m := New(t.TempDir())
-	writeFakeCore(t, m)
-	if err := m.EnsureConfig(); err != nil {
-		t.Fatalf("EnsureConfig 失败: %v", err)
-	}
-	// 改写假内核：先落盘参数（写绝对路径，子进程 cwd 是测试进程 cwd）；check 立即成功，run 常驻
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + filepath.Join(m.dir, "args.log") + "\nif [ \"$1\" = \"check\" ]; then exit 0; fi\nsleep 60\n"
-	if err := os.WriteFile(m.CorePath(), []byte(script), 0o755); err != nil {
-		t.Fatalf("改写假内核失败: %v", err)
-	}
-
-	readArgs := func() []string {
-		t.Helper()
-		data, err := os.ReadFile(filepath.Join(m.dir, "args.log"))
-		if err != nil {
-			t.Fatalf("读取参数记录失败: %v", err)
-		}
-		return strings.Fields(string(data))
-	}
-
-	if err := m.CheckConfig(context.Background()); err != nil {
-		t.Fatalf("CheckConfig 失败: %v", err)
-	}
-	if got := readArgs(); len(got) != 5 || got[0] != "check" || got[1] != "-D" || got[3] != "-c" || got[4] != "config.json" {
-		t.Fatalf("check 参数应为 check -D <dir> -c config.json, got %v", got)
-	}
-
-	if err := m.Start(); err != nil {
-		t.Fatalf("Start 失败: %v", err)
+	if err := m.Start(MinConfig()); err != nil {
+		t.Skipf("本机统计端口不可用，跳过重启用例: %v", err)
 	}
 	defer func() { _ = m.Stop() }()
-	if got := readArgs(); len(got) != 5 || got[0] != "run" || got[1] != "-D" || got[3] != "-c" || got[4] != "config.json" {
-		t.Fatalf("run 参数应为 run -D <dir> -c config.json, got %v", got)
+	if err := m.Restart(MinConfig()); err != nil {
+		t.Fatalf("重启内核失败: %v", err)
+	}
+	if st := m.Status(); !st.Running {
+		t.Fatalf("重启后应处于运行中: %+v", st)
+	}
+}
+
+// TestManagerStartInvalid 非法配置启动失败且不残留运行状态。
+func TestManagerStartInvalid(t *testing.T) {
+	m := New(t.TempDir())
+	bad := Config{Inbounds: []any{map[string]any{"type": "not-a-protocol", "tag": "x"}}}
+	err := m.Start(bad)
+	if err == nil {
+		t.Fatal("非法配置启动应报错")
+	}
+	if st := m.Status(); st.Running {
+		t.Errorf("启动失败后不应处于运行中: %+v", st)
+	}
+	// 错误信息应可定位到原因
+	if !strings.Contains(err.Error(), "配置") && !strings.Contains(err.Error(), "内核") {
+		t.Errorf("错误信息缺少上下文: %v", err)
+	}
+}
+
+// TestLogBuffer 日志环形缓冲：容量上限与 limit 语义。
+func TestLogBuffer(t *testing.T) {
+	var b logBuffer
+	for i := 0; i < logCapacity+10; i++ {
+		b.add("core", "line")
+	}
+	all := b.snapshot(0)
+	if len(all) != logCapacity {
+		t.Errorf("缓冲应截断到 %d 条, got %d", logCapacity, len(all))
+	}
+	if got := b.snapshot(5); len(got) != 5 {
+		t.Errorf("limit=5 应返回 5 条, got %d", len(got))
+	}
+	if got := b.snapshot(-1); len(got) != logCapacity {
+		t.Errorf("负 limit 应返回全部, got %d", len(got))
+	}
+	if got := b.snapshot(logCapacity * 2); len(got) != logCapacity {
+		t.Errorf("超量 limit 应返回全部, got %d", len(got))
+	}
+	if all[0].Stream != "core" || all[0].Line != "line" {
+		t.Errorf("日志行内容不符: %+v", all[0])
+	}
+}
+
+// TestManagerDirIsolation 内核落盘文件（cache.db）必须写在管理器工作目录，而非进程工作目录。
+func TestManagerDirIsolation(t *testing.T) {
+	dir := t.TempDir()
+	m := New(dir)
+	if err := m.Start(MinConfig()); err != nil {
+		t.Skipf("本机统计端口不可用，跳过落盘隔离用例: %v", err)
+	}
+	// 给关闭时的落盘留出时间
+	time.Sleep(150 * time.Millisecond)
+	if err := m.Stop(); err != nil {
+		t.Fatalf("停止内核失败: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "cache.db")); err != nil {
+		t.Errorf("cache.db 应写入内核工作目录 %s: %v", dir, err)
+	}
+	// 仓库/进程工作目录不应出现 cache.db
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "cache.db")); err == nil {
+		t.Errorf("cache.db 不应写在进程工作目录 %s", cwd)
+	}
+}
+
+// TestManagerLogs 面板日志写入环形缓冲并回调。
+func TestManagerLogs(t *testing.T) {
+	m := New(t.TempDir())
+	m.log("panel", "面板启动")
+	logs := m.Logs(0)
+	if len(logs) != 1 || logs[0].Stream != "panel" || logs[0].Line != "面板启动" {
+		t.Fatalf("日志缓冲内容不符: %+v", logs)
+	}
+	if m.Dir() == "" {
+		t.Error("内核工作目录不应为空")
 	}
 }

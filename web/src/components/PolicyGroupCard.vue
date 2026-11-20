@@ -3,6 +3,8 @@
 import { createPolicyGroup, deletePolicyGroup, setPolicyGroupEnabled, updatePolicyGroup } from '../api/rule'
 import type { PolicyGroup, PolicyGroupPayload } from '../api/rule'
 import {
+  UAction,
+  UActionGroup,
   UButton,
   UCard,
   UCardContent,
@@ -21,7 +23,7 @@ import {
   messageConfirm,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
-import { computed, reactive, ref, shallowRef } from 'vue'
+import { computed, reactive, ref, shallowRef, watch } from 'vue'
 
 import EmptyState from './EmptyState.vue'
 import FormGroupCard from './FormGroupCard.vue'
@@ -29,6 +31,8 @@ import FormGroupCard from './FormGroupCard.vue'
 const props = defineProps<{
   groups: PolicyGroup[]
   outboundOptions: { label: string; value: string }[]
+  /** 首屏加载中：不渲染空状态，避免闪一下「暂无策略组」 */
+  loading?: boolean
 }>()
 const emit = defineEmits<{ changed: [] }>()
 
@@ -46,20 +50,43 @@ const columns = defineTableColumns([
   { key: 'mode', name: '模式', width: 130, align: 'center' },
   { key: 'members', name: '成员出站', minWidth: 220 },
   { key: 'enabled', name: '启用', width: 80, align: 'center' },
-  { key: 'actions', name: '操作', width: 130, align: 'center' },
+  { key: 'actions', name: '操作', width: 150, align: 'center', fixed: 'right' },
 ])
 
+/** 模式短标签：列表只展示「故障转移 / 固定代理 / 自动选择」，完整说明留给下拉 */
+const modeLabels: Record<string, string> = { failover: '故障转移', fixed: '固定代理', auto: '自动选择' }
+
 function modeLabel(mode: string): string {
-  return modeOptions.find((o) => o.value === mode)?.label.split('（')[0] ?? mode
+  return modeLabels[mode] ?? mode
 }
+
+/**
+ * 启停：USwitch 是原生 checkbox 实现的受控组件，请求失败后父级数据不变、
+ * `:checked` 不会重新下刷，会和 DOM 错位（下次点击发出的还是旧值）。
+ * 用本地覆写表驱动，失败写回相反值触发真实下刷，回读后清空覆写。
+ */
+const enabledOverride = shallowRef<Record<number, boolean>>({})
+
+function rowEnabled(row: PolicyGroup): boolean {
+  return enabledOverride.value[row.id] ?? row.enabled
+}
+
+watch(
+  () => props.groups,
+  () => {
+    enabledOverride.value = {}
+  },
+)
 
 async function handleToggle(row: PolicyGroup, enabled: boolean): Promise<void> {
   togglingId.value = row.id
+  enabledOverride.value = { ...enabledOverride.value, [row.id]: enabled }
   try {
     await setPolicyGroupEnabled(row.id, enabled)
-    row.enabled = enabled
+    emit('changed')
   } catch {
-    // 错误已由请求封装统一提示
+    // 失败回滚：写回相反值让开关立即恢复
+    enabledOverride.value = { ...enabledOverride.value, [row.id]: !enabled }
   } finally {
     togglingId.value = 0
   }
@@ -70,6 +97,7 @@ async function handleDelete(row: PolicyGroup): Promise<void> {
     title: '删除策略组',
     message: `确认删除策略组「${row.name}」吗？被规则引用时应用配置将失败。`,
     confirmButtonText: '删除',
+    confirmButtonType: 'danger',
     cancelButtonText: '取消',
   }).onClosed
   if (action !== 'confirm') return
@@ -148,6 +176,7 @@ async function handleSave(): Promise<void> {
       <u-table :columns="columns" :data="groups" row-key="id" border stripe>
         <template #empty>
           <EmptyState
+            v-if="!loading"
             title="暂无策略组"
             description="策略组会随订阅下发，在手机/电脑客户端上呈现为「节点选择 / 自动选择」这类分组；可应用上方预设模板生成，或新建一个"
             cta-text="新建策略组"
@@ -162,60 +191,62 @@ async function handleSave(): Promise<void> {
           {{ rowData.members.join('，') || '—' }}
         </template>
         <template #column:enabled="{ rowData }">
+          <!-- USwitch 没有 loading，用 disabled 在请求期间挡住重复点击 -->
           <u-switch
             size="small"
-            :model-value="rowData.enabled"
-            :loading="togglingId === rowData.id"
+            :model-value="rowEnabled(rowData)"
+            :disabled="togglingId === rowData.id"
             @update:model-value="(v: boolean) => handleToggle(rowData, v)"
           />
         </template>
         <template #column:actions="{ rowData }">
-          <u-button text size="small" type="primary" @click="openEdit(rowData)">编辑</u-button>
-          <u-button text size="small" type="error" @click="handleDelete(rowData)">删除</u-button>
+          <u-action-group :max="3">
+            <u-action @run="openEdit(rowData)">编辑</u-action>
+            <!-- 确认交给 messageConfirm（需说明引用影响），不再叠 need-confirm 气泡 -->
+            <u-action type="danger" @run="handleDelete(rowData)">删除</u-action>
+          </u-action-group>
         </template>
       </u-table>
     </u-card-content>
   </u-card>
 
-  <u-dialog v-model="formVisible" :title="editing ? `编辑策略组 · ${editing.name}` : '新建策略组'" style="width: 1120px; max-width: 96vw">
-    <div class="dialog-scroll">
-      <u-form ref="formRef" :model="form" :cols="1" label-width="92px">
-        <FormGroupCard title="基础配置">
-          <u-form-item
-            label="名称"
-            field="name"
-            :rules="{ required: '请输入名称' }"
-            tips="策略组 tag，供路由规则与兜底出站引用；需与出站名不重复"
-          >
-            <u-input v-model="form.name" placeholder="策略组 tag，供规则引用" clearable />
-          </u-form-item>
-          <u-form-item
-            label="模式"
-            field="mode"
-            :rules="{ required: '请选择模式' }"
-            tips="组内成员的选择方式：固定=手动固定一个节点（默认用首个成员）；自动=定时测延迟、自动选最快；故障转移=自动测速切换到可用节点，带容差防抖、节点恢复后自动切回"
-          >
-            <u-select v-model="form.mode" :options="modeOptions" />
-          </u-form-item>
-        </FormGroupCard>
+  <u-dialog v-model="formVisible" :title="editing ? `编辑策略组 · ${editing.name}` : '新建策略组'" style="width: 760px; max-width: 96vw">
+    <u-form ref="formRef" :model="form" :cols="1" label-width="92px">
+      <FormGroupCard title="基础配置">
+        <u-form-item
+          label="名称"
+          field="name"
+          :rules="{ required: '请输入名称' }"
+          tips="策略组 tag，供路由规则与兜底出站引用；需与出站名不重复"
+        >
+          <u-input v-model="form.name" placeholder="策略组 tag，供规则引用" clearable />
+        </u-form-item>
+        <u-form-item
+          label="模式"
+          field="mode"
+          :rules="{ required: '请选择模式' }"
+          tips="组内成员的选择方式：固定=手动固定一个节点（默认用首个成员）；自动=定时测延迟、自动选最快；故障转移=自动测速切换到可用节点，带容差防抖、节点恢复后自动切回"
+        >
+          <u-select v-model="form.mode" :options="modeOptions" />
+        </u-form-item>
+      </FormGroupCard>
 
-        <FormGroupCard v-model:collapsed="memberCollapsed" title="成员出站">
-          <u-form-item
-            label="成员出站"
-            span="full"
-            tips="成员顺序决定固定模式的默认节点；可选 direct、自定义出站或其它策略组（不可选拦截）。客户端订阅实际使用入站节点、direct 与其它组，自定义出站仅在服务端配置生效"
-          >
-            <u-multi-select
-              v-model="form.members"
-              :options="memberOptions"
-              placeholder="选择成员（出站或其它策略组）"
-              clearable
-              filterable
-            />
-          </u-form-item>
-        </FormGroupCard>
-      </u-form>
-    </div>
+      <FormGroupCard v-model:collapsed="memberCollapsed" title="成员出站">
+        <u-form-item
+          label="成员出站"
+          span="full"
+          tips="成员顺序决定固定模式的默认节点；可选 direct、自定义出站或其它策略组（不可选拦截）。客户端订阅实际使用入站节点、direct 与其它组，自定义出站仅在服务端配置生效"
+        >
+          <u-multi-select
+            v-model="form.members"
+            :options="memberOptions"
+            placeholder="选择成员（出站或其它策略组）"
+            clearable
+            filterable
+          />
+        </u-form-item>
+      </FormGroupCard>
+    </u-form>
     <template #footer="{ close }">
       <u-button text @click="close()">取消</u-button>
       <u-button type="primary" :loading="saving" @click="handleSave">保存</u-button>
@@ -235,11 +266,5 @@ async function handleSave(): Promise<void> {
   align-items: center;
   justify-content: space-between;
   flex: 1;
-}
-
-/* 弹框表单超出可视高度时内部滚动，footer 常驻 */
-.dialog-scroll {
-  max-height: calc(90vh - 160px);
-  overflow-y: auto;
 }
 </style>

@@ -8,72 +8,67 @@ import (
 	"proxy-ui/internal/db"
 )
 
-// HandleStatsRealtime GET /api/stats/realtime 实时速率、内存与连接概览
-// （缓存最近一秒采集样本，不直接触发 Clash API 请求）。
+// HandleStatsRealtime GET /api/stats/realtime 实时速率概览
+// （缓存最近一次采集样本，不直接触发内核请求）。
 func (a *API) HandleStatsRealtime(c *gin.Context) {
 	rates, at := a.stats.Rates()
-	snap := a.stats.Snapshot()
-	OK(c, gin.H{
-		"up":                rates.Up,
-		"down":              rates.Down,
-		"memory":            snap.Memory,
-		"uploadTotal":       snap.UploadTotal,
-		"downloadTotal":     snap.DownloadTotal,
-		"activeConnections": len(snap.Connections),
-		"at":                at,
-	})
+	OK(c, gin.H{"up": rates.Up, "down": rates.Down, "at": at})
 }
 
-// HandleStatsConnections GET /api/stats/connections 当前连接列表。
-func (a *API) HandleStatsConnections(c *gin.Context) {
-	OK(c, a.stats.Snapshot())
-}
-
-// inboundTrafficView 按入站累计流量视图。
-type inboundTrafficView struct {
-	InboundID     uint   `json:"inboundId"`     // 入站 ID
-	Name          string `json:"name"`          // 入站名称
+// trafficRow 按用户累计流量视图。
+type trafficRow struct {
+	Tag           string `json:"tag"`           // 用户名
+	Subscriber    string `json:"subscriber"`    // 归属订阅用户备注（未绑定为空）
+	InboundName   string `json:"inboundName"`   // 所属入站名
 	Protocol      string `json:"protocol"`      // 协议
-	Enabled       bool   `json:"enabled"`       // 是否启用
 	UploadBytes   int64  `json:"uploadBytes"`   // 上行累计字节数
 	DownloadBytes int64  `json:"downloadBytes"` // 下行累计字节数
 }
 
-// HandleStatsInboundTraffic GET /api/stats/inbound-traffic 按入站累计流量（含未产生流量的入站）。
-func (a *API) HandleStatsInboundTraffic(c *gin.Context) {
-	views, err := a.inboundTrafficViews()
+// HandleStatsUserTraffic GET /api/stats/user-traffic 按用户累计流量（含未产生流量的用户）。
+func (a *API) HandleStatsUserTraffic(c *gin.Context) {
+	rows, err := a.trafficRows()
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, "查询累计流量失败: "+err.Error())
 		return
 	}
-	OK(c, views)
+	OK(c, rows)
 }
 
-// inboundTrafficViews 查询按入站累计流量视图（含未产生流量的入站）。
-func (a *API) inboundTrafficViews() ([]inboundTrafficView, error) {
+// trafficRows 组装按用户累计流量视图。
+func (a *API) trafficRows() ([]trafficRow, error) {
+	var users []db.InboundUser
+	if err := a.db.Order("inbound_id, id").Find(&users).Error; err != nil {
+		return nil, err
+	}
 	var inbounds []db.Inbound
-	if err := a.db.Order("id").Find(&inbounds).Error; err != nil {
+	if err := a.db.Find(&inbounds).Error; err != nil {
 		return nil, err
 	}
-	var traffics []db.InboundTraffic
-	if err := a.db.Find(&traffics).Error; err != nil {
-		return nil, err
-	}
-	byInbound := make(map[uint]db.InboundTraffic, len(traffics))
-	for _, t := range traffics {
-		byInbound[t.InboundID] = t
-	}
-	views := make([]inboundTrafficView, 0, len(inbounds))
+	inMeta := make(map[uint]db.Inbound, len(inbounds))
 	for _, in := range inbounds {
-		t := byInbound[in.ID]
-		views = append(views, inboundTrafficView{
-			InboundID:     in.ID,
-			Name:          in.Name,
-			Protocol:      in.Protocol,
-			Enabled:       in.Enabled,
-			UploadBytes:   t.UploadBytes,
-			DownloadBytes: t.DownloadBytes,
-		})
+		inMeta[in.ID] = in
 	}
-	return views, nil
+	bindings, names, err := a.bindingMap()
+	if err != nil {
+		return nil, err
+	}
+	traffic, err := a.trafficByTag()
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]trafficRow, 0, len(users))
+	for _, u := range users {
+		in := inMeta[u.InboundID]
+		t := traffic[u.Name]
+		row := trafficRow{
+			Tag: u.Name, InboundName: in.Name, Protocol: in.Protocol,
+			UploadBytes: t.UploadBytes, DownloadBytes: t.DownloadBytes,
+		}
+		if b, ok := bindings[u.ID]; ok {
+			row.Subscriber = names[b.TokenID]
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
 }

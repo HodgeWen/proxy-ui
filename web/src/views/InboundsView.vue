@@ -1,11 +1,15 @@
-<!-- 入站管理：协议分组新建入口（推荐组排前）、列表增删改启停、证书管理与应用配置入口 -->
+<!-- 入站管理：协议分组新建入口（推荐组排前）、真实监听入站列表（端口/用户数/警示）、用户管理、证书管理与应用配置入口。
+     一个入站 = 一个监听端口，端口由其下全部用户共享；每个用户是独立认证身份（独立凭据、独立订阅节点与流量） -->
 <script setup lang="ts">
+import { applyKernelConfig } from '../api/kernel'
 import { deleteInbound, listInbounds, setInboundEnabled } from '../api/inbound'
 import type { Inbound } from '../api/inbound'
-import { applyKernelConfig } from '../api/kernel'
 import CertManager from '../components/CertManager.vue'
 import InboundForm from '../components/InboundForm.vue'
+import InboundUsersDialog from '../components/InboundUsersDialog.vue'
 import {
+  UAction,
+  UActionGroup,
   UButton,
   UCard,
   UCardContent,
@@ -18,12 +22,12 @@ import {
   message,
   messageConfirm,
 } from '@veltra/desktop'
-import { computed, onMounted, shallowRef } from 'vue'
+import { computed, onMounted, ref, shallowRef } from 'vue'
 
 import EmptyState from '../components/EmptyState.vue'
-import { PROTOCOL_DEFS, protocolDef } from '../inbound-schema'
+import { PROTOCOL_DEFS, listenLabel, protocolDef } from '../inbound-schema'
 
-const inbounds = shallowRef<Inbound[]>([])
+const inbounds = ref<Inbound[]>([])
 const loading = shallowRef(false)
 const pickerVisible = shallowRef(false)
 const applying = shallowRef(false)
@@ -32,16 +36,23 @@ const togglingId = shallowRef(0)
 const inboundForm = shallowRef<InstanceType<typeof InboundForm>>()
 const certManager = shallowRef<InstanceType<typeof CertManager>>()
 
+/** 用户弹窗当前操作的入站 ID；数据始终取列表里的最新副本，避免启停/新建后展示过期结果 */
+const usersInboundId = shallowRef(0)
+const usersVisible = shallowRef(false)
+const usersInbound = computed(() => inbounds.value.find((item) => item.id === usersInboundId.value) ?? null)
+
 const recommended = computed(() => PROTOCOL_DEFS.filter((p) => p.recommended))
 const classic = computed(() => PROTOCOL_DEFS.filter((p) => !p.recommended))
 
 const columns = defineTableColumns([
-  { key: 'name', name: '名称', minWidth: 150 },
-  { key: 'protocol', name: '协议', width: 160 },
-  { key: 'listenPort', name: '端口', width: 90, align: 'center' },
+  { key: 'name', name: '名称', minWidth: 160 },
+  { key: 'protocol', name: '协议', width: 150 },
+  { key: 'listen', name: '监听', width: 170 },
+  { key: 'users', name: '用户数', width: 90, align: 'center' },
   { key: 'warnings', name: '警示', width: 90, align: 'center' },
   { key: 'enabled', name: '启用', width: 80, align: 'center' },
-  { key: 'actions', name: '操作', width: 120, align: 'center' },
+  // 通用操作列固定在最右侧
+  { key: 'actions', name: '操作', width: 180, align: 'center', fixed: 'right' },
 ])
 
 async function refresh(): Promise<void> {
@@ -60,11 +71,17 @@ function startCreate(protocol: string): void {
   inboundForm.value?.openCreate(protocol)
 }
 
+function openUsers(row: Inbound): void {
+  usersInboundId.value = row.id
+  usersVisible.value = true
+}
+
 async function handleToggle(row: Inbound, enabled: boolean): Promise<void> {
   togglingId.value = row.id
   try {
     await setInboundEnabled(row.id, enabled)
     row.enabled = enabled
+    message.success(enabled ? '入站已启用（需应用配置生效）' : '入站已停用，其下全部用户将随之下线（需应用配置生效）')
   } catch {
     // 错误已由请求封装统一提示
   } finally {
@@ -72,10 +89,15 @@ async function handleToggle(row: Inbound, enabled: boolean): Promise<void> {
   }
 }
 
+/** 危险操作：删除入站会连带删除其全部用户、流量记录与订阅绑定，二次确认 */
 async function handleDelete(row: Inbound): Promise<void> {
+  const extra = row.users.length
+    ? `，其下 ${row.users.length} 个用户、累计流量记录以及这些用户在订阅里的绑定也会一起删除`
+    : ''
   const action = await messageConfirm({
     title: '删除入站',
-    message: `确认删除入站「${row.name}」吗？`,
+    message: `确认删除「${row.name}」（${listenLabel(row.listen, row.listenPort)}）吗${extra}？删除后不可恢复。`,
+    confirmButtonType: 'danger',
     confirmButtonText: '删除',
     cancelButtonText: '取消',
   }).onClosed
@@ -95,7 +117,7 @@ async function handleApply(): Promise<void> {
     const { applied, status } = await applyKernelConfig()
     message.success(
       applied
-        ? `配置已应用并重启内核（${status.version ?? '未知版本'}）`
+        ? `配置已应用并重启内核（${status.version ?? '内置内核'}）`
         : `配置已生成并通过校验，内核${status.running ? `运行中（${status.version ?? ''}）` : '未运行，将在下次启动时生效'}`,
     )
   } catch {
@@ -112,7 +134,7 @@ onMounted(refresh)
   <u-card>
     <u-card-header>
       <div class="page-header">
-        <span>入站管理</span>
+        <span>入站</span>
         <div class="page-ops">
           <u-button :loading="applying" @click="handleApply">应用配置</u-button>
           <u-button @click="certManager?.open()">证书管理</u-button>
@@ -122,12 +144,17 @@ onMounted(refresh)
       </div>
     </u-card-header>
     <u-card-content>
+      <div class="card-desc">
+        一个入站就是一个<b>真实监听端口</b>（协议 + 监听地址/端口 + TLS 等连接层配置），该端口由其下全部用户共享。
+        每个用户都是独立身份：有自己的凭据、在订阅里是一个独立节点，流量也按用户单独累计。
+        改动入站或用户后记得点「应用配置」。
+      </div>
       <u-table :columns="columns" :data="inbounds" row-key="id" border :loading="loading">
         <template #empty>
           <EmptyState
             v-if="!loading"
             title="暂无入站"
-            description="创建第一个入站供客户端连接，配置完成后需应用配置生效"
+            description="先创建一个入站（协议 + 监听地址/端口 + TLS 等），再为其添加用户；用户也可以在订阅页勾选入站时自动生成"
             cta-text="新建入站"
             @cta="pickerVisible = true"
           />
@@ -136,6 +163,14 @@ onMounted(refresh)
           <u-tag :type="protocolDef(rowData.protocol)?.recommended ? 'success' : 'info'">
             {{ protocolDef(rowData.protocol)?.name ?? rowData.protocol }}
           </u-tag>
+        </template>
+        <template #column:listen="{ rowData }">
+          <span class="mono">{{ listenLabel(rowData.listen, rowData.listenPort) }}</span>
+        </template>
+        <template #column:users="{ rowData }">
+          <u-button text type="primary" size="small" @click="openUsers(rowData)">
+            {{ rowData.users.length }} 个
+          </u-button>
         </template>
         <template #column:warnings="{ rowData }">
           <u-tag v-if="rowData.warnings?.length" type="warning" :title="rowData.warnings.join('\n')">
@@ -152,8 +187,11 @@ onMounted(refresh)
           />
         </template>
         <template #column:actions="{ rowData }">
-          <u-button text size="small" type="primary" @click="inboundForm?.openEdit(rowData)">编辑</u-button>
-          <u-button text size="small" type="error" @click="handleDelete(rowData)">删除</u-button>
+          <u-action-group>
+            <u-action @run="openUsers(rowData)">管理用户</u-action>
+            <u-action @run="inboundForm?.openEdit(rowData)">编辑</u-action>
+            <u-action type="danger" @run="handleDelete(rowData)">删除</u-action>
+          </u-action-group>
         </template>
       </u-table>
     </u-card-content>
@@ -161,6 +199,7 @@ onMounted(refresh)
 
   <!-- 新建入口：推荐组排前分组展示 -->
   <u-dialog v-model="pickerVisible" title="新建入站" style="width: 640px; max-width: 96vw">
+    <p class="picker-tip">选择协议后填写监听地址、端口与连接层参数；端口留空会自动分配一个随机空闲端口。</p>
     <div class="proto-group">
       <p class="proto-group-title">推荐</p>
       <div class="proto-grid">
@@ -182,6 +221,7 @@ onMounted(refresh)
   </u-dialog>
 
   <InboundForm ref="inboundForm" @saved="refresh" @manage-certs="certManager?.open()" />
+  <InboundUsersDialog v-model:visible="usersVisible" :inbound="usersInbound" @changed="refresh" />
   <CertManager ref="certManager" @changed="inboundForm?.reloadCerts()" />
 </template>
 
@@ -198,8 +238,26 @@ onMounted(refresh)
   gap: 8px;
 }
 
+.card-desc {
+  margin-bottom: 12px;
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+  line-height: 1.7;
+}
+
 .cell-dim {
   color: var(--u-text-color-assist);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--u-font-size-main-small);
+}
+
+.picker-tip {
+  margin: 0 0 12px;
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
 }
 
 .proto-group {

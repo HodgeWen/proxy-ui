@@ -2,27 +2,35 @@
 
 ## 业务架构
 
-面向个人自用的代理面板：以 sing-box 为唯一内核，管理入站（服务端协议监听）与出站配置、全局路由规则，并向各类客户端导出订阅。无套餐、计费、多租户概念，单管理员使用。
+面向个人自用的代理面板：sing-box 内核**以内置库形式编进面板**，管理入站与入站用户、出站、规则集与全局路由规则、DNS 与系统优化，并按订阅用户分发节点。无套餐、计费、多租户概念，单管理员使用。
 
 核心域与流程：
 
-1. **内核管理**：面板生成 sing-box 配置、拉起/停止内核子进程、展示运行状态与流量
-2. **配置管理**：入站/出站/全局规则的 CRUD；推荐协议排前、默认配置预填、高级项默认折叠、弱安全协议提示、前置依赖（如 TLS）快捷跳转
-3. **订阅导出**：以订阅用户组织（每用户独立匿名 token，可停用/重置/删除），订阅链接走面板同源子路径 `/sub/:token`（按客户端访问地址自适应，无需配置服务器地址）+ 二维码；按客户端返回 sing-box 或 clash/mihomo 格式；订阅内含故障转移、固定代理等策略组与广告拦截（anti-AD 规则源，客户端自动下载更新，服务端同份规则双端生效）
-4. **在线更新**：面板自身二进制与 sing-box 内核均在面板内点击更新（GitHub Releases）
-5. **AI 助手**：供应商/模型/api-key/推理强度在设置中配置；AI 能以工具（function calling）方式调用面板全部接口，辅助配置与解惑
+1. **内核内置**：`github.com/sagernet/sing-box v1.14.4` 编进面板进程（不再下载外部二进制），带 `with_v2ray_api` 标签，因此可按**用户**统计流量。详见 `.agents/docs/SPEC-core-embedded.md`
+2. **入站与用户**：入站是真实监听（协议 + 监听地址 + 端口 + TLS/Reality/混淆/带宽/拥塞算法）；端口默认随机空闲端口（**不默认 443**）。入站内可挂多个用户，各自凭据、**共享入站端口**
+3. **订阅用户**：每用户独立匿名 token、流量配额与到期；勾选某入站即在该入站内创建该人的身份。订阅链接走面板同源子路径 `/sub/:token`（按客户端访问地址自适应）+ 二维码，按客户端返回 sing-box 或 clash/mihomo 格式（含 DNS 段）
+4. **配额执行**：达到配额或到期 → 该用户在各入站的身份被停用并从内核配置移除，订阅端点 403
+5. **规则体系（两层）**：规则 = 匹配对象（域名 / IP / 规则集）× 匹配方式（精确 / 后缀 / 关键字 / 正则 / 网段）；规则集 = 一个 tag + 多条内容项，每条内容携带 sing-box(.srs) 与 mihomo(.mrs/.yaml) 两个源，同一规则集只启用一条
+6. **DNS**：一份配置双端生效——写入服务端 `dns` 段与 `route.default_domain_resolver`，同时随订阅下发（sing-box `dns` 段、mihomo `dns:` 段）
+7. **系统优化**：只读展示 TCP 拥塞算法，Linux + root 下可一键写入 sysctl 开启 BBR
+8. **面板更新**：面板自身二进制从 GitHub Releases 更新（二进制替换 + 同 PID 重启）；内核随面板版本走
+9. **AI 助手**：供应商/模型/api-key/推理强度在设置中配置；AI 能以工具（function calling）方式调用面板接口
 
-参考形态：alireza0/s-ui（核心功能）、mllt992/qing-zhou（订阅规则生成）。
+参考形态：alireza0/s-ui（入站内多用户 + 每用户一条订阅 + 按用户名统计）。
 
 ## 技术架构
 
-单进程架构：一个 Go 二进制同时提供嵌入的 Vue SPA、REST API、订阅端点，并以子进程方式管理 sing-box 内核。
+单进程架构：一个 Go 二进制同时承载内核实例、嵌入的 Vue SPA、REST API 与订阅端点。
 
 - **web（Vue3 SPA）**：`@veltra/desktop`（ultra-ui）组件 + `@veltra/ai`（AI 助手对话组件），构建产物经 `go:embed` 打进二进制
 - **api（Gin）**：REST + JSON 统一响应；会话鉴权，单管理员
-- **subscription**：匿名 token 鉴权的 GET 订阅端点，按 User-Agent/查询参数输出 sing-box / clash(mihomo) 配置（二维码由前端 etiket 生成）
-- **singbox / update / ai**：业务模块，被 api 编排；singbox 负责配置生成、子进程生命周期与流量/连接统计采集（Clash API 实时采样 + 按入站累计落库）；update 负责内核与面板自身的 GitHub Releases 版本查询、下载与安装（面板更新含二进制替换与同 PID 重启）；ai 负责供应商配置存取（key 不回显）、OpenAI 兼容 SSE 对话代理与工具注册表（面板工具由 api 注册，执行回落业务模块）
-- **db**：SQLite 单文件（glebarez 纯 Go 驱动 + GORM），存面板配置、账号与按入站累计流量；启动时自动迁移
+- **subscription**：匿名 token 鉴权的 GET 订阅端点，按 User-Agent/查询参数输出 sing-box / clash(mihomo) 配置
+- **singbox**：配置生成（入站+多用户/出站/路由/规则集/DNS）、**进程内内核实例生命周期**（`box.New`/`Start`/`Close`）、按用户流量采集（v2ray 统计 gRPC + 差分落库）
+- **update**：面板自身的 GitHub Releases 版本查询、下载校验与二进制替换重启
+- **ai**：供应商配置存取（key 不回显）、OpenAI 兼容 SSE 对话代理与工具注册表
+- **db**：SQLite 单文件（glebarez 纯 Go 驱动 + GORM），存面板配置、账号、订阅用户/节点绑定与累计流量；启动时自动迁移
+
+> **为什么内核必须内置**：官方 Release 二进制未编入 `with_v2ray_api`，拿不到按用户流量；Clash API 的连接元数据也没有用户字段。只有把内核作为库编进来并启用该标签，共享入站下的按用户配额才成立。
 
 架构形态与 `PROJECT.md` 一致：前后端分离（独立前端 + REST API），部署为单二进制。
 
@@ -31,11 +39,12 @@
 | 层 | 选型 | 备注 |
 | --- | --- | --- |
 | 语言 / runtime | Go 1.26；TypeScript（Node 26 + bun） | 后端 Go，前端 TS |
+| 内核 | `github.com/sagernet/sing-box v1.14.4`（库内嵌） | 构建标签固定，见 Makefile |
 | 框架 | Gin；Vue3 + Vue Router + Pinia + `@veltra/desktop` + `@veltra/ai` | ultra-ui npm 包名为 `@veltra/*` |
 | 数据 | SQLite（glebarez/sqlite + GORM） | 纯 Go 无 CGO |
 | 构建 / 包管理 | go modules；bun + Vite | 前端 dist 经 go:embed 嵌入 |
-| 测试 | go test | 核心逻辑模块必须；前端暂不强制 |
-| 部署 | 单二进制 + GitHub Releases + 面板内在线更新 | 交叉编译，禁 CGO |
+| 测试 | go test（需带内核构建标签） | `make test` |
+| 部署 | 单二进制 + GitHub Releases + 面板自更新 | 交叉编译，禁 CGO |
 
 ## 未决
 

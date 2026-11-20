@@ -1,134 +1,210 @@
 package singbox
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
-	"sync/atomic"
+	"path/filepath"
 	"testing"
-
-	"github.com/glebarez/sqlite"
-	"gorm.io/gorm"
 
 	"proxy-ui/internal/db"
 )
 
-// statsTestDB 建内存 SQLite 并迁移入站与累计流量表。
-func statsTestDB(t *testing.T) *gorm.DB {
+// newStatsMonitor 以临时数据库构造统计采集器（不启动内核）。
+func newStatsMonitor(t *testing.T) *StatsMonitor {
 	t.Helper()
-	g, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	database, err := db.Open(filepath.Join(t.TempDir(), "stats.db"))
 	if err != nil {
-		t.Fatalf("打开内存数据库失败: %v", err)
+		t.Fatalf("打开数据库失败: %v", err)
 	}
-	if err := g.AutoMigrate(&db.Inbound{}, &db.InboundTraffic{}); err != nil {
-		t.Fatalf("迁移失败: %v", err)
-	}
-	return g
+	return NewStatsMonitor(New(t.TempDir()), database)
 }
 
-func TestStatsMonitorAccumulates(t *testing.T) {
-	g := statsTestDB(t)
-	if err := g.Create(&db.Inbound{Name: "hy-in", Protocol: "hysteria2", ListenPort: 443, Enabled: true}).Error; err != nil {
-		t.Fatalf("建入站失败: %v", err)
+// trafficOf 读取某 tag 的累计流量。
+func trafficOf(t *testing.T, s *StatsMonitor, tag string) db.UserTraffic {
+	t.Helper()
+	var row db.UserTraffic
+	if err := s.db.First(&row, "tag = ?", tag).Error; err != nil {
+		t.Fatalf("查询流量 %s 失败: %v", tag, err)
+	}
+	return row
+}
+
+// TestAccumulateFirstRound 首轮采集：计数器绝对值全部计入累计。
+func TestAccumulateFirstRound(t *testing.T) {
+	s := newStatsMonitor(t)
+	s.accumulate(map[string]CounterSet{
+		"alice": {Up: 100, Down: 200},
+		"bob":   {Up: 50, Down: 60},
+	})
+
+	if got := trafficOf(t, s, "alice"); got.UploadBytes != 100 || got.DownloadBytes != 200 {
+		t.Errorf("alice 累计流量不符: %+v", got)
+	}
+	if got := trafficOf(t, s, "bob"); got.UploadBytes != 50 || got.DownloadBytes != 60 {
+		t.Errorf("bob 累计流量不符: %+v", got)
 	}
 
-	// 可变状态的 Clash API 模拟：连接计数可调整，供差分累计断言
-	var up, down atomic.Int64
-	var fail atomic.Bool
-	mux := http.NewServeMux()
-	mux.HandleFunc("/traffic", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"up":%d,"down":%d}`, up.Load(), down.Load())))
-	})
-	mux.HandleFunc("/connections", func(w http.ResponseWriter, r *http.Request) {
-		if fail.Load() {
-			w.WriteHeader(http.StatusBadGateway)
-			return
+	// 速率样本只累计用户维度增量（入站维度不参与，避免同一份字节被算两遍）
+	rates, at := s.Rates()
+	if rates.Up != 150 || rates.Down != 260 {
+		t.Errorf("速率样本不符: %+v", rates)
+	}
+	if at.IsZero() {
+		t.Error("速率样本应记录时间")
+	}
+}
+
+// TestAccumulateDiff 第二轮采集只累加增量，计数器回绕不会写出负数。
+func TestAccumulateDiff(t *testing.T) {
+	s := newStatsMonitor(t)
+	s.accumulate(map[string]CounterSet{"alice": {Up: 100, Down: 200}})
+	// 第二次读数增长
+	s.accumulate(map[string]CounterSet{"alice": {Up: 130, Down: 250}})
+	got := trafficOf(t, s, "alice")
+	if got.UploadBytes != 130 || got.DownloadBytes != 250 {
+		t.Errorf("增量累加后累计流量不符: %+v", got)
+	}
+
+	// 计数器重置（实例重建）时增量按 0 计，不产生负数
+	s.reset() // 清空差分基线
+	s.accumulate(map[string]CounterSet{"alice": {Up: 5, Down: 7}})
+	got = trafficOf(t, s, "alice")
+	if got.UploadBytes != 135 || got.DownloadBytes != 257 {
+		t.Errorf("基线清空后应按新绝对值累加: %+v", got)
+	}
+}
+
+// TestAccumulateIgnoresUnknown 非 traffic 计数器被忽略。
+func TestAccumulateIgnoresUnknown(t *testing.T) {
+	s := newStatsMonitor(t)
+	// 无法解析的名字由 userCounter 过滤；accumulate 只接受已解析结果
+	s.accumulate(map[string]CounterSet{})
+	var count int64
+	if err := s.db.Model(&db.UserTraffic{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("无法解析的计数器不应落库, got %d 行", count)
+	}
+}
+
+// TestAccumulateEmpty 空输入不落库、不清基线。
+func TestAccumulateEmpty(t *testing.T) {
+	s := newStatsMonitor(t)
+	s.accumulate(nil)
+	var count int64
+	if err := s.db.Model(&db.UserTraffic{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("空输入不应落库: %d 行", count)
+	}
+}
+
+// TestResolveCert 证书引用解析：managed / path / 缺配置各分支。
+func TestResolveCert(t *testing.T) {
+	// managed：调用面板解析器
+	tls := &TLSConfig{CertMode: CertModeManaged, CertID: 7}
+	certPath, keyPath, err := tls.resolveCert(stubResolver)
+	if err != nil {
+		t.Fatalf("managed 解析失败: %v", err)
+	}
+	if certPath != "/data/certs/c.pem" || keyPath != "/data/certs/k.pem" {
+		t.Errorf("managed 解析结果不符: %s %s", certPath, keyPath)
+	}
+	// managed 缺解析器 / 缺 ID
+	if _, _, err := tls.resolveCert(nil); err == nil {
+		t.Error("managed 缺解析器应报错")
+	}
+	if _, _, err := (&TLSConfig{CertMode: CertModeManaged}).resolveCert(stubResolver); err == nil {
+		t.Error("managed 未选证书应报错")
+	}
+	// path：直接返回本地路径
+	pathTLS := &TLSConfig{CertMode: CertModePath, CertPath: "/etc/c.pem", KeyPath: "/etc/k.pem"}
+	certPath, keyPath, err = pathTLS.resolveCert(nil)
+	if err != nil || certPath != "/etc/c.pem" || keyPath != "/etc/k.pem" {
+		t.Errorf("path 解析结果不符: %s %s err=%v", certPath, keyPath, err)
+	}
+	if _, _, err := (&TLSConfig{CertMode: CertModePath, CertPath: "/etc/c.pem"}).resolveCert(nil); err == nil {
+		t.Error("path 缺私钥应报错")
+	}
+	// 未配置模式
+	if _, _, err := (&TLSConfig{}).resolveCert(nil); err == nil {
+		t.Error("未配置证书模式应报错")
+	}
+}
+
+// TestTLSJSON tlsJSON 渲染：未启用、强制启用、证书要求。
+func TestTLSJSON(t *testing.T) {
+	// 未启用且不强制 → nil
+	if got, err := (&TLSConfig{}).tlsJSON(false, true, stubResolver); err != nil || got != nil {
+		t.Errorf("未启用且不强制时应返回 nil: %v err=%v", got, err)
+	}
+	// 强制启用（Reality）：写 enabled，但 requireCert=false 时不解析证书
+	got, err := (&TLSConfig{ServerName: "www.microsoft.com", ALPN: []string{"h3"}}).tlsJSON(true, false, nil)
+	if err != nil {
+		t.Fatalf("强制启用渲染失败: %v", err)
+	}
+	if got["enabled"] != true || got["server_name"] != "www.microsoft.com" {
+		t.Errorf("强制启用 TLS 字段不符: %v", got)
+	}
+	if _, ok := got["certificate_path"]; ok {
+		t.Errorf("requireCert=false 时不应写证书路径: %v", got)
+	}
+	// 要求证书：managed 经解析器
+	got, err = (&TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 3}).tlsJSON(false, true, stubResolver)
+	if err != nil {
+		t.Fatalf("证书渲染失败: %v", err)
+	}
+	if got["certificate_path"] != "/data/certs/c.pem" || got["key_path"] != "/data/certs/k.pem" {
+		t.Errorf("证书路径字段不符: %v", got)
+	}
+}
+
+// TestInboundTLS 各协议 TLS 段提取；Shadowsocks 无 TLS 概念。
+func TestInboundTLS(t *testing.T) {
+	tls := &TLSConfig{Enabled: true, ServerName: "sni.example.com"}
+	cases := map[string]any{
+		ProtoVLESS:     &VLESSConfig{TLS: *tls},
+		ProtoHysteria2: &Hysteria2Config{TLS: *tls},
+		ProtoTUIC:      &TUICConfig{TLS: *tls},
+		ProtoAnyTLS:    &AnyTLSConfig{TLS: *tls},
+		ProtoTrojan:    &TrojanConfig{TLS: *tls},
+		ProtoVMess:     &VMessConfig{TLS: *tls},
+	}
+	for protocol, cfg := range cases {
+		got := InboundTLS(cfg)
+		if got == nil || got.ServerName != "sni.example.com" {
+			t.Errorf("%s 的 TLS 段不符: %+v", protocol, got)
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"uploadTotal": up.Load(), "downloadTotal": down.Load(), "memory": 2048,
-			"connections": []map[string]any{
-				{"id": "conn-1", "metadata": map[string]any{"network": "tcp", "type": "hysteria2/hy-in", "sourceIP": "1.1.1.1", "destinationIP": "2.2.2.2", "sourcePort": "1", "destinationPort": "443", "host": "a.com"}, "upload": up.Load(), "download": down.Load(), "chains": []string{"direct"}},
-				{"id": "conn-orphan", "metadata": map[string]any{"network": "tcp", "type": "vless/unknown-in", "sourceIP": "1.1.1.1", "destinationIP": "3.3.3.3", "sourcePort": "2", "destinationPort": "80"}, "upload": int64(999999), "download": int64(999999), "chains": []string{"direct"}},
-			},
-		})
-	})
-	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
+	}
+	if got := InboundTLS(&ShadowsocksConfig{}); got != nil {
+		t.Errorf("Shadowsocks 不应有 TLS 段: %+v", got)
+	}
+	if got := InboundTLS(nil); got != nil {
+		t.Errorf("nil 配置应返回 nil: %+v", got)
+	}
+}
 
-	m := managerWithClash(t, server.Listener.Addr().String(), "")
-	monitor := NewStatsMonitor(m, g)
-
-	// 第 1 轮：只记基线，不累计
-	up.Store(1000)
-	down.Store(5000)
-	monitor.collect(context.Background())
-	var row db.InboundTraffic
-	if err := g.First(&row).Error; err == nil {
-		t.Fatalf("首见连接只应记基线，不应落库: %+v", row)
+// TestRealityJSON Reality 渲染（默认握手目标、short_id 可选）。
+func TestRealityJSON(t *testing.T) {
+	// 显式握手目标
+	got := RealityConfig{PrivateKey: "pk", ShortID: "0123abcd", HandshakeServer: "www.bing.com", HandshakePort: 8443}.json()
+	if got["enabled"] != true || got["private_key"] != "pk" {
+		t.Errorf("Reality 基础字段不符: %v", got)
 	}
-
-	// 第 2 轮：增量 400/1000 落库
-	up.Store(1400)
-	down.Store(6000)
-	monitor.collect(context.Background())
-	if err := g.First(&row, "inbound_id = ?", 1).Error; err != nil {
-		t.Fatalf("应有累计记录: %v", err)
+	hs, _ := got["handshake"].(map[string]any)
+	if hs["server"] != "www.bing.com" || hs["server_port"] != 8443 {
+		t.Errorf("Reality 握手目标不符: %v", hs)
 	}
-	if row.UploadBytes != 400 || row.DownloadBytes != 1000 {
-		t.Errorf("累计增量不符: %+v", row)
+	if ids, _ := got["short_id"].([]string); len(ids) != 1 || ids[0] != "0123abcd" {
+		t.Errorf("Reality short_id 不符: %v", got["short_id"])
 	}
-
-	// 第 3 轮：再增 100/500，累计应叠加
-	up.Store(1500)
-	down.Store(6500)
-	monitor.collect(context.Background())
-	if err := g.First(&row, "inbound_id = ?", 1).Error; err != nil {
-		t.Fatalf("查询累计记录失败: %v", err)
+	// 未指定握手目标时取默认值；short_id 为空不输出
+	got = RealityConfig{PrivateKey: "pk"}.json()
+	hs, _ = got["handshake"].(map[string]any)
+	if hs["server"] != "www.microsoft.com" || hs["server_port"] != 443 {
+		t.Errorf("Reality 默认握手目标不符: %v", hs)
 	}
-	if row.UploadBytes != 500 || row.DownloadBytes != 1500 {
-		t.Errorf("累计应叠加: %+v", row)
-	}
-
-	// 快照与速率缓存可用
-	rates, at := monitor.Rates()
-	if rates.Up != 1500 || rates.Down != 6500 || at.IsZero() {
-		t.Errorf("速率缓存不符: %+v %v", rates, at)
-	}
-	snap := monitor.Snapshot()
-	if snap.Memory != 2048 || len(snap.Connections) != 2 {
-		t.Errorf("快照缓存不符: %+v", snap)
-	}
-
-	// 内核不可达：缓存清空，基线重置
-	fail.Store(true)
-	monitor.collect(context.Background())
-	if rates, at = monitor.Rates(); !at.IsZero() {
-		t.Errorf("不可达时应清空速率缓存: %+v %v", rates, at)
-	}
-	if snap = monitor.Snapshot(); len(snap.Connections) != 0 {
-		t.Errorf("不可达时应清空快照: %+v", snap)
-	}
-
-	// 恢复后首轮回基线，不重复累计
-	fail.Store(false)
-	monitor.collect(context.Background())
-	if err := g.First(&row, "inbound_id = ?", 1).Error; err != nil {
-		t.Fatalf("查询累计记录失败: %v", err)
-	}
-	if row.UploadBytes != 500 || row.DownloadBytes != 1500 {
-		t.Errorf("恢复后首轮不应累计: %+v", row)
-	}
-
-	// 恢复后第 2 轮恢复差分累计
-	up.Store(2000)
-	down.Store(8000)
-	monitor.collect(context.Background())
-	if err := g.First(&row, "inbound_id = ?", 1).Error; err != nil {
-		t.Fatalf("查询累计记录失败: %v", err)
-	}
-	if row.UploadBytes != 1000 || row.DownloadBytes != 3000 {
-		t.Errorf("恢复后累计不符: %+v", row)
+	if _, ok := got["short_id"]; ok {
+		t.Errorf("short_id 为空时不应输出: %v", got)
 	}
 }

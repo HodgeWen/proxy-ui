@@ -25,8 +25,9 @@ func Open(path string) (*gorm.DB, error) {
 		return nil, fmt.Errorf("打开数据库失败: %w", err)
 	}
 	if err := g.AutoMigrate(
-		&Admin{}, &Setting{}, &Inbound{}, &Outbound{}, &PolicyGroup{}, &Rule{},
-		&SubscriptionToken{}, &InboundTraffic{}, &AIProvider{}, &Certificate{},
+		&Admin{}, &Setting{}, &Inbound{}, &InboundUser{}, &Outbound{}, &PolicyGroup{}, &Rule{},
+		&RuleSet{}, &RuleSetItem{}, &SubscriptionToken{}, &SubscriptionNode{}, &UserTraffic{}, &TokenTraffic{},
+		&AIProvider{}, &Certificate{},
 	); err != nil {
 		return nil, fmt.Errorf("数据库迁移失败: %w", err)
 	}

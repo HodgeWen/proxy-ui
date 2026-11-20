@@ -2,262 +2,289 @@ package singbox
 
 import (
 	"encoding/json"
-	"reflect"
-	"strings"
 	"testing"
 )
 
 // jsonEqual 经 JSON 序列化后比较（避免 []string 与 []any 类型差异）。
-func jsonEqual(got, want any) bool {
-	a, _ := json.Marshal(got)
-	b, _ := json.Marshal(want)
+func jsonEqual(t *testing.T, got, want any) bool {
+	t.Helper()
+	a, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("序列化 got 失败: %v", err)
+	}
+	b, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("序列化 want 失败: %v", err)
+	}
 	return string(a) == string(b)
 }
 
-// templateRouting 「国内直连+海外代理+广告拦截」模板应用后的路由聚合输入形态。
-func templateRouting() *Routing {
-	return &Routing{
-		Rules: []RuleEntry{
-			{Type: RuleTypeRuleSet, Value: AntiADTag, Outbound: OutboundBlock},
-			{Type: RuleTypeGeosite, Value: "cn", Outbound: "direct"},
-			{Type: RuleTypeGeoIP, Value: "cn", Outbound: "direct"},
-		},
-		Groups: []GroupEntry{{Name: "proxy", Mode: GroupModeAuto, Members: []string{"hk", "jp"}}},
-		Final:  "proxy",
+// TestRoutingRuleJSONMatchFields 全部（匹配对象 × 匹配方式）组合映射到正确内核字段。
+func TestRoutingRuleJSONMatchFields(t *testing.T) {
+	tests := []struct {
+		name       string
+		matchType  string
+		method     string
+		wantField  string
+		wantValues []string
+	}{
+		{"域名精确", MatchDomain, MethodExact, "domain", []string{"a.com", "b.com"}},
+		{"域名后缀", MatchDomain, MethodSuffix, "domain_suffix", []string{"a.com", "b.com"}},
+		{"域名关键字", MatchDomain, MethodKeyword, "domain_keyword", []string{"a.com", "b.com"}},
+		{"域名正则", MatchDomain, MethodRegex, "domain_regex", []string{"a.com", "b.com"}},
+		{"IP 网段", MatchIP, MethodCIDR, "ip_cidr", []string{"10.0.0.0/8", "192.168.0.0/16"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rule, refSet, err := RoutingRuleJSON(RuleEntry{
+				MatchType: tt.matchType, MatchMethod: tt.method,
+				Value: " a.com , b.com ", Outbound: "proxy",
+			})
+			if err != nil {
+				t.Fatalf("映射规则失败: %v", err)
+			}
+			if refSet != nil {
+				t.Errorf("非 rule_set 规则不应返回规则集定义: %+v", refSet)
+			}
+			if rule["outbound"] != "proxy" {
+				t.Errorf("outbound = %v, want proxy", rule["outbound"])
+			}
+			if _, ok := rule["action"]; ok {
+				t.Errorf("非 block 规则不应带 action: %v", rule)
+			}
+			// 匹配值统一按逗号拆分并去空白，IP 规则同样适用同一份输入
+			got, ok := rule[tt.wantField]
+			if !ok {
+				t.Fatalf("规则缺少字段 %s: %v", tt.wantField, rule)
+			}
+			items, ok := got.([]string)
+			if !ok {
+				t.Fatalf("字段 %s 类型 = %T, want []string", tt.wantField, got)
+			}
+			if len(items) != 2 || items[0] != "a.com" || items[1] != "b.com" {
+				t.Errorf("字段 %s 值不符: %v", tt.wantField, items)
+			}
+		})
 	}
 }
 
-// templateOutbounds 模板可用的自定义出站。
-func templateOutbounds() []OutboundEntry {
-	return []OutboundEntry{
-		{Tag: "hk", Type: "trojan", Config: `{"server":"hk.example.com","server_port":443}`},
-		{Tag: "jp", Type: "trojan", Config: `{"server":"jp.example.com","server_port":443}`},
+// TestRoutingRuleJSONInvalidCombos 非法组合与空值必须报错。
+func TestRoutingRuleJSONInvalidCombos(t *testing.T) {
+	tests := []struct {
+		name string
+		rule RuleEntry
+	}{
+		{"域名+cidr", RuleEntry{MatchType: MatchDomain, MatchMethod: MethodCIDR, Value: "a.com", Outbound: "direct"}},
+		{"域名+空方式", RuleEntry{MatchType: MatchDomain, Value: "a.com", Outbound: "direct"}},
+		{"IP+后缀", RuleEntry{MatchType: MatchIP, MatchMethod: MethodSuffix, Value: "10.0.0.0/8", Outbound: "direct"}},
+		{"IP+空方式", RuleEntry{MatchType: MatchIP, Value: "10.0.0.0/8", Outbound: "direct"}},
+		{"未知匹配对象", RuleEntry{MatchType: "geoip", MatchMethod: MethodCIDR, Value: "cn", Outbound: "direct"}},
+		{"空匹配值", RuleEntry{MatchType: MatchDomain, MatchMethod: MethodSuffix, Value: " , ", Outbound: "direct"}},
+		{"规则集缺下载源", RuleEntry{MatchType: MatchRuleSet, Outbound: "direct"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, _, err := RoutingRuleJSON(tt.rule); err == nil {
+				t.Errorf("应报错: %+v", tt.rule)
+			}
+		})
 	}
 }
 
-func TestBuildConfigTemplateRouting(t *testing.T) {
-	cfg, err := BuildConfig(nil, templateOutbounds(), templateRouting())
+// TestRoutingRuleJSONRuleSet rule_set 规则产出 binary 远程规则集定义。
+func TestRoutingRuleJSONRuleSet(t *testing.T) {
+	src := &RuleSetSource{
+		Tag: AntiADTag, URL: AntiADBuiltinURL,
+		MihomoURL: AntiADMihomoURL, MihomoBehavior: "domain",
+	}
+	rule, refSet, err := RoutingRuleJSON(RuleEntry{MatchType: MatchRuleSet, RuleSet: src, Outbound: "direct"})
 	if err != nil {
-		t.Fatalf("聚合生成失败: %v", err)
+		t.Fatalf("映射规则集规则失败: %v", err)
+	}
+	if !jsonEqual(t, rule["rule_set"], []string{AntiADTag}) {
+		t.Errorf("rule_set 字段不符: %v", rule)
+	}
+	if rule["outbound"] != "direct" {
+		t.Errorf("outbound = %v, want direct", rule["outbound"])
+	}
+	if refSet == nil {
+		t.Fatal("rule_set 规则应返回规则集定义")
+	}
+	if refSet.Type != "remote" {
+		t.Errorf("规则集类型 = %q, want remote", refSet.Type)
+	}
+	if refSet.Format != "binary" {
+		t.Errorf("规则集格式 = %q, want binary", refSet.Format)
+	}
+	if refSet.Tag != AntiADTag || refSet.URL != AntiADBuiltinURL {
+		t.Errorf("规则集 tag/url 不符: %+v", refSet)
+	}
+}
+
+// TestRoutingRuleJSONBlock block 出站映射为 reject 动作且不产生 outbound 字段。
+func TestRoutingRuleJSONBlock(t *testing.T) {
+	rule, _, err := RoutingRuleJSON(RuleEntry{
+		MatchType: MatchDomain, MatchMethod: MethodKeyword, Value: "ad.", Outbound: OutboundBlock,
+	})
+	if err != nil {
+		t.Fatalf("映射拦截规则失败: %v", err)
+	}
+	if rule["action"] != "reject" {
+		t.Errorf("block 应映射为 reject: %v", rule)
+	}
+	if _, ok := rule["outbound"]; ok {
+		t.Errorf("reject 规则不应带 outbound: %v", rule)
+	}
+}
+
+// TestGroupOutboundJSON 策略组模式映射。
+func TestGroupOutboundJSON(t *testing.T) {
+	// 固定代理 → selector，默认选中首个成员
+	ob, err := GroupOutboundJSON(GroupEntry{Name: "g-fixed", Mode: GroupModeFixed, Members: []string{"hk", "jp"}})
+	if err != nil {
+		t.Fatalf("映射固定组失败: %v", err)
+	}
+	if ob["type"] != "selector" || ob["tag"] != "g-fixed" || ob["default"] != "hk" {
+		t.Errorf("固定组字段不符: %v", ob)
+	}
+	if !jsonEqual(t, ob["outbounds"], []string{"hk", "jp"}) {
+		t.Errorf("固定组成员不符: %v", ob)
+	}
+
+	// 自动选择 → urltest，无容差
+	ob, err = GroupOutboundJSON(GroupEntry{Name: "g-auto", Mode: GroupModeAuto, Members: []string{"hk"}})
+	if err != nil {
+		t.Fatalf("映射自动组失败: %v", err)
+	}
+	if ob["type"] != "urltest" {
+		t.Errorf("自动组类型 = %v, want urltest", ob["type"])
+	}
+	if _, ok := ob["tolerance"]; ok {
+		t.Errorf("自动组不应设置容差: %v", ob)
+	}
+
+	// 故障转移 → urltest + 容差
+	ob, err = GroupOutboundJSON(GroupEntry{Name: "g-failover", Mode: GroupModeFailover, Members: []string{"hk"}})
+	if err != nil {
+		t.Fatalf("映射故障转移组失败: %v", err)
+	}
+	if ob["type"] != "urltest" || ob["tolerance"] != 500 {
+		t.Errorf("故障转移组字段不符: %v", ob)
+	}
+
+	// 无成员 / 未知模式报错
+	if _, err := GroupOutboundJSON(GroupEntry{Name: "g", Mode: GroupModeAuto}); err == nil {
+		t.Error("无成员策略组应报错")
+	}
+	if _, err := GroupOutboundJSON(GroupEntry{Name: "g", Mode: "roundrobin", Members: []string{"hk"}}); err == nil {
+		t.Error("不支持的策略组模式应报错")
+	}
+}
+
+// TestBuildConfigRuleSetDedup 同一规则集被多条规则引用时只生成一份规则集定义、按出现顺序排列。
+func TestBuildConfigRuleSetDedup(t *testing.T) {
+	adSrc := &RuleSetSource{Tag: AntiADTag, URL: AntiADBuiltinURL, MihomoURL: AntiADMihomoURL, MihomoBehavior: "domain"}
+	cnSrc := &RuleSetSource{Tag: GeoCNTag, URL: "https://example.com/cn.srs", MihomoURL: GeoCNMihomoURL, MihomoBehavior: "domain"}
+	cfg, err := BuildConfig(nil, nil, &Routing{
+		Rules: []RuleEntry{
+			{MatchType: MatchRuleSet, RuleSet: adSrc, Outbound: OutboundBlock},
+			{MatchType: MatchRuleSet, RuleSet: cnSrc, Outbound: "direct"},
+			{MatchType: MatchRuleSet, RuleSet: adSrc, Outbound: OutboundBlock},
+		},
+		Final: "direct",
+	}, nil)
+	if err != nil {
+		t.Fatalf("聚合配置失败: %v", err)
 	}
 	if cfg.Route == nil {
-		t.Fatalf("应生成 route 段")
+		t.Fatal("应生成 route 段")
 	}
 	if len(cfg.Route.Rules) != 3 {
 		t.Fatalf("应有 3 条路由规则, got %d", len(cfg.Route.Rules))
 	}
-	adRule, cnRule, ipRule := cfg.Route.Rules[0], cfg.Route.Rules[1], cfg.Route.Rules[2]
-	if adRule["action"] != "reject" || !jsonEqual(adRule["rule_set"], []string{"anti-ad"}) {
-		t.Errorf("anti-AD 规则应为 reject + rule_set anti-ad: %v", adRule)
+	if len(cfg.Route.RuleSet) != 2 {
+		t.Fatalf("规则集定义应去重为 2 份, got %d: %+v", len(cfg.Route.RuleSet), cfg.Route.RuleSet)
 	}
-	if cnRule["outbound"] != "direct" || !jsonEqual(cnRule["rule_set"], []string{"geosite-cn"}) {
-		t.Errorf("国内域名规则应为 geosite-cn -> direct: %v", cnRule)
+	if cfg.Route.RuleSet[0].Tag != AntiADTag || cfg.Route.RuleSet[1].Tag != GeoCNTag {
+		t.Errorf("规则集顺序应按规则出现顺序: %+v", cfg.Route.RuleSet)
 	}
-	if ipRule["outbound"] != "direct" || !jsonEqual(ipRule["rule_set"], []string{"geoip-cn"}) {
-		t.Errorf("国内 IP 规则应为 geoip-cn -> direct: %v", ipRule)
-	}
-	if len(cfg.Route.RuleSet) != 3 {
-		t.Fatalf("应有 3 个规则集, got %d", len(cfg.Route.RuleSet))
-	}
-	wantURLs := map[string]string{
-		"anti-ad":    DefaultAntiADURL,
-		"geosite-cn": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs",
-		"geoip-cn":   "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-	}
-	for _, rs := range cfg.Route.RuleSet {
-		if want, ok := wantURLs[rs.Tag]; !ok || rs.URL != want || rs.Type != "remote" || rs.Format != "binary" {
-			t.Errorf("规则集 %s 定义不符: %+v", rs.Tag, rs)
-		}
-	}
-	if cfg.Route.Final != "proxy" {
-		t.Errorf("兜底出站应为 proxy, got %s", cfg.Route.Final)
-	}
-	// 策略组映射为 urltest 出站，且 direct 兜底补齐
-	group, ok := outboundByTag(cfg, "proxy")
-	if !ok || group["type"] != "urltest" || !jsonEqual(group["outbounds"], []string{"hk", "jp"}) {
-		t.Errorf("策略组应映射为 urltest 出站: %v", group)
-	}
-	if _, ok := outboundByTag(cfg, "direct"); !ok {
-		t.Errorf("应补 direct 兜底出站: %v", cfg.Outbounds)
-	}
-	// 序列化为合法 JSON 且包含 route/rule_set/reject 基线
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatalf("序列化失败: %v", err)
-	}
-	for _, want := range []string{`"route"`, `"rule_set"`, `"reject"`, `"final":"proxy"`, `"urltest"`} {
-		if !strings.Contains(string(data), want) {
-			t.Errorf("聚合配置缺少 %s: %s", want, data)
-		}
+	// 服务端配置的规则集下载不走 direct 指定（download_detour 仅客户端渲染设置）
+	if cfg.Route.RuleSet[0].DownloadDetour != "" {
+		t.Errorf("服务端规则集不应设置 download_detour: %+v", cfg.Route.RuleSet[0])
 	}
 }
 
-func TestBuildConfigAntiADSourceOverride(t *testing.T) {
-	r := &Routing{
-		Rules:  []RuleEntry{{Type: RuleTypeRuleSet, Value: "anti-ad", Outbound: OutboundBlock}},
-		AntiAD: "https://mirror.example.com/anti-ad.srs",
-	}
-	cfg, err := BuildConfig(nil, nil, r)
+// TestBuildConfigRuleOrder route.rules 按输入顺序生效。
+func TestBuildConfigRuleOrder(t *testing.T) {
+	cfg, err := BuildConfig(nil, nil, &Routing{
+		Rules: []RuleEntry{
+			{MatchType: MatchDomain, MatchMethod: MethodSuffix, Value: "ad.com", Outbound: OutboundBlock},
+			{MatchType: MatchDomain, MatchMethod: MethodSuffix, Value: "cn", Outbound: "direct"},
+		},
+	}, nil)
 	if err != nil {
-		t.Fatalf("聚合生成失败: %v", err)
+		t.Fatalf("聚合配置失败: %v", err)
 	}
-	if cfg.Route.RuleSet[0].URL != r.AntiAD {
-		t.Errorf("anti-AD 源地址更换后配置应随之更新, got %s", cfg.Route.RuleSet[0].URL)
+	if len(cfg.Route.Rules) != 2 {
+		t.Fatalf("应有 2 条规则, got %d", len(cfg.Route.Rules))
+	}
+	if cfg.Route.Rules[0]["action"] != "reject" {
+		t.Errorf("第 1 条应为拦截规则: %v", cfg.Route.Rules[0])
+	}
+	if !jsonEqual(t, cfg.Route.Rules[1]["domain_suffix"], []string{"cn"}) {
+		t.Errorf("第 2 条应为 cn 后缀直连: %v", cfg.Route.Rules[1])
 	}
 }
 
-func TestGroupOutboundModes(t *testing.T) {
+// TestBuiltinRuleSets 内置规则集定义与其 mihomo 源一致。
+func TestBuiltinRuleSets(t *testing.T) {
+	if len(BuiltinRuleSets) == 0 {
+		t.Fatal("内置规则集列表不应为空")
+	}
+	names := map[string]bool{}
+	for _, def := range BuiltinRuleSets {
+		if def.Name == "" || def.SingBoxURL == "" || def.Description == "" {
+			t.Errorf("内置规则集定义不完整: %+v", def)
+		}
+		if names[def.Name] {
+			t.Errorf("内置规则集名称重复: %s", def.Name)
+		}
+		names[def.Name] = true
+		url, behavior, ok := BuiltinMihomoSource(def.Name)
+		if !ok || url == "" || behavior == "" {
+			t.Errorf("内置规则集 %s 缺少 mihomo 源: url=%q behavior=%q ok=%v", def.Name, url, behavior, ok)
+		}
+	}
+	if _, _, ok := BuiltinMihomoSource("custom"); ok {
+		t.Error("非内置规则集不应有 mihomo 默认源")
+	}
+	if _, _, ok := BuiltinMihomoSource(AntiADTag); !ok || !names[AntiADTag] {
+		t.Error("anti-ad 应作为内置规则集存在")
+	}
+}
+
+// TestSplitRuleValue 规则值拆分（去空白、忽略空项）。
+func TestSplitRuleValue(t *testing.T) {
 	tests := []struct {
-		name string
-		mode string
-		want map[string]any
+		in   string
+		want []string
 	}{
-		{name: "固定代理映射 selector 且默认首个成员", mode: GroupModeFixed,
-			want: map[string]any{"type": "selector", "default": "hk"}},
-		{name: "自动选择映射 urltest", mode: GroupModeAuto,
-			want: map[string]any{"type": "urltest"}},
-		{name: "故障转移映射 urltest 且带容差", mode: GroupModeFailover,
-			want: map[string]any{"type": "urltest", "tolerance": 500}},
+		{"a.com,b.com", []string{"a.com", "b.com"}},
+		{" a.com , , b.com ", []string{"a.com", "b.com"}},
+		{"", nil},
+		{" , ", nil},
+		{"single", []string{"single"}},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := BuildConfig(nil, templateOutbounds()[:1], &Routing{
-				Groups: []GroupEntry{{Name: "g", Mode: tt.mode, Members: []string{"hk"}}},
-			})
-			if err != nil {
-				t.Fatalf("聚合生成失败: %v", err)
+		got := splitRuleValue(tt.in)
+		if len(got) != len(tt.want) {
+			t.Errorf("splitRuleValue(%q) = %v, want %v", tt.in, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("splitRuleValue(%q)[%d] = %q, want %q", tt.in, i, got[i], tt.want[i])
 			}
-			group, _ := outboundByTag(cfg, "g")
-			for k, v := range tt.want {
-				if !reflect.DeepEqual(group[k], v) {
-					t.Errorf("字段 %s = %v, want %v", k, group[k], v)
-				}
-			}
-			if !jsonEqual(group["outbounds"], []string{"hk"}) {
-				t.Errorf("成员应保持顺序: %v", group["outbounds"])
-			}
-		})
-	}
-}
-
-func TestBuildConfigRoutingErrors(t *testing.T) {
-	tests := []struct {
-		name    string
-		routing *Routing
-		wantErr string
-	}{
-		{
-			name:    "规则出站不存在",
-			routing: &Routing{Rules: []RuleEntry{{Type: RuleTypeDomain, Value: "a.com", Outbound: "nope"}}},
-			wantErr: "出站 nope 不存在",
-		},
-		{
-			name:    "兜底出站不存在",
-			routing: &Routing{Final: "nope"},
-			wantErr: "兜底出站 nope 不存在",
-		},
-		{
-			name:    "规则集无下载地址",
-			routing: &Routing{Rules: []RuleEntry{{Type: RuleTypeRuleSet, Value: "whatever", Outbound: "direct"}}},
-			wantErr: "无可用下载地址",
-		},
-		{
-			name:    "不支持的规则类型",
-			routing: &Routing{Rules: []RuleEntry{{Type: "port", Value: "80", Outbound: "direct"}}},
-			wantErr: "不支持的路由规则类型",
-		},
-		{
-			name:    "策略组成员不存在",
-			routing: &Routing{Groups: []GroupEntry{{Name: "g", Mode: GroupModeAuto, Members: []string{"nope"}}}},
-			wantErr: "成员 nope 不存在",
-		},
-		{
-			name:    "策略组未配置成员",
-			routing: &Routing{Groups: []GroupEntry{{Name: "g", Mode: GroupModeAuto}}},
-			wantErr: "未配置成员",
-		},
-		{
-			name:    "策略组模式不支持",
-			routing: &Routing{Groups: []GroupEntry{{Name: "g", Mode: "random", Members: []string{"direct"}}}},
-			wantErr: "模式不支持",
-		},
-		{
-			name:    "策略组与出站同名",
-			routing: &Routing{Groups: []GroupEntry{{Name: "hk", Mode: GroupModeAuto, Members: []string{"direct"}}}},
-			wantErr: "同名",
-		},
-		{
-			name: "策略组自引用",
-			routing: &Routing{
-				Groups: []GroupEntry{{Name: "g", Mode: GroupModeAuto, Members: []string{"g"}}},
-			},
-			wantErr: "不能引用自身",
-		},
-		{
-			name: "策略组循环引用",
-			routing: &Routing{
-				Groups: []GroupEntry{
-					{Name: "a", Mode: GroupModeAuto, Members: []string{"b"}},
-					{Name: "b", Mode: GroupModeAuto, Members: []string{"a"}},
-				},
-			},
-			wantErr: "循环引用",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := BuildConfig(nil, templateOutbounds(), tt.routing)
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Errorf("错误应含 %q, got %v", tt.wantErr, err)
-			}
-		})
-	}
-}
-
-func TestRoutingRuleJSON(t *testing.T) {
-	// 多值逗号拆分与 literal 字段映射
-	rule, refs, err := RoutingRuleJSON(RuleEntry{Type: RuleTypeDomainSuffix, Value: " google.com, youtube.com ", Outbound: "proxy"})
-	if err != nil {
-		t.Fatalf("映射失败: %v", err)
-	}
-	if !jsonEqual(rule["domain_suffix"], []string{"google.com", "youtube.com"}) || rule["outbound"] != "proxy" || refs != nil {
-		t.Errorf("多值规则映射不符: %v %v", rule, refs)
-	}
-	if _, _, err := RoutingRuleJSON(RuleEntry{Type: RuleTypeDomain, Value: "  ", Outbound: "direct"}); err == nil {
-		t.Errorf("空匹配值应报错")
-	}
-}
-
-func TestRuleSetDedup(t *testing.T) {
-	r := &Routing{Rules: []RuleEntry{
-		{Type: RuleTypeGeosite, Value: "cn", Outbound: "direct"},
-		{Type: RuleTypeGeosite, Value: "category-ads", Outbound: OutboundBlock},
-		{Type: RuleTypeGeoIP, Value: "cn, private", Outbound: "direct"},
-	}}
-	cfg, err := BuildConfig(nil, nil, r)
-	if err != nil {
-		t.Fatalf("聚合生成失败: %v", err)
-	}
-	if len(cfg.Route.Rules) != 3 || len(cfg.Route.RuleSet) != 4 {
-		t.Fatalf("规则集应去重为 4 个, got %d: %+v", len(cfg.Route.RuleSet), cfg.Route.RuleSet)
-	}
-	tags := map[string]bool{}
-	for _, rs := range cfg.Route.RuleSet {
-		tags[rs.Tag] = true
-	}
-	for _, want := range []string{"geosite-cn", "geosite-category-ads", "geoip-cn", "geoip-private"} {
-		if !tags[want] {
-			t.Errorf("缺少规则集 %s: %+v", want, cfg.Route.RuleSet)
 		}
 	}
-}
-
-// outboundByTag 按 tag 取聚合生成的出站。
-func outboundByTag(cfg Config, tag string) (map[string]any, bool) {
-	for _, ob := range cfg.Outbounds {
-		if ob["tag"] == tag {
-			return ob, true
-		}
-	}
-	return nil, false
 }

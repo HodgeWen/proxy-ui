@@ -2,15 +2,17 @@ package api
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"proxy-ui/internal/singbox"
 )
 
-// kernelStatusOf 组合内核状态与已安装版本。
+// kernelStatusOf 组合内核状态与内置版本。
 func (a *API) kernelStatusOf(ctx context.Context) singbox.Status {
 	st := a.core.Status()
 	st.Version = a.core.Version(ctx)
@@ -28,9 +30,10 @@ func (a *API) HandleKernelLogs(c *gin.Context) {
 	OK(c, a.core.Logs(limit))
 }
 
-// HandleKernelStart POST /api/kernel/start 启动内核。
+// HandleKernelStart POST /api/kernel/start 启动内核（用已聚合的配置，无则现聚合）。
 func (a *API) HandleKernelStart(c *gin.Context) {
-	if err := a.core.Start(); err != nil {
+	cfg := a.currentKernelConfig()
+	if err := a.core.Start(cfg); err != nil {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -46,46 +49,53 @@ func (a *API) HandleKernelStop(c *gin.Context) {
 	OK(c, a.kernelStatusOf(c.Request.Context()))
 }
 
-// HandleKernelRestart POST /api/kernel/restart 重启内核。
+// HandleKernelRestart POST /api/kernel/restart 重启内核（按最新配置重建）。
 func (a *API) HandleKernelRestart(c *gin.Context) {
-	if err := a.core.Restart(); err != nil {
+	cfg := a.currentKernelConfig()
+	if err := a.core.Restart(cfg); err != nil {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	OK(c, a.kernelStatusOf(c.Request.Context()))
 }
 
-// HandleKernelVersions GET /api/kernel/versions 可用版本列表（GitHub Releases）。
+// HandleKernelVersions GET /api/kernel/versions 内置内核版本信息（不再有可选的下载版本）。
 func (a *API) HandleKernelVersions(c *gin.Context) {
-	versions, err := a.updates.ListVersions(c.Request.Context())
-	if err != nil {
-		Fail(c, http.StatusBadGateway, err.Error())
-		return
-	}
-	OK(c, gin.H{"versions": versions})
+	OK(c, gin.H{"version": singbox.EmbeddedVersion, "embedded": true})
 }
 
-// versionReq 指定目标版本的安装/更新请求。
-type versionReq struct {
-	Version string `json:"version"` // 目标版本 tag；空表示最新稳定版
+// currentKernelConfig 取待启动配置：优先使用上次应用时缓存的配置，否则现聚合一份。
+func (a *API) currentKernelConfig() singbox.Config {
+	a.configMu.Lock()
+	cached := a.pendingConfig
+	a.configMu.Unlock()
+	if cached.Inbounds != nil || cached.Outbounds != nil {
+		return cached
+	}
+	cfg, err := a.buildKernelConfig()
+	if err != nil {
+		return singbox.MinConfig()
+	}
+	return cfg
 }
 
-// HandleKernelInstall POST /api/kernel/install 下载并安装内核（同步等待完成）。
-func (a *API) HandleKernelInstall(c *gin.Context) {
-	var req versionReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
-		return
+// QuotaLoop 周期核对配额与到期（否则只有管理员操作时才暂停超限用户，
+// 客户端会一直可用到下次手动「应用配置」）。有变化则重建内核。
+func (a *API) QuotaLoop(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			changed, err := a.ReconcileQuota()
+			if err != nil || !changed {
+				continue
+			}
+			if _, _, err := a.applyKernel(ctx); err != nil {
+				slog.Warn("配额核对后应用配置失败", "err", err)
+			}
+		}
 	}
-	if a.core.Status().Running {
-		Fail(c, http.StatusConflict, "内核运行中，请先停止后再安装")
-		return
-	}
-	tag, err := a.updates.Install(c.Request.Context(), req.Version)
-	if err != nil {
-		Fail(c, http.StatusBadGateway, err.Error())
-		return
-	}
-	a.core.InvalidateVersion()
-	OK(c, gin.H{"version": tag, "status": a.kernelStatusOf(c.Request.Context())})
 }

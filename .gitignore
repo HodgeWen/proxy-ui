@@ -2,3 +2,5 @@
 data/
 .devdata/
 bin/
+# 内核运行时缓存（v2ray 规则集缓存等）
+cache.db

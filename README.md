@@ -1,10 +1,10 @@
 # proxy-ui
 
-面向个人自用的 sing-box 代理面板：Go（后端）+ Vue3（前端）单二进制，管理入站/出站/全局规则，向各类客户端导出订阅，并内置 sing-box 内核下载、流量统计与 AI 助手。
+面向个人自用的 sing-box 代理面板：Go（后端）+ Vue3（前端）单二进制，**内核内置**（sing-box 1.14.4 编进面板，无需下载），管理入站与入站用户、出站、规则集与全局规则，按订阅用户分发独立节点并支持流量配额与到期，内置 DNS 配置、BBR 一键优化、按用户流量统计与 AI 助手。
 
 - 单文件二进制（linux/amd64、darwin/arm64，禁 CGO），SQLite 落盘，无外部依赖
 - 面板自身只起 HTTP，TLS 交给反向代理
-- 面板与 sing-box 内核均支持面板内在线更新（GitHub Releases）
+- 内核与面板同进程，面板自身支持在线更新
 
 ## 下载
 
@@ -74,27 +74,48 @@ panel.example.com {
 
 ## 客户端订阅
 
-1. 「设置 → 内核」：下载安装 sing-box 内核，启动内核
-2. 「入站」页创建入站（推荐协议：VLESS+Reality、Hysteria2、TUIC v5、AnyTLS；经典协议：Trojan、VMess+WS+TLS、Shadowsocks-2022、Direct）
-3. 「订阅」页生成匿名 token 订阅链接，扫码或复制到客户端
-4. 客户端按 User-Agent 自动适配格式：sing-box 客户端拿到 sing-box 配置，clash/mihomo 客户端拿到 clash(mihomo) 配置；也可用 `?format=sing-box|clash` 参数显式指定
+1. 「入站」页创建入站：选协议、监听地址与端口（端口留空自动分配随机空闲端口），配置 TLS/证书
+2. 「订阅」页新建订阅用户，勾选要下发的入站 —— 面板会在该入站内为此人创建一个独立身份（用户名 `订阅备注-入站名`），各用户共享入站端口但凭据互不相同
+3. 点该用户的「查看订阅」拿链接或扫码；客户端按 User-Agent 自动适配格式：sing-box 客户端拿到 sing-box 配置，clash/mihomo 客户端拿到 clash(mihomo) 配置；也可用 `?format=sing-box|clash` 显式指定
+4. 改完入站或订阅用户后在「入站」页点「应用配置」让内核按新配置重建
 
-## 在线更新
+入站下也可以手动建用户（不绑定订阅、无订阅链接），适合临时给某人单独凭据。
 
-「设置 → 面板更新」：
+### 为什么按用户生成身份
+配额与到期要能真正生效，就必须能按用户统计流量。面板把 sing-box 作为库编进进程并启用 `v2ray_api`，读取 `user>>><用户名>>>traffic` 计数器，因此每个用户都能精确计费；共享入站端口不会让统计混淆。
 
-- **面板**：检查新版本后一键更新，面板会下载替换自身二进制并自动重启（systemd 下进程同 PID 换入，服务不中断；数据保留）
-- **内核**：一键更新到最新稳定版 sing-box（内核运行中需先停止）
+### 流量配额与到期
+订阅用户可设流量配额（上+下行）与到期时间。达到配额或到期后，该用户在所有入站里的身份会被暂停并从内核配置移除，订阅端点返回 403；「清零流量」或延长到期后自动恢复。
+
+## DNS
+
+「设置 → DNS」可配置服务端与订阅共用的 DNS：选择预设（国内外分流 / 全 DoH / 本地）或自定义服务器（UDP/TCP/DoT/DoH/DoH3/本地）与按域名的分流规则。启用后同时写入服务端配置的 `dns` 段与 `route.default_domain_resolver`，并随订阅下发到 sing-box 客户端；mihomo 客户端拿到等价的 `dns:` 段。
+
+## BBR 加速
+
+「设置 → 系统优化」展示当前 TCP 拥塞控制算法。在 Linux 且面板以 root 运行时，可一键写入 `/etc/sysctl.d/99-proxy-ui-bbr.conf` 并执行 `sysctl --system` 开启 BBR；其它环境提供可复制的等价命令。
+
+协议层拥塞算法按协议给最佳默认：Hysteria2 用 `bbr_profile=standard`、TUIC 用 `bbr`；TCP 类协议（VLESS/Trojan/VMess/Shadowsocks）走系统 TCP 拥塞控制，因此 BBR 对它们同样有效。
+
+## 内核
+
+sing-box **1.14.4 已编进面板**，无需下载也无法更换版本；升级内核随面板版本一起发布。「设置 → 内核」可启动/停止/重启内核并查看内核日志。
+
+> 构建时必须带 `with_v2ray_api` 等标签（`scripts/build.sh` 与 `Makefile` 已固定），否则按用户流量统计失效、配额形同虚设。
+
+## 面板更新
+
+「设置 → 面板更新」检查新版本后一键更新：面板下载替换自身二进制并自动重启（systemd 下进程同 PID 换入，服务不中断；数据保留）。
 
 ## 从源码构建
 
 需要 Go 1.26+ 与 [bun](https://bun.sh)：
 
 ```bash
-bash scripts/build.sh   # 前端构建 + linux/amd64、darwin/arm64 双平台交叉编译，产物在 bin/
+bash scripts/build.sh   # 前端构建 + linux/amd64、darwin/arm64 双平台交叉编译（含内置内核），产物在 bin/
 ```
 
-版本号经 `git describe` 注入；开发调试用 Makefile：`make dev` 一条命令同起前后端（Vite 热更新，访问 http://localhost:5173，开发数据在 `.devdata/`，`make help` 看全部命令）。
+版本号经 `git describe` 注入；开发调试用 Makefile：`make dev` 一条命令同起前后端（Vite 热更新，访问 http://localhost:5173，开发数据在 `.devdata/`，`make help` 看全部命令）。注意 `make dev` / `make test` 已内置必需的内核构建标签；若直接 `go run .` 或 `go build`，需自行加 `-tags "with_v2ray_api,with_quic,with_utls,with_acme,with_clash_api,with_gvisor"`。
 
 ## 许可证
 

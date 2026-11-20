@@ -1,10 +1,11 @@
 <!-- 入站声明式表单引擎：按协议 schema 渲染分组卡片（基础 / TLS 证书 / 高级），
-     UFormItem tips 直出 schema description，弱配置警示内联展示并支持一键跳转 TLS 区块 -->
+     UFormItem tips 直出 schema description，弱配置警示内联展示并支持一键跳转 TLS 区块。
+     入站是真实监听：协议 + 监听地址/端口 + 连接层参数；用户凭据由后端为入站内每个用户生成 -->
 <script setup lang="ts">
 import type { Certificate } from '../api/cert'
 import { listCerts } from '../api/cert'
 import { createInbound, updateInbound } from '../api/inbound'
-import type { Inbound, InboundPayload } from '../api/inbound'
+import type { Inbound, InboundPayload, ListenAddress } from '../api/inbound'
 import {
   UButton,
   UDialog,
@@ -24,6 +25,7 @@ import { computed, defineComponent, h, nextTick, reactive, ref, shallowRef, useT
 
 import FormGroupCard from './FormGroupCard.vue'
 import {
+  LISTEN_OPTIONS,
   PROTOCOL_DEFS,
   TLS_ADVANCED,
   TLS_FIELDS,
@@ -31,6 +33,7 @@ import {
   computeInboundWarnings,
   defaultInboundConfig,
   protocolDef,
+  protocolNotes,
 } from '../inbound-schema'
 import type { FieldDef, FieldType, ProtocolDef } from '../inbound-schema'
 
@@ -104,6 +107,7 @@ const dialogTitle = computed(() =>
 )
 /** 保存前实时计算的弱配置警示 */
 const warnings = computed(() => computeInboundWarnings(def.value.protocol, form))
+const notes = computed(() => protocolNotes(def.value.protocol))
 const advancedFields = computed(() => [...def.value.advanced, ...(def.value.tls ? TLS_ADVANCED : [])])
 
 function resetForm(): void {
@@ -113,19 +117,19 @@ function resetForm(): void {
   formRef.value?.clearValidate()
 }
 
-/** 新建：按协议预填默认值（随机凭据本地生成） */
+/** 新建：按协议预填连接层默认值（TLS/Reality 密钥等），端口留空由后端分配随机空闲端口 */
 function openCreate(protocol: string): void {
   const target = protocolDef(protocol)
   if (!target) return
   def.value = target
   editing.value = null
   resetForm()
-  Object.assign(form, { name: '', port: target.defaultPort }, defaultInboundConfig(protocol))
+  Object.assign(form, { name: '', listen: '::', listenPort: undefined }, defaultInboundConfig(protocol))
   if (target.tls) void reloadCerts()
   visible.value = true
 }
 
-/** 编辑：回填现有配置 */
+/** 编辑：回填现有监听与配置 */
 function openEdit(row: Inbound): void {
   const target = protocolDef(row.protocol)
   if (!target) return
@@ -134,7 +138,7 @@ function openEdit(row: Inbound): void {
   resetForm()
   const cfg = structuredClone(row.config ?? {})
   if (target.tls && !cfg.tls) cfg.tls = { enabled: false }
-  Object.assign(form, { name: row.name, port: row.listenPort }, cfg)
+  Object.assign(form, { name: row.name, listen: row.listen, listenPort: row.listenPort }, cfg)
   if (target.tls) void reloadCerts()
   visible.value = true
 }
@@ -163,18 +167,20 @@ async function handleSave(): Promise<void> {
   if (!(await formRef.value?.validate())) return
   saving.value = true
   try {
-    const { name, port, ...config } = JSON.parse(JSON.stringify(form))
+    const { name, listen, listenPort, ...config } = JSON.parse(JSON.stringify(form))
     const payload: InboundPayload = {
       name: name ?? '',
       protocol: def.value.protocol,
-      listenPort: Number(port),
+      listen: (listen ?? '::') as ListenAddress,
+      // 端口留空（undefined）时后端分配随机空闲端口
+      listenPort: listenPort || undefined,
       config,
     }
     const saved = editing.value ? await updateInbound(editing.value.id, payload) : await createInbound(payload)
     visible.value = false
     // 保存前后端口径一致的弱配置警示：保存时明确提示但不阻断
     if (saved.warnings?.length) message.warn(saved.warnings.join('；'))
-    else message.success(editing.value ? '入站已更新' : '入站已创建')
+    else message.success(editing.value ? '入站已更新' : `入站已创建，监听 ${saved.listenPort} 端口`)
     emit('saved', saved)
   } catch {
     // 错误已由请求封装统一提示
@@ -188,58 +194,69 @@ defineExpose({ openCreate, openEdit, reloadCerts })
 
 <template>
   <u-dialog v-model="visible" :title="dialogTitle" style="width: 1120px; max-width: 96vw">
-    <div class="dialog-scroll">
-      <div v-if="warnings.length" class="form-warnings">
-        <div v-for="w in warnings" :key="w.text" class="form-warning">
-          <span class="form-warning-text">⚠ {{ w.text }}</span>
-          <u-button v-if="w.jump === 'tls'" text type="primary" @click="jumpToTls">去配置 TLS</u-button>
-        </div>
-      </div>
-
-      <u-form ref="formRef" :model="form" :cols="1" label-width="112px">
-        <FormGroupCard title="基础配置">
-          <u-form-item
-            label="名称"
-            field="name"
-            tips="入站备注名，展示于列表与统计；留空自动按 协议-端口 生成"
-          >
-            <u-input v-model="form.name" placeholder="留空自动按 协议-端口 生成" clearable />
-          </u-form-item>
-          <u-form-item
-            label="监听端口"
-            field="port"
-            :rules="{ required: '请输入监听端口' }"
-            tips="内核监听的端口，客户端按此端口连接；需未被其它服务占用"
-          >
-            <u-number-input v-model="form.port" :min="1" :max="65535" />
-          </u-form-item>
-          <SchemaField v-for="d in def.basic" :key="d.field" :def="d" :model="form" :certs="certs" />
-        </FormGroupCard>
-
-        <FormGroupCard
-          v-if="def.tls"
-          ref="tlsCard"
-          v-model:collapsed="tlsCollapsed"
-          title="TLS / 证书"
-          :highlight="tlsHighlighted"
-        >
-          <p v-if="!certs.length" class="tls-empty">
-            暂无面板存储证书，可引用服务器本地路径，或
-            <u-button text type="primary" @click="emit('manage-certs')">打开证书管理</u-button>
-            上传/粘贴证书。
-          </p>
-          <SchemaField v-for="d in TLS_FIELDS" :key="d.field" :def="d" :model="form" :certs="certs" />
-        </FormGroupCard>
-
-        <FormGroupCard
-          v-if="advancedFields.length"
-          v-model:collapsed="advancedCollapsed"
-          title="高级选项"
-        >
-          <SchemaField v-for="d in advancedFields" :key="d.field" :def="d" :model="form" :certs="certs" />
-        </FormGroupCard>
-      </u-form>
+    <!-- 语义说明：解释这里配的是什么 -->
+    <div class="form-intro">
+      这里配置一个<b>真实监听</b>：协议、监听地址与端口，以及连接层参数（TLS / Reality / 混淆 / 拥塞算法）。
+      该端口由本入站下的所有用户共享，每个用户的凭据独立生成，用户名即客户端订阅里的节点名。
     </div>
+
+    <div v-if="warnings.length" class="form-warnings">
+      <div v-for="w in warnings" :key="w.text" class="form-warning">
+        <span class="form-warning-text">⚠ {{ w.text }}</span>
+        <u-button v-if="w.jump === 'tls'" text type="primary" @click="jumpToTls">去配置 TLS</u-button>
+      </div>
+    </div>
+
+    <u-form ref="formRef" :model="form" :cols="1" label-width="112px">
+      <FormGroupCard title="基础配置">
+        <u-form-item
+          label="名称"
+          field="name"
+          tips="入站备注名，展示于列表与订阅页；留空自动按 协议-序号 生成。用户默认以此名拼接作为节点名"
+        >
+          <u-input v-model="form.name" placeholder="留空自动按 协议-序号 生成" clearable />
+        </u-form-item>
+        <u-form-item
+          label="监听地址"
+          field="listen"
+          :rules="{ required: '请选择监听地址' }"
+          tips="入站对外监听的网卡地址。前置了 Nginx 等反向代理且只需要本机转发时选「仅本机」；QUIC 类协议（Hysteria2/TUIC）无法经普通反代转发，需选双栈或仅 IPv4 直连"
+        >
+          <u-select v-model="form.listen" :options="LISTEN_OPTIONS" />
+        </u-form-item>
+        <u-form-item
+          label="监听端口"
+          field="listenPort"
+          tips="本入站的监听端口，其下所有用户共用同一个端口。创建时留空由后端自动分配 10000-60000 之间的随机空闲端口；编辑时留空保持原端口"
+        >
+          <u-number-input v-model="form.listenPort" :min="1" :max="65535" placeholder="留空自动分配随机空闲端口" />
+        </u-form-item>
+        <SchemaField v-for="d in def.basic" :key="d.field" :def="d" :model="form" :certs="certs" />
+      </FormGroupCard>
+
+      <FormGroupCard
+        v-if="def.tls"
+        ref="tlsCard"
+        v-model:collapsed="tlsCollapsed"
+        title="TLS / 证书"
+        :highlight="tlsHighlighted"
+      >
+        <p v-if="!certs.length" class="tls-empty">
+          暂无面板存储证书，可引用服务器本地路径，或
+          <u-button text type="primary" @click="emit('manage-certs')">打开证书管理</u-button>
+          上传/粘贴证书。
+        </p>
+        <SchemaField v-for="d in TLS_FIELDS" :key="d.field" :def="d" :model="form" :certs="certs" />
+      </FormGroupCard>
+
+      <FormGroupCard v-if="advancedFields.length" v-model:collapsed="advancedCollapsed" title="高级选项">
+        <SchemaField v-for="d in advancedFields" :key="d.field" :def="d" :model="form" :certs="certs" />
+      </FormGroupCard>
+
+      <div v-if="notes.length" class="form-notes">
+        <div v-for="n in notes" :key="n" class="form-note">· {{ n }}</div>
+      </div>
+    </u-form>
 
     <template #footer="{ close }">
       <u-button text @click="close()">取消</u-button>
@@ -249,9 +266,14 @@ defineExpose({ openCreate, openEdit, reloadCerts })
 </template>
 
 <style scoped>
-.dialog-scroll {
-  max-height: calc(90vh - 160px);
-  overflow-y: auto;
+.form-intro {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: var(--u-radius-small);
+  background: var(--u-bg-color-hover);
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+  line-height: 1.7;
 }
 
 .form-warnings {
@@ -275,6 +297,13 @@ defineExpose({ openCreate, openEdit, reloadCerts })
   font-size: var(--u-font-size-main-small);
   line-height: 1.6;
   color: var(--u-color-warning);
+}
+
+.form-notes {
+  margin-top: 4px;
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+  line-height: 1.7;
 }
 
 .tls-empty {

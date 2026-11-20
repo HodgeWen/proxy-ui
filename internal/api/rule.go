@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -14,30 +13,29 @@ import (
 	"proxy-ui/internal/singbox"
 )
 
-// 设置键（键名常量以 db 包为准）。
-const (
-	settingAntiAD     = db.SettingAntiADSource
-	settingRouteFinal = db.SettingRouteFinal
-)
-
-// ruleView 规则响应视图。
+// ruleView 规则响应视图（附规则集名称供列表展示）。
 type ruleView struct {
-	ID        uint      `json:"id"`        // 主键
-	Type      string    `json:"type"`      // 规则类型
-	Value     string    `json:"value"`     // 匹配值
-	Outbound  string    `json:"outbound"`  // 动作出站 tag
-	Order     int       `json:"order"`     // 排序，值小者靠前
-	Enabled   bool      `json:"enabled"`   // 是否启用
-	CreatedAt time.Time `json:"createdAt"` // 创建时间
-	UpdatedAt time.Time `json:"updatedAt"` // 更新时间
+	ID          uint      `json:"id"`          // 主键
+	MatchType   string    `json:"matchType"`   // 匹配对象：domain / ip / rule_set
+	MatchMethod string    `json:"matchMethod"` // 匹配方式（rule_set 为空）
+	Value       string    `json:"value"`       // 匹配值
+	RuleSetID   uint      `json:"ruleSetId"`   // 引用的规则集 ID
+	RuleSetName string    `json:"ruleSetName"` // 引用的规则集名称
+	Outbound    string    `json:"outbound"`    // 动作出站 tag
+	Order       int       `json:"order"`       // 排序
+	Enabled     bool      `json:"enabled"`     // 是否启用
+	CreatedAt   time.Time `json:"createdAt"`   // 创建时间
+	UpdatedAt   time.Time `json:"updatedAt"`   // 更新时间
 }
 
 // ruleReq 创建/更新规则请求。
 type ruleReq struct {
-	Type     string `json:"type"`     // 规则类型
-	Value    string `json:"value"`    // 匹配值，多值逗号分隔
-	Outbound string `json:"outbound"` // 动作出站 tag
-	Enabled  *bool  `json:"enabled"`  // 是否启用，缺省 true
+	MatchType   string `json:"matchType"`   // 匹配对象
+	MatchMethod string `json:"matchMethod"` // 匹配方式
+	Value       string `json:"value"`       // 匹配值，多值逗号分隔
+	RuleSetID   uint   `json:"ruleSetId"`   // 引用的规则集（matchType=rule_set 时必填）
+	Outbound    string `json:"outbound"`    // 动作出站 tag
+	Enabled     *bool  `json:"enabled"`     // 是否启用，缺省 true
 }
 
 // HandleRulesList GET /api/rules 规则列表（按排序）。
@@ -56,11 +54,28 @@ func (a *API) ruleViews() ([]ruleView, error) {
 	if err := a.db.Order("`order`").Find(&records).Error; err != nil {
 		return nil, err
 	}
-	views := make([]ruleView, len(records))
-	for i, r := range records {
-		views[i] = ruleView(r)
+	names, err := a.ruleSetNames()
+	if err != nil {
+		return nil, err
+	}
+	views := make([]ruleView, 0, len(records))
+	for _, r := range records {
+		views = append(views, ruleToView(r, names))
 	}
 	return views, nil
+}
+
+// ruleSetNames 规则集 ID -> 名称。
+func (a *API) ruleSetNames() (map[uint]string, error) {
+	var sets []db.RuleSet
+	if err := a.db.Find(&sets).Error; err != nil {
+		return nil, err
+	}
+	names := make(map[uint]string, len(sets))
+	for _, s := range sets {
+		names[s.ID] = s.Name
+	}
+	return names, nil
 }
 
 // HandleRuleCreate POST /api/rules 创建规则（排序追加到末尾）。
@@ -71,7 +86,7 @@ func (a *API) HandleRuleCreate(c *gin.Context) {
 		return
 	}
 	rule := db.Rule{Enabled: true}
-	if err := applyRuleReq(&rule, req); err != nil {
+	if err := a.applyRuleReq(&rule, req); err != nil {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -82,7 +97,8 @@ func (a *API) HandleRuleCreate(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "创建规则失败: "+err.Error())
 		return
 	}
-	OK(c, ruleView(rule))
+	names, _ := a.ruleSetNames()
+	OK(c, ruleToView(rule, names))
 }
 
 // HandleRuleUpdate PUT /api/rules/:id 更新规则。
@@ -101,7 +117,7 @@ func (a *API) HandleRuleUpdate(c *gin.Context) {
 		Fail(c, http.StatusNotFound, "规则不存在")
 		return
 	}
-	if err := applyRuleReq(&rule, req); err != nil {
+	if err := a.applyRuleReq(&rule, req); err != nil {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -109,7 +125,8 @@ func (a *API) HandleRuleUpdate(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "保存规则失败: "+err.Error())
 		return
 	}
-	OK(c, ruleView(rule))
+	names, _ := a.ruleSetNames()
+	OK(c, ruleToView(rule, names))
 }
 
 // orderReq 规则排序请求。
@@ -160,7 +177,8 @@ func (a *API) HandleRuleSetEnabled(c *gin.Context) {
 		return
 	}
 	rule.Enabled = req.Enabled
-	OK(c, ruleView(rule))
+	names, _ := a.ruleSetNames()
+	OK(c, ruleToView(rule, names))
 }
 
 // HandleRuleDelete DELETE /api/rules/:id 删除规则。
@@ -176,13 +194,19 @@ func (a *API) HandleRuleDelete(c *gin.Context) {
 	OK(c, gin.H{"deleted": id})
 }
 
-// applyRuleReq 把请求字段应用到规则记录并校验类型/取值。
-func applyRuleReq(rule *db.Rule, req ruleReq) error {
-	if req.Type != "" {
-		rule.Type = req.Type
+// applyRuleReq 把请求字段应用到规则记录并校验匹配对象/方式/取值与规则集引用。
+func (a *API) applyRuleReq(rule *db.Rule, req ruleReq) error {
+	if req.MatchType != "" {
+		rule.MatchType = req.MatchType
+	}
+	if req.MatchMethod != "" {
+		rule.MatchMethod = req.MatchMethod
 	}
 	if req.Value != "" {
 		rule.Value = req.Value
+	}
+	if req.RuleSetID != 0 {
+		rule.RuleSetID = req.RuleSetID
 	}
 	if req.Outbound != "" {
 		rule.Outbound = req.Outbound
@@ -190,10 +214,32 @@ func applyRuleReq(rule *db.Rule, req ruleReq) error {
 	if req.Enabled != nil {
 		rule.Enabled = *req.Enabled
 	}
-	if !supportedRuleType(rule.Type) {
-		return fmt.Errorf("不支持的路由规则类型: %s", rule.Type)
+	switch rule.MatchType {
+	case db.RuleMatchDomain:
+		if !contains([]string{db.RuleMethodExact, db.RuleMethodSuffix, db.RuleMethodKeyword, db.RuleMethodRegex}, rule.MatchMethod) {
+			return fmt.Errorf("域名规则的匹配方式需为 exact/suffix/keyword/regex，当前为: %s", rule.MatchMethod)
+		}
+		rule.RuleSetID = 0
+	case db.RuleMatchIP:
+		if rule.MatchMethod != db.RuleMethodCIDR {
+			return fmt.Errorf("IP 规则只支持网段匹配（cidr），当前为: %s", rule.MatchMethod)
+		}
+		rule.RuleSetID = 0
+	case db.RuleMatchRuleSet:
+		if rule.RuleSetID == 0 {
+			return fmt.Errorf("请选择规则集")
+		}
+		var count int64
+		a.db.Model(&db.RuleSet{}).Where("id = ?", rule.RuleSetID).Count(&count)
+		if count == 0 {
+			return fmt.Errorf("引用的规则集不存在: %d", rule.RuleSetID)
+		}
+		rule.MatchMethod = ""
+		rule.Value = ""
+	default:
+		return fmt.Errorf("不支持的匹配对象: %s（可选 domain/ip/rule_set）", rule.MatchType)
 	}
-	if strings.TrimSpace(rule.Value) == "" {
+	if rule.MatchType != db.RuleMatchRuleSet && strings.TrimSpace(rule.Value) == "" {
 		return fmt.Errorf("匹配值不能为空")
 	}
 	if rule.Outbound == "" {
@@ -202,14 +248,13 @@ func applyRuleReq(rule *db.Rule, req ruleReq) error {
 	return nil
 }
 
-// supportedRuleType 判断是否为面板支持的规则类型。
-func supportedRuleType(t string) bool {
-	for _, v := range singbox.SupportedRuleTypes {
-		if v == t {
-			return true
-		}
+// ruleToView 规则记录转视图（补规则集名称）。
+func ruleToView(r db.Rule, names map[uint]string) ruleView {
+	return ruleView{
+		ID: r.ID, MatchType: r.MatchType, MatchMethod: r.MatchMethod, Value: r.Value,
+		RuleSetID: r.RuleSetID, RuleSetName: names[r.RuleSetID], Outbound: r.Outbound,
+		Order: r.Order, Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 	}
-	return false
 }
 
 // ---------- 策略组 ----------
@@ -356,7 +401,7 @@ func (a *API) applyGroupReq(group *db.PolicyGroup, req groupReq, id uint) error 
 	if group.Name == "" {
 		return fmt.Errorf("名称不能为空")
 	}
-	if !supportedGroupMode(group.Mode) {
+	if !contains(singbox.SupportedGroupModes, group.Mode) {
 		return fmt.Errorf("不支持的模式: %s（可选 failover/fixed/auto）", group.Mode)
 	}
 	if group.Members == "" {
@@ -379,7 +424,7 @@ func (a *API) applyGroupReq(group *db.PolicyGroup, req groupReq, id uint) error 
 func groupToView(g db.PolicyGroup) groupView {
 	members := []string{}
 	if g.Members != "" {
-		_ = json.Unmarshal([]byte(g.Members), &members)
+		_ = jsonUnmarshalStrings(g.Members, &members)
 	}
 	return groupView{
 		ID: g.ID, Name: g.Name, Mode: g.Mode, Members: members,
@@ -387,164 +432,11 @@ func groupToView(g db.PolicyGroup) groupView {
 	}
 }
 
-// marshalMembers 序列化成员列表；nil 视为未提供由调用方处理。
-func marshalMembers(members []string) string {
-	if members == nil {
-		members = []string{}
-	}
-	raw, _ := json.Marshal(members)
-	return string(raw)
-}
-
-// supportedGroupMode 判断是否为面板支持的策略组模式。
-func supportedGroupMode(mode string) bool {
-	for _, m := range singbox.SupportedGroupModes {
-		if m == mode {
-			return true
-		}
-	}
-	return false
-}
-
-// ---------- 预设模板 ----------
-
-// ruleTemplate 预设规则模板定义。
-type ruleTemplate struct {
-	ID          string `json:"id"`          // 模板 ID
-	Name        string `json:"name"`        // 名称
-	Description string `json:"description"` // 说明
-}
-
-// ruleTemplates 预设模板列表；proxy 组成员取全部启用自定义出站（无则兜底 direct）。
-var ruleTemplates = []ruleTemplate{
-	{ID: "cn-direct-adblock", Name: "国内直连 + 海外代理 + 广告拦截",
-		Description: "国内域名与 IP 直连，anti-AD 拦截广告，其余流量走「proxy」策略组（自动选择）"},
-	{ID: "global-proxy-adblock", Name: "全局代理 + 广告拦截",
-		Description: "anti-AD 拦截广告，其余全部流量走「proxy」策略组（自动选择）"},
-	{ID: "direct-adblock", Name: "全局直连 + 广告拦截",
-		Description: "anti-AD 拦截广告，其余全部流量直连"},
-}
-
-// HandleRuleTemplates GET /api/rule-templates 预设模板列表。
-func (a *API) HandleRuleTemplates(c *gin.Context) {
-	OK(c, ruleTemplates)
-}
-
-// HandleRuleTemplateApply POST /api/rule-templates/:id/apply 一键应用模板：
-// 覆盖现有全部规则与策略组并设置兜底出站（前端应用前确认）。
-func (a *API) HandleRuleTemplateApply(c *gin.Context) {
-	id := c.Param("id")
-	var tpl *ruleTemplate
-	for i := range ruleTemplates {
-		if ruleTemplates[i].ID == id {
-			tpl = &ruleTemplates[i]
-			break
-		}
-	}
-	if tpl == nil {
-		Fail(c, http.StatusNotFound, "模板不存在")
-		return
-	}
-	members := a.proxyMembers()
-	var rules []db.Rule
-	var groups []db.PolicyGroup
-	switch tpl.ID {
-	case "cn-direct-adblock", "global-proxy-adblock":
-		groups = append(groups, db.PolicyGroup{
-			Name: "proxy", Mode: singbox.GroupModeAuto, Members: marshalMembers(members), Enabled: true,
-		})
-		rules = append(rules, db.Rule{Type: singbox.RuleTypeRuleSet, Value: singbox.AntiADTag,
-			Outbound: singbox.OutboundBlock, Enabled: true})
-		if tpl.ID == "cn-direct-adblock" {
-			rules = append(rules,
-				db.Rule{Type: singbox.RuleTypeGeosite, Value: "cn", Outbound: "direct", Enabled: true},
-				db.Rule{Type: singbox.RuleTypeGeoIP, Value: "cn", Outbound: "direct", Enabled: true},
-			)
-		}
-	case "direct-adblock":
-		rules = append(rules, db.Rule{Type: singbox.RuleTypeRuleSet, Value: singbox.AntiADTag,
-			Outbound: singbox.OutboundBlock, Enabled: true})
-	}
-	final := "direct"
-	if len(groups) > 0 {
-		final = groups[0].Name
-	}
-
-	err := a.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("1 = 1").Delete(&db.Rule{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("1 = 1").Delete(&db.PolicyGroup{}).Error; err != nil {
-			return err
-		}
-		for i := range rules {
-			rules[i].Order = i + 1
-			if err := tx.Create(&rules[i]).Error; err != nil {
-				return err
-			}
-		}
-		for i := range groups {
-			if err := tx.Create(&groups[i]).Error; err != nil {
-				return err
-			}
-		}
-		return tx.Save(&db.Setting{Key: settingRouteFinal, Value: final}).Error
-	})
-	if err != nil {
-		Fail(c, http.StatusInternalServerError, "应用模板失败: "+err.Error())
-		return
-	}
-	OK(c, gin.H{"template": tpl.ID, "rules": len(rules), "groups": len(groups), "final": final})
-}
-
-// proxyMembers 收集启用中的自定义出站 tag 作为策略组成员；无自定义出站时兜底 direct。
-func (a *API) proxyMembers() []string {
-	var outbounds []db.Outbound
-	a.db.Where("enabled = ? AND type <> ?", true, db.OutboundTypeDirect).Order("id").Find(&outbounds)
-	members := make([]string, 0, len(outbounds))
-	for _, ob := range outbounds {
-		members = append(members, ob.Name)
-	}
-	if len(members) == 0 {
-		members = []string{"direct"}
-	}
-	return members
-}
-
-// ---------- anti-AD 规则源与兜底出站 ----------
-
-// HandleAntiADGet GET /api/anti-ad anti-AD 规则源地址（未设置返回官方默认源）。
-func (a *API) HandleAntiADGet(c *gin.Context) {
-	OK(c, gin.H{"url": a.getSetting(settingAntiAD), "default": singbox.DefaultAntiADURL})
-}
-
-// antiADReq anti-AD 规则源设置请求；url 空表示恢复官方默认源。
-type antiADReq struct {
-	URL string `json:"url"` // 规则源地址
-}
-
-// HandleAntiADSet PUT /api/anti-ad 保存 anti-AD 规则源地址。
-func (a *API) HandleAntiADSet(c *gin.Context) {
-	var req antiADReq
-	if err := c.ShouldBindJSON(&req); err != nil {
-		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
-		return
-	}
-	url := strings.TrimSpace(req.URL)
-	if url != "" && !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
-		Fail(c, http.StatusBadRequest, "规则源地址须以 http:// 或 https:// 开头")
-		return
-	}
-	if err := a.setSetting(settingAntiAD, url); err != nil {
-		Fail(c, http.StatusInternalServerError, "保存规则源失败: "+err.Error())
-		return
-	}
-	OK(c, gin.H{"url": url, "default": singbox.DefaultAntiADURL})
-}
+// ---------- 兜底出站 ----------
 
 // HandleRouteFinalGet GET /api/rules/final 兜底出站设置。
 func (a *API) HandleRouteFinalGet(c *gin.Context) {
-	OK(c, gin.H{"final": a.getSetting(settingRouteFinal)})
+	OK(c, gin.H{"final": a.getSetting(db.SettingRouteFinal)})
 }
 
 // finalReq 兜底出站设置请求；final 空表示内核默认（首个出站）。
@@ -559,7 +451,7 @@ func (a *API) HandleRouteFinalSet(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
 		return
 	}
-	if err := a.setSetting(settingRouteFinal, strings.TrimSpace(req.Final)); err != nil {
+	if err := a.setSetting(db.SettingRouteFinal, strings.TrimSpace(req.Final)); err != nil {
 		Fail(c, http.StatusInternalServerError, "保存兜底出站失败: "+err.Error())
 		return
 	}

@@ -1,11 +1,20 @@
-// 全局规则接口：预设模板、路由规则、策略组、anti-AD 规则源与兜底出站。
+// 全局规则接口：预设模板、路由规则、规则集、策略组与兜底出站。
 import { request } from './http'
+
+/** 规则匹配对象 */
+export type RuleMatchType = 'domain' | 'ip' | 'rule_set'
+
+/** 规则匹配方式 */
+export type RuleMatchMethod = 'exact' | 'suffix' | 'keyword' | 'regex' | 'cidr'
 
 /** 路由规则记录 */
 export interface RuleRecord {
   id: number
-  type: string
+  matchType: RuleMatchType
+  matchMethod: RuleMatchMethod | ''
   value: string
+  ruleSetId: number
+  ruleSetName: string
   outbound: string
   order: number
   enabled: boolean
@@ -15,9 +24,52 @@ export interface RuleRecord {
 
 /** 创建/更新规则请求 */
 export interface RulePayload {
-  type: string
-  value: string
+  matchType: RuleMatchType
+  matchMethod?: RuleMatchMethod | ''
+  value?: string
+  ruleSetId?: number
   outbound: string
+}
+
+/** 规则集内容项：一条内容 = 备注 + 各内核的规则源地址 */
+export interface RuleSetItem {
+  id: number
+  remark: string
+  /** sing-box 规则源（.srs） */
+  singBoxUrl: string
+  /** mihomo 规则源（.mrs / .yaml） */
+  mihomoUrl: string
+  /** mihomo 行为：domain / ipcidr / classical */
+  mihomoBehavior: 'domain' | 'ipcidr' | 'classical'
+  enabled: boolean
+}
+
+/** 规则集 */
+export interface RuleSet {
+  id: number
+  name: string
+  description: string
+  /** 内置规则集不可删除，可切换来源 */
+  builtin: boolean
+  usedByRules: number
+  items: RuleSetItem[]
+  createdAt: string
+  updatedAt: string
+}
+
+/** 创建/更新规则集请求 */
+export interface RuleSetPayload {
+  name: string
+  description: string
+}
+
+/** 创建/更新规则集内容项请求 */
+export interface RuleSetItemPayload {
+  remark: string
+  singBoxUrl: string
+  mihomoUrl: string
+  mihomoBehavior: 'domain' | 'ipcidr' | 'classical'
+  enabled: boolean
 }
 
 /** 策略组记录 */
@@ -43,12 +95,6 @@ export interface RuleTemplate {
   id: string
   name: string
   description: string
-}
-
-/** anti-AD 规则源设置 */
-export interface AntiADSetting {
-  url: string
-  default: string
 }
 
 /** 查询规则列表 */
@@ -79,6 +125,41 @@ export function setRuleEnabled(id: number, enabled: boolean): Promise<RuleRecord
 /** 删除规则 */
 export function deleteRule(id: number): Promise<void> {
   return request<void>(`/api/rules/${id}`, { method: 'DELETE' })
+}
+
+/** 查询规则集列表（含内容项） */
+export function listRuleSets(): Promise<RuleSet[]> {
+  return request<RuleSet[]>('/api/rule-sets')
+}
+
+/** 新建规则集 */
+export function createRuleSet(payload: RuleSetPayload): Promise<RuleSet> {
+  return request<RuleSet>('/api/rule-sets', { method: 'POST', body: payload })
+}
+
+/** 更新规则集名称/说明 */
+export function updateRuleSet(id: number, payload: RuleSetPayload): Promise<void> {
+  return request<void>(`/api/rule-sets/${id}`, { method: 'PUT', body: payload })
+}
+
+/** 删除规则集（内置或有规则引用时后端拒绝） */
+export function deleteRuleSet(id: number): Promise<void> {
+  return request<void>(`/api/rule-sets/${id}`, { method: 'DELETE' })
+}
+
+/** 新增规则集内容项；enabled 为 true 时自动停用该规则集其它内容项 */
+export function createRuleSetItem(ruleSetId: number, payload: RuleSetItemPayload): Promise<RuleSetItem> {
+  return request<RuleSetItem>(`/api/rule-sets/${ruleSetId}/items`, { method: 'POST', body: payload })
+}
+
+/** 更新规则集内容项（含切换启用） */
+export function updateRuleSetItem(itemId: number, payload: RuleSetItemPayload): Promise<RuleSetItem> {
+  return request<RuleSetItem>(`/api/rule-sets/items/${itemId}`, { method: 'PUT', body: payload })
+}
+
+/** 删除规则集内容项（每个规则集至少保留一条） */
+export function deleteRuleSetItem(itemId: number): Promise<void> {
+  return request<void>(`/api/rule-sets/items/${itemId}`, { method: 'DELETE' })
 }
 
 /** 查询预设模板列表 */
@@ -114,16 +195,6 @@ export function setPolicyGroupEnabled(id: number, enabled: boolean): Promise<Pol
 /** 删除策略组 */
 export function deletePolicyGroup(id: number): Promise<void> {
   return request<void>(`/api/policy-groups/${id}`, { method: 'DELETE' })
-}
-
-/** 查询 anti-AD 规则源设置 */
-export function getAntiAD(): Promise<AntiADSetting> {
-  return request<AntiADSetting>('/api/anti-ad')
-}
-
-/** 保存 anti-AD 规则源地址；空串恢复官方默认源 */
-export function setAntiAD(url: string): Promise<AntiADSetting> {
-  return request<AntiADSetting>('/api/anti-ad', { method: 'PUT', body: { url } })
 }
 
 /** 查询兜底出站设置 */

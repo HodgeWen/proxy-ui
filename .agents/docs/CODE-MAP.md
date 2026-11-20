@@ -1,64 +1,62 @@
 # 代码地图
 
-> `main.go`/`embed.go`/`internal/server`/`internal/api`/`internal/db`/`internal/singbox`/`internal/subscription`/`internal/update`/`internal/ai`/`web`/`scripts/` 均已落码。
+> 内核以库形式内嵌（`github.com/sagernet/sing-box v1.14.4`），构建需带 `with_v2ray_api` 等标签，详见 `.agents/docs/SPEC-core-embedded.md`。
 
 ## 树
 
 ```text
 proxy-ui/
-├── main.go               # 入口：解析启动参数（addr/data/db）、初始化数据库并启动 HTTP 服务；Version 构建时经 ldflags 注入
+├── main.go               # 入口：解析启动参数（addr/data/db）、初始化数据库并启动 HTTP 服务；Version 经 ldflags 注入
 ├── embed.go              # //go:embed all:web/dist 嵌入前端构建产物
 ├── internal/
-│   ├── server/           # Gin 路由装配、会话中间件与统一守卫、SPA 静态资源回退；构造 singbox 内核/统计采集与 update 管理器（内核 + 面板自更新）注入 api，注册匿名订阅端点 /sub/:token
-│   ├── api/              # REST handlers，按资源分文件；已落：首次设置/登录/登出/me/改密、内核状态/启停/日志/版本/安装/应用配置、面板版本查询与一键更新（替换二进制后自动重启）、统计（实时速率内存/连接列表/按入站累计）、入站/出站/证书 CRUD、规则模板一键应用/规则/策略组/anti-AD 源与兜底出站、订阅用户新建/停用/重置/删除、AI 配置读写/流式对话代理（SSE）/面板工具注册与执行
-│   ├── db/               # SQLite（glebarez+GORM）连接、全量模型（含证书）、启动自动迁移
-│   ├── singbox/          # sing-box 内核：八协议入站/出站字段模型与配置映射、路由规则/规则集（anti-AD 等）/策略组（selector/urltest）映射、聚合生成（BuildConfig）、check 校验、子进程启停/重启、状态与 stdout/stderr 日志采集、Clash API 客户端与统计采集（实时速率/连接快照/按入站差分累计落库）
-│   ├── subscription/     # 订阅导出：数据组装（启用入站→节点、策略组/规则映射到客户端 tag）、sing-box 与 clash(mihomo) 双格式渲染、UA/参数格式选择、匿名 token 端点
-│   ├── update/           # GitHub Releases 更新：共享访问底座（sha256 校验下载）；sing-box 内核版本查询（各大版本线最新稳定版降序 + 尝鲜预发布策展）与解压安装 + 面板自身版本查询、二进制替换与同 PID 重启（syscall.Exec）
-│   └── ai/               # AI 供应商配置存取（key 不回显）、OpenAI 兼容 SSE 流式对话代理、面板工具注册表（工具由 api 注册回落业务模块）
-├── README.md             # 运行说明：下载、systemd 安装、反代 TLS、首次向导、客户端订阅、在线更新
-├── Makefile              # 开发/构建快捷命令：dev（前后端同起，.devdata 独立数据）、run（交付形态运行）、build（发布构建）
+│   ├── server/           # Gin 路由装配、会话中间件与统一守卫、SPA 静态资源回退；构造内置内核管理器与统计采集注入 api，注册匿名订阅端点 /sub/:token
+│   ├── api/              # REST handlers：鉴权/首次设置；内核状态/启停/日志/应用配置（内置内核）；面板自更新；实时速率与按用户累计流量；入站 CRUD（随机端口分配）与入站用户 CRUD；订阅用户（配额/到期/勾选入站/重置链接/清零流量）；出站/证书；规则集与规则（两层模型）/策略组/兜底出站/预设模板；DNS；系统优化（BBR）；AI
+│   ├── db/               # SQLite（glebarez+GORM）连接、全量模型、启动自动迁移
+│   ├── singbox/          # 内置内核：连接层配置模型与协议映射、多用户凭据生成与 users 渲染、路由规则与规则集、DNS 模型与预设、配置聚合（BuildConfig）、进程内实例生命周期（manager.go）、v2ray 统计采集与差分落库（stats.go / statsclient.go）
+│   ├── subscription/     # 订阅导出：按 token 取用户在各入站的身份→客户端节点、策略组/规则映射、sing-box 与 mihomo 双格式渲染（含 DNS 段与 rule-providers）、配额/到期拒绝、匿名端点
+│   ├── update/           # 面板自身更新：GitHub Releases 版本查询、下载校验、二进制替换与同 PID 重启（内核不再走此模块）
+│   └── ai/               # AI 供应商配置存取、OpenAI 兼容 SSE 对话代理、面板工具注册表
+├── README.md             # 运行说明：下载、systemd、反代 TLS、首次向导、订阅模型、DNS、BBR、内核说明、面板更新
+├── Makefile              # dev/dev-api/dev-web/run/build/test/clean（已内置内核构建标签）
 ├── scripts/
-│   ├── build.sh          # 一键构建：前端（web 包存在时）+ linux/amd64、darwin/arm64 交叉编译（禁 CGO，git describe 注入版本号）
-│   └── install.sh        # linux systemd 安装脚本：install（安装/升级+启动+开机自启）/ status / uninstall
+│   ├── build.sh          # 一键构建：前端 + linux/amd64、darwin/arm64 交叉编译（禁 CGO，含内置内核标签）
+│   └── install.sh        # linux systemd 安装脚本
 └── web/                  # Vue3 SPA（独立 npm 包，bun + Vite）
-    ├── dist/             # 前端构建产物（bun run build 生成），go:embed 嵌入；.gitkeep 占位保底
-    ├── src/
-    │   ├── api/          # 请求封装（envelope 解包、401 跳登录、错误提示）与鉴权、内核管理、面板版本/一键更新、统计（实时/连接/按入站累计）、入站/出站/证书、规则模板/规则/策略组/anti-AD、订阅用户、应用配置、AI（供应商配置/工具描述与执行）接口
-    │   ├── stores/       # Pinia：auth 鉴权状态（初始化/会话/登录/登出/改密）
-    │   ├── views/        # 页面：向导/登录/仪表盘（内核状态与启停、实时速率/内存、按入站累计、连接列表、快捷操作）/入站（协议分组新建与列表）/出站（direct 与自定义）/规则（模板/规则/策略组/anti-AD 源）/订阅（订阅用户管理与链接二维码）/AI 助手（@veltra/ai 流式对话、面板工具调用）/设置（主题三态与 12 预设及 UTheme 编辑器/账号/内核/面板与内核在线更新/AI 供应商）
-    │   ├── components/   # 通用组件：AppLayout 应用壳（nav 令牌侧栏、渐变品牌区、顶栏标题+副标题+内核状态胶囊+主题单按钮循环切换）、EmptyState 全站空状态（图标/说明/CTA）、FormGroupCard 表单分组卡片（标题栏折叠 + 内置断点栅格，弹框与设置页主题卡复用）、InboundForm 声明式入站表单引擎、CertManager 证书管理、RuleListCard 规则列表（含字段说明）、PolicyGroupCard 策略组列表（含模式说明）
-    │   ├── inbound-schema.ts # 八协议入站字段 schema、默认值生成（含纯 JS X25519 密钥对）与弱配置警示
-    │   └── router/       # 路由与守卫（未登录重定向、已初始化后向导不可达）
-    └── package.json      # bun + Vite + TS + Vue3 + @veltra/desktop + etiket（订阅二维码）+ Pinia + Vue Router
+    ├── dist/             # 前端构建产物（go:embed 嵌入）
+    └── src/
+        ├── api/          # 请求封装与各资源接口（入站+用户/出站/证书/规则+规则集/策略组/订阅用户/统计/内核/DNS/系统/AI/面板更新）
+        ├── stores/       # Pinia：auth
+        ├── views/        # 向导/登录/仪表盘（内核状态与启停、实时速率、按用户累计流量）/入站（列表+用户管理）/出站/规则（模板/规则/规则集/策略组/兜底出站）/订阅（配额用量、链接二维码弹框）/AI 助手/设置（主题、账号、内核、面板更新、AI 供应商、DNS、系统优化）
+        ├── components/   # AppLayout、EmptyState、FormGroupCard、InboundForm、InboundUsersDialog、CertManager、RuleListCard、RuleSetCard、RuleSetDialog、PolicyGroupCard、SubscriptionLinksDialog
+        ├── inbound-schema.ts # 七协议字段 schema、连接层默认值（含纯 JS X25519）与弱配置警示
+        └── router/       # 路由与守卫
 ```
 
 ## 模块
 
 | 模块 | 路径 | 职责 | 主要入口 |
 | --- | --- | --- | --- |
-| server | `internal/server/` | 路由装配、会话守卫、SPA 静态资源、匿名订阅端点注册 | `New(Options)` |
-| api | `internal/api/` | REST handlers，按资源分文件；已落鉴权、首次设置、内核管理、面板版本查询与一键更新（替换二进制后自动重启）、统计（实时速率内存、连接列表、按入站累计）、入站/出站/证书管理、全局规则（模板一键应用、规则、策略组、anti-AD 源）、订阅用户管理（新建/停用/重置/删除）、应用配置、AI（配置读写、SSE 对话代理端点、面板工具注册与执行） | `New(db, sessions, core, updates, selfUpdates, stats, dataDir)` |
-| db | `internal/db/` | SQLite 连接、全量模型、自动迁移 | `Open(path)` |
-| singbox | `internal/singbox/` | 八协议入站/出站/路由（规则、规则集、策略组）配置映射与聚合生成、内核子进程生命周期、状态与日志采集、Clash API 客户端与统计采集（实时速率、连接快照、按入站差分累计落库） | `New(dir)` / `NewStatsMonitor(mgr, db)` |
-| subscription | `internal/subscription/` | 订阅数据组装（启用入站→节点、策略组/规则映射到客户端 tag）、sing-box 与 clash(mihomo) 双格式渲染、UA/参数格式选择、匿名 token 订阅端点 | `New(db)` |
-| update | `internal/update/` | GitHub Releases 共享访问底座（sha256 校验下载）；sing-box 内核版本查询（各大版本线最新稳定版降序 + 尝鲜预发布策展）与安装、面板自身二进制替换与同 PID 重启 | `New(db, dir)` / `NewSelfUpdate(version)` |
-| ai | `internal/ai/` | AI 供应商配置存取（key 不回显）、OpenAI 兼容 SSE 流式对话代理（补齐缺省模型/推理强度）、面板工具注册表；面板工具由 api 注册，执行回落业务模块 | `New(db)` |
-| web | `web/` | Vue3 SPA：底座、布局导航、登录/向导、仪表盘（内核状态与启停、流量概览、按入站累计、连接列表、快捷操作）、设置页（主题三态与 12 预设及 UTheme 编辑器、账号/内核管理/面板与内核在线更新/AI 供应商）、入站/出站管理页（声明式协议表单、弱配置警示与 TLS 跳转、证书管理、应用配置）、规则页（模板一键应用、规则与策略组编辑、anti-AD 源与兜底出站配置）、订阅页（订阅用户管理、订阅链接与 etiket 二维码）、AI 助手页（@veltra/ai 流式对话、面板工具调用过程可见） | `src/main.ts` |
+| server | `internal/server/` | 路由装配、会话守卫、SPA 静态资源、匿名订阅端点 | `New(Options)` |
+| api | `internal/api/` | REST handlers（见上）；`ReconcileQuota` 统一刷新配额暂停状态 | `New(db, sessions, core, selfUpdates, stats, dataDir)` |
+| db | `internal/db/` | SQLite 连接、模型、自动迁移 | `Open(path)` |
+| singbox | `internal/singbox/` | 配置模型与映射、多用户渲染、路由与规则集、DNS、进程内内核生命周期、v2ray 统计采集 | `New(dir)` / `NewStatsMonitor(mgr, db)` |
+| subscription | `internal/subscription/` | 订阅组装与双格式渲染、配额拒绝、匿名端点 | `New(db)` |
+| update | `internal/update/` | 面板自身版本查询与自更新 | `NewSelfUpdate(version)` |
+| ai | `internal/ai/` | AI 供应商配置、SSE 对话代理、工具注册表 | `New(db)` |
+| web | `web/` | Vue3 SPA | `src/main.ts` |
 
 ## 依赖
 
-已落码部分：`web` → `api`（REST，开发模式经 Vite 代理）、`server` → `api` → `db`、`server` → `subscription` → `db`、`api` → `singbox` → `db`（统计累计落库）、`api` → `update` → `db`、`api` → `ai` → `db`（面板工具由 api 注册进 ai 注册表，对话经 ai 代理上游）。
+`web` → `api`（REST，开发模式经 Vite 代理）、`server` → `api` → `db`、`server` → `subscription` → `db`、`api` → `singbox`（内核实例 + 统计）→ `db`、`api` → `update`（面板自更新）、`api` → `ai` → `db`。
 
 ```mermaid
 graph TD
     web[web Vue3 SPA] --> api[api]
     api --> db[(db)]
-    api --> singbox[singbox]
-    api --> update[update]
+    api --> singbox[singbox 内置内核]
+    api --> update[update 面板自更新]
     api --> ai[ai]
     singbox --> db
-    update --> db
     subscription[subscription] --> db
     ai --> db
     server[server] --> api
@@ -67,8 +65,10 @@ graph TD
 
 ## 关键路径
 
-- **启动**：`main.go` → `db.Open` 初始化/迁移 → `server.New` 装配路由、内核管理器与嵌入资源 → HTTP 服务（sing-box 子进程由设置页手动启动）
-- **订阅拉取**：客户端 GET 订阅链接（匿名 token）→ server 分流 → subscription 按 UA/参数渲染 sing-box / clash(mihomo) 配置返回
-- **在线更新**：内核与面板均在设置页更新：内核从 GitHub Releases 下载校验安装到 `<data>/core`；面板下载替换自身二进制后停内核并 syscall.Exec 同 PID 换入新程序（systemd 服务不中断）
-- **流量统计**：singbox StatsMonitor 每秒经 Clash API（地址/认证取自 config.json）采样速率与连接快照 → 缓存供仪表盘轮询查询，并按连接差分把各入站累计流量落库（面板重启不丢）
-- **AI 工具调用**：前端 `@veltra/ai` 编排工具循环（工具卡片过程可见）→ 工具 execute POST `/api/ai/tools/call` → api 按名回落业务模块执行 → 结果回灌模型继续生成；对话本体经 `/api/ai/chat` 由 ai 模块注入 key 后代理上游 SSE
+- **启动**：`main.go` → `db.Open` 初始化/迁移 → `server.New` 装配路由、内核管理器（进程内）与嵌入资源 → HTTP 服务（内核由页面手动启动）
+- **入站 → 用户**：创建入站（端口留空则分配随机空闲端口）→ 订阅用户勾选该入站 → `api.syncTokenNodes` 在该入站下建 `InboundUser` 并写 `SubscriptionNode` 绑定
+- **订阅拉取**：客户端 GET `/sub/:token` → subscription 校验停用/到期/配额 → 取该 token 在各入站中未暂停的用户 → 渲染 sing-box / mihomo 配置（同一入站的节点共享 `server_port`）
+- **配额执行**：`StatsMonitor` 每秒经 v2ray 统计 gRPC 读 `user>>>` 计数器并差分累加进 `user_traffics` → `api.ReconcileQuota` 按 token 汇总用量，超限/到期/停用则置 `InboundUser.enabled=false` → `buildKernelConfig` 只输出启用用户（无用户的入站跳过），订阅端点返回 403
+- **应用配置**：`api.buildKernelConfig` 聚合入站+用户/出站/规则/策略组/DNS → `core.CheckConfig` 校验 → 内核运行中则 `core.Restart(cfg)` 进程内重建实例
+- **DNS 双端生效**：设置页保存到 `SettingDNS` → `BuildConfig` 写入服务端 `dns` 段与 `route.default_domain_resolver`，并随订阅下发（mihomo 渲染等价 `dns:` 段）
+- **AI 工具调用**：前端 `@veltra/ai` 编排工具循环 → POST `/api/ai/tools/call` → api 按名回落业务模块 → 结果回灌模型；对话本体经 `/api/ai/chat` 代理上游 SSE

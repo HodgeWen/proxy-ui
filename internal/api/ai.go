@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 
 	"proxy-ui/internal/ai"
 	"proxy-ui/internal/db"
@@ -195,26 +194,22 @@ func (a *API) registerAITools() {
 func (a *API) registerAIQueryTools() {
 	a.ai.Register(ai.Tool{
 		Name:        "list_inbounds",
-		Description: "列出面板全部入站（含协议、监听端口、启用状态、完整配置与弱配置警示）",
+		Description: "列出面板全部入站（含协议、监听地址与端口、启用状态、连接层配置、其下用户与弱配置警示）",
 		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
 		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
 			return a.inboundViews()
 		},
 	})
 	a.ai.Register(ai.Tool{
-		Name:        "get_inbound",
-		Description: "按 ID 查询单个入站详情（含完整配置与弱配置警示）",
-		Parameters:  toolParams(map[string]any{"id": toolProp("integer", "入站 ID")}, "id"),
-		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
-			var arg idArg
-			if err := decodeToolArgs(args, &arg); err != nil {
+		Name:        "list_inbound_users",
+		Description: "列出全部入站用户（入站内的认证身份，含所属入站、用户名、启用/暂停状态）",
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
+			var users []db.InboundUser
+			if err := a.db.Order("inbound_id, id").Find(&users).Error; err != nil {
 				return nil, err
 			}
-			var in db.Inbound
-			if err := a.db.First(&in, arg.ID).Error; err != nil {
-				return nil, fmt.Errorf("入站不存在: %d", arg.ID)
-			}
-			return a.inboundToView(in), nil
+			return users, nil
 		},
 	})
 	a.ai.Register(ai.Tool{
@@ -227,10 +222,18 @@ func (a *API) registerAIQueryTools() {
 	})
 	a.ai.Register(ai.Tool{
 		Name:        "list_rules",
-		Description: "列出全部全局路由规则（按生效顺序，含类型、匹配值与出站动作）",
+		Description: "列出全部全局路由规则（按生效顺序，含匹配对象 matchType、匹配方式 matchMethod、匹配值、引用的规则集与出站动作）",
 		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
 		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
 			return a.ruleViews()
+		},
+	})
+	a.ai.Register(ai.Tool{
+		Name:        "list_rule_sets",
+		Description: "列出全部规则集（含 sing-box 与 mihomo 源地址内容项、启用项与是否被规则引用）",
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
+			return a.ruleSetViews()
 		},
 	})
 	a.ai.Register(ai.Tool{
@@ -243,18 +246,10 @@ func (a *API) registerAIQueryTools() {
 	})
 	a.ai.Register(ai.Tool{
 		Name:        "list_subscription_tokens",
-		Description: "列出全部订阅用户（含匿名 token、名称、停用状态与最近使用时间）",
+		Description: "列出全部订阅用户（含匿名 token、名称、配额、已用流量、到期时间、停用状态与各自节点）",
 		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
 		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
-			var records []db.SubscriptionToken
-			if err := a.db.Order("id").Find(&records).Error; err != nil {
-				return nil, err
-			}
-			views := make([]tokenView, len(records))
-			for i := range records {
-				views[i] = tokenView(records[i])
-			}
-			return views, nil
+			return a.tokenViews()
 		},
 	})
 	a.ai.Register(ai.Tool{
@@ -270,7 +265,7 @@ func (a *API) registerAIQueryTools() {
 		Description: "查询内核最近日志",
 		Parameters: toolParams(map[string]any{
 			"limit": map[string]any{"type": "integer", "description": "返回的最近行数，缺省 100"},
-		}, ""),
+		}),
 		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
 			var arg struct {
 				Limit int `json:"limit"`
@@ -290,40 +285,39 @@ func (a *API) registerAIQueryTools() {
 		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
 		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
 			rates, at := a.stats.Rates()
-			snap := a.stats.Snapshot()
-			return gin.H{
-				"up": rates.Up, "down": rates.Down, "memory": snap.Memory,
-				"uploadTotal": snap.UploadTotal, "downloadTotal": snap.DownloadTotal,
-				"activeConnections": len(snap.Connections), "at": at,
-			}, nil
+			return gin.H{"up": rates.Up, "down": rates.Down, "at": at}, nil
 		},
 	})
 	a.ai.Register(ai.Tool{
-		Name:        "get_connections",
-		Description: "查询当前连接列表（含入站/出站 tag、规则、上下行流量与开始时间）",
+		Name:        "get_user_traffic",
+		Description: "查询按用户名/入站持久化累计的上下行流量（面板重启不丢失）",
 		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
 		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
-			return a.stats.Snapshot(), nil
+			return a.trafficByTag()
 		},
 	})
 	a.ai.Register(ai.Tool{
-		Name:        "get_inbound_traffic",
-		Description: "查询按入站持久化累计的上下行流量（面板重启不丢失）",
+		Name:        "get_dns_config",
+		Description: "查询面板 DNS 配置（服务器列表、分流规则、默认域名策略与是否启用）",
 		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
 		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
-			return a.inboundTrafficViews()
+			return a.buildDNS()
+		},
+	})
+	a.ai.Register(ai.Tool{
+		Name:        "get_system_status",
+		Description: "查询系统优化状态：当前 TCP 拥塞控制算法、是否启用 BBR 与可用的拥塞算法列表",
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
+			return readSystemStatus(), nil
 		},
 	})
 	a.ai.Register(ai.Tool{
 		Name:        "get_settings",
-		Description: "查询面板全局设置：anti-AD 规则源与未命中规则兜底出站",
+		Description: "查询面板全局设置：未命中规则的兜底出站",
 		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
 		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
-			return gin.H{
-				"antiAdSource":        a.getSetting(settingAntiAD),
-				"antiAdSourceDefault": singbox.DefaultAntiADURL,
-				"routeFinal":          a.getSetting(settingRouteFinal),
-			}, nil
+			return gin.H{"routeFinal": a.getSetting(db.SettingRouteFinal)}, nil
 		},
 	})
 }
@@ -331,15 +325,15 @@ func (a *API) registerAIQueryTools() {
 func (a *API) registerAIModifyTools() {
 	a.ai.Register(ai.Tool{
 		Name: "create_inbound",
-		Description: "创建入站。protocol 为面板支持协议；config 缺省时按协议填充默认配置" +
-			"（自动生成随机密码/UUID/Reality 密钥，TLS 类协议默认启用并待选择证书）；创建后配置未生效，需调用 apply_config 应用",
+		Description: "创建入站（真实监听）。入站只配连接层参数（TLS/证书/Reality/混淆/带宽/拥塞算法），" +
+			"用户凭据在入站内单独创建；listenPort 省略时自动分配随机空闲端口；创建后需调用 apply_config 生效",
 		Parameters: toolParams(map[string]any{
-			"protocol":   toolProp("string", "入站协议", singbox.SupportedProtocols...),
-			"listenPort": toolProp("integer", "监听端口（1-65535）"),
-			"name":       toolProp("string", "名称（入站 tag），缺省按 协议-端口 生成"),
-			"config":     map[string]any{"type": "object", "description": "协议特定配置对象，缺省按协议填默认值"},
-			"enabled":    toolProp("boolean", "是否启用，缺省 true"),
-		}, "protocol", "listenPort"),
+			"protocol": toolProp("string", "入站协议", singbox.SupportedProtocols...),
+			"name":     toolProp("string", "入站名称，缺省按 协议-序号 生成"),
+			"listen":   toolProp("string", "监听地址：:: 双栈 / 0.0.0.0 仅 IPv4 / 127.0.0.1 走反代，缺省 ::"),
+			"config":   map[string]any{"type": "object", "description": "协议连接层配置对象，缺省按协议填默认值"},
+			"enabled":  toolProp("boolean", "是否启用，缺省 true"),
+		}, "protocol"),
 		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
 			var req inboundReq
 			if err := decodeToolArgs(args, &req); err != nil {
@@ -353,11 +347,11 @@ func (a *API) registerAIModifyTools() {
 		Name:        "update_inbound",
 		Description: "按 ID 更新入站；仅更新给出的字段，config 为完整协议配置对象（变更协议时必须提供）",
 		Parameters: toolParams(map[string]any{
-			"id":         toolProp("integer", "入站 ID"),
-			"name":       toolProp("string", "名称"),
-			"listenPort": toolProp("integer", "监听端口"),
-			"config":     map[string]any{"type": "object", "description": "完整协议配置对象"},
-			"enabled":    toolProp("boolean", "是否启用"),
+			"id":      toolProp("integer", "入站 ID"),
+			"name":    toolProp("string", "名称"),
+			"listen":  toolProp("string", "监听地址"),
+			"config":  map[string]any{"type": "object", "description": "完整协议配置对象"},
+			"enabled": toolProp("boolean", "是否启用"),
 		}, "id"),
 		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
 			var req inboundReq
@@ -374,7 +368,7 @@ func (a *API) registerAIModifyTools() {
 	})
 	a.ai.Register(ai.Tool{
 		Name:         "delete_inbound",
-		Description:  "按 ID 删除入站（连同其累计流量记录）",
+		Description:  "按 ID 删除入站（连同其下全部用户与累计流量）",
 		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "入站 ID")}, "id"),
 		NeedsConfirm: true,
 		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
@@ -382,7 +376,10 @@ func (a *API) registerAIModifyTools() {
 			if err := decodeToolArgs(args, &arg); err != nil {
 				return nil, err
 			}
-			return a.deleteInbound(arg.ID)
+			if err := a.deleteInbound(arg.ID); err != nil {
+				return nil, err
+			}
+			return gin.H{"deleted": arg.ID}, nil
 		},
 	})
 	a.ai.Register(ai.Tool{
@@ -460,20 +457,23 @@ func (a *API) registerAIModifyTools() {
 		},
 	})
 	a.ai.Register(ai.Tool{
-		Name:        "create_rule",
-		Description: "创建全局路由规则（追加到规则末尾）；outbound 为动作 tag：direct、block、策略组或自定义出站",
+		Name: "create_rule",
+		Description: "创建全局路由规则（追加到规则末尾）。matchType 为匹配对象：domain 域名 / ip IP / rule_set 规则集；" +
+			"域名需给出 matchMethod（exact/suffix/keyword/regex）与 value；IP 固定 cidr + value；规则集只给 ruleSetId",
 		Parameters: toolParams(map[string]any{
-			"type":     toolProp("string", "规则类型", singbox.SupportedRuleTypes...),
-			"value":    toolProp("string", "匹配值（多值逗号分隔；geosite/geoip 填类别名，rule_set 填规则集 tag 如 anti-ad）"),
-			"outbound": toolProp("string", "动作出站 tag"),
-		}, "type", "value", "outbound"),
+			"matchType":   toolProp("string", "匹配对象", db.RuleMatchDomain, db.RuleMatchIP, db.RuleMatchRuleSet),
+			"matchMethod": toolProp("string", "匹配方式（域名规则必填，IP 固定 cidr）", db.RuleMethodExact, db.RuleMethodSuffix, db.RuleMethodKeyword, db.RuleMethodRegex, db.RuleMethodCIDR),
+			"value":       toolProp("string", "匹配值（多值逗号分隔；规则集留空）"),
+			"ruleSetId":   toolProp("integer", "规则集 ID（matchType=rule_set 时必填，可先用 list_rule_sets 查询）"),
+			"outbound":    toolProp("string", "动作出站 tag：direct、block、策略组或自定义出站"),
+		}, "matchType", "outbound"),
 		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
 			var req ruleReq
 			if err := decodeToolArgs(args, &req); err != nil {
 				return nil, err
 			}
 			rule := db.Rule{Enabled: true}
-			if err := applyRuleReq(&rule, req); err != nil {
+			if err := a.applyRuleReq(&rule, req); err != nil {
 				return nil, err
 			}
 			var maxOrder int
@@ -482,18 +482,21 @@ func (a *API) registerAIModifyTools() {
 			if err := a.db.Create(&rule).Error; err != nil {
 				return nil, fmt.Errorf("创建规则失败: %w", err)
 			}
-			return ruleView(rule), nil
+			names, _ := a.ruleSetNames()
+			return ruleToView(rule, names), nil
 		},
 	})
 	a.ai.Register(ai.Tool{
 		Name:        "update_rule",
 		Description: "按 ID 更新规则；仅更新给出的字段",
 		Parameters: toolParams(map[string]any{
-			"id":       toolProp("integer", "规则 ID"),
-			"type":     toolProp("string", "规则类型", singbox.SupportedRuleTypes...),
-			"value":    toolProp("string", "匹配值"),
-			"outbound": toolProp("string", "动作出站 tag"),
-			"enabled":  toolProp("boolean", "是否启用"),
+			"id":          toolProp("integer", "规则 ID"),
+			"matchType":   toolProp("string", "匹配对象", db.RuleMatchDomain, db.RuleMatchIP, db.RuleMatchRuleSet),
+			"matchMethod": toolProp("string", "匹配方式", db.RuleMethodExact, db.RuleMethodSuffix, db.RuleMethodKeyword, db.RuleMethodRegex, db.RuleMethodCIDR),
+			"value":       toolProp("string", "匹配值"),
+			"ruleSetId":   toolProp("integer", "规则集 ID"),
+			"outbound":    toolProp("string", "动作出站 tag"),
+			"enabled":     toolProp("boolean", "是否启用"),
 		}, "id"),
 		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
 			var req ruleReq
@@ -508,13 +511,14 @@ func (a *API) registerAIModifyTools() {
 			if err := a.db.First(&rule, arg.ID).Error; err != nil {
 				return nil, fmt.Errorf("规则不存在: %d", arg.ID)
 			}
-			if err := applyRuleReq(&rule, req); err != nil {
+			if err := a.applyRuleReq(&rule, req); err != nil {
 				return nil, err
 			}
 			if err := a.db.Save(&rule).Error; err != nil {
 				return nil, fmt.Errorf("保存规则失败: %w", err)
 			}
-			return ruleView(rule), nil
+			names, _ := a.ruleSetNames()
+			return ruleToView(rule, names), nil
 		},
 	})
 	a.ai.Register(ai.Tool{
@@ -605,29 +609,120 @@ func (a *API) registerAIModifyTools() {
 		},
 	})
 	a.ai.Register(ai.Tool{
-		Name:        "create_subscription_token",
-		Description: "生成订阅匿名令牌（客户端免登录拉取订阅链接使用）",
+		Name: "create_subscription_token",
+		Description: "创建订阅用户（客户端免登录拉取订阅链接）。nodeInbounds 给出要勾选的入站 ID，" +
+			"每个入站内会为该用户创建一个独立凭据的用户身份（共享入站端口），即该用户的一个节点",
 		Parameters: toolParams(map[string]any{
-			"name": toolProp("string", "备注名"),
+			"name":              toolProp("string", "备注名"),
+			"trafficLimitBytes": toolProp("integer", "流量配额字节（上+下行），0 或不填为不限"),
+			"expiresAt":         toolProp("string", "到期时间（RFC3339），不填为永久"),
+			"nodeInbounds":      map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "要勾选的入站 ID 列表"},
 		}),
 		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
-			var arg struct {
-				Name string `json:"name"`
+			var req tokenReq
+			if err := decodeToolArgs(args, &req); err != nil {
+				return nil, err
+			}
+			record := db.SubscriptionToken{Token: randToken()}
+			if req.Name != nil {
+				record.Name = strings.TrimSpace(*req.Name)
+			}
+			if req.TrafficLimitBytes != nil && *req.TrafficLimitBytes > 0 {
+				record.TrafficLimitBytes = *req.TrafficLimitBytes
+			}
+			if req.ExpiresAt != nil {
+				record.ExpiresAt = req.ExpiresAt
+			}
+			if err := a.db.Create(&record).Error; err != nil {
+				return nil, fmt.Errorf("创建订阅用户失败: %w", err)
+			}
+			if req.NodeInbounds != nil {
+				if err := a.syncTokenNodes(&record, dedupeIDs(*req.NodeInbounds)); err != nil {
+					_ = a.deleteToken(record.ID)
+					return nil, err
+				}
+			}
+			_, _ = a.ReconcileQuota()
+			return a.tokenView(record.ID)
+		},
+	})
+	a.ai.Register(ai.Tool{
+		Name:        "update_subscription_token",
+		Description: "更新订阅用户：名称、流量配额、到期时间、勾选的入站（会在入站内创建/移除该用户的身份）。改动后需 apply_config 生效",
+		Parameters: toolParams(map[string]any{
+			"id":                toolProp("integer", "订阅用户 ID"),
+			"name":              toolProp("string", "备注名"),
+			"trafficLimitBytes": toolProp("integer", "流量配额字节，0 不限"),
+			"expiresAt":         toolProp("string", "到期时间（RFC3339）"),
+			"clearExpiry":       toolProp("boolean", "true 表示清除到期时间（永久）"),
+			"nodeInbounds":      map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "勾选的入站 ID 列表（整体替换）"},
+		}, "id"),
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var req tokenReq
+			var arg idArg
+			if err := decodeToolArgs(args, &req); err != nil {
+				return nil, err
 			}
 			if err := decodeToolArgs(args, &arg); err != nil {
 				return nil, err
 			}
-			record := db.SubscriptionToken{Token: randToken(), Name: strings.TrimSpace(arg.Name)}
-			if err := a.db.Create(&record).Error; err != nil {
-				return nil, fmt.Errorf("创建订阅令牌失败: %w", err)
+			var record db.SubscriptionToken
+			if err := a.db.First(&record, arg.ID).Error; err != nil {
+				return nil, fmt.Errorf("订阅用户不存在: %d", arg.ID)
 			}
-			return tokenView(record), nil
+			updates := map[string]any{}
+			if req.Name != nil {
+				updates["name"] = strings.TrimSpace(*req.Name)
+			}
+			if req.TrafficLimitBytes != nil {
+				limit := *req.TrafficLimitBytes
+				if limit < 0 {
+					limit = 0
+				}
+				updates["traffic_limit_bytes"] = limit
+			}
+			switch {
+			case req.ClearExpiry:
+				updates["expires_at"] = nil
+			case req.ExpiresAt != nil:
+				updates["expires_at"] = *req.ExpiresAt
+			}
+			if len(updates) > 0 {
+				if err := a.db.Model(&record).Updates(updates).Error; err != nil {
+					return nil, fmt.Errorf("保存订阅用户失败: %w", err)
+				}
+			}
+			if req.NodeInbounds != nil {
+				if err := a.syncTokenNodes(&record, dedupeIDs(*req.NodeInbounds)); err != nil {
+					return nil, err
+				}
+			}
+			if _, err := a.ReconcileQuota(); err != nil {
+				return nil, err
+			}
+			return a.tokenView(arg.ID)
+		},
+	})
+	a.ai.Register(ai.Tool{
+		Name:         "delete_subscription_token",
+		Description:  "按 ID 删除订阅用户（连同其全部节点与累计流量）",
+		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "订阅用户 ID")}, "id"),
+		NeedsConfirm: true,
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var arg idArg
+			if err := decodeToolArgs(args, &arg); err != nil {
+				return nil, err
+			}
+			if err := a.deleteToken(arg.ID); err != nil {
+				return nil, err
+			}
+			return gin.H{"deleted": arg.ID}, nil
 		},
 	})
 	a.ai.Register(ai.Tool{
 		Name:         "reset_subscription_token",
-		Description:  "按 ID 重置订阅令牌（换新随机值并恢复可用，旧链接立即失效）",
-		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "令牌 ID")}, "id"),
+		Description:  "按 ID 重置订阅链接（换新随机值并恢复可用，旧链接立即失效）",
+		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "订阅用户 ID")}, "id"),
 		NeedsConfirm: true,
 		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
 			var arg idArg
@@ -636,46 +731,92 @@ func (a *API) registerAIModifyTools() {
 			}
 			var record db.SubscriptionToken
 			if err := a.db.First(&record, arg.ID).Error; err != nil {
-				return nil, fmt.Errorf("订阅令牌不存在: %d", arg.ID)
+				return nil, fmt.Errorf("订阅用户不存在: %d", arg.ID)
 			}
-			updates := map[string]any{"token": randToken(), "revoked": false}
-			if err := a.db.Model(&record).Updates(updates).Error; err != nil {
-				return nil, fmt.Errorf("重置订阅令牌失败: %w", err)
+			if err := a.db.Model(&record).Updates(map[string]any{"token": randToken(), "revoked": false}).Error; err != nil {
+				return nil, fmt.Errorf("重置订阅链接失败: %w", err)
 			}
-			record.Token = updates["token"].(string)
-			record.Revoked = false
-			return tokenView(record), nil
+			return a.tokenView(arg.ID)
 		},
 	})
 	a.ai.Register(ai.Tool{
-		Name:        "revoke_subscription_token",
-		Description: "按 ID 吊销（或恢复）订阅令牌；吊销后携带该 token 的订阅请求被拒绝",
+		Name:         "reset_user_traffic",
+		Description:  "按 ID 清零某订阅用户全部节点的累计流量（配额已用尽的用户会随之恢复）",
+		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "订阅用户 ID")}, "id"),
+		NeedsConfirm: true,
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var arg idArg
+			if err := decodeToolArgs(args, &arg); err != nil {
+				return nil, err
+			}
+			// 配额计数在 TokenTraffic，清零后该用户的暂停状态才会解除
+			if err := a.db.Where("token_id = ?", arg.ID).Delete(&db.TokenTraffic{}).Error; err != nil {
+				return nil, err
+			}
+			var users []db.InboundUser
+			if err := a.db.Where("id IN (?)", a.db.Model(&db.SubscriptionNode{}).
+				Select("inbound_user_id").Where("token_id = ?", arg.ID)).Find(&users).Error; err != nil {
+				return nil, err
+			}
+			for _, u := range users {
+				if err := a.db.Where("tag = ?", u.Name).Delete(&db.UserTraffic{}).Error; err != nil {
+					return nil, err
+				}
+			}
+			if _, err := a.ReconcileQuota(); err != nil {
+				return nil, err
+			}
+			return a.tokenView(arg.ID)
+		},
+	})
+	a.ai.Register(ai.Tool{
+		Name:        "set_dns_config",
+		Description: "保存面板 DNS 配置（含服务器列表与分流规则），需 apply_config 生效。服务器 type 可选 udp/tcp/tls/https/h3/local",
 		Parameters: toolParams(map[string]any{
-			"id":      toolProp("integer", "令牌 ID"),
-			"revoked": toolProp("boolean", "true 吊销 / false 恢复，缺省 true"),
-		}, "id"),
+			"enabled":  toolProp("boolean", "是否启用自定义 DNS"),
+			"strategy": toolProp("string", "默认域名解析策略", singbox.SupportedDNSStrategies...),
+			"servers":  map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "DNS 服务器列表：{tag,type,server,serverPort,path,detour}"},
+			"rules":    map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "分流规则：{domain,domainSuffix,domainKeyword,server}"},
+			"final":    toolProp("string", "默认 DNS 服务器 tag"),
+		}),
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var cfg singbox.DNSConfig
+			if err := decodeToolArgs(args, &cfg); err != nil {
+				return nil, err
+			}
+			if err := cfg.Validate(); err != nil {
+				return nil, err
+			}
+			raw, err := json.Marshal(cfg)
+			if err != nil {
+				return nil, err
+			}
+			if err := a.setSetting(db.SettingDNS, string(raw)); err != nil {
+				return nil, err
+			}
+			return cfg, nil
+		},
+	})
+	a.ai.Register(ai.Tool{
+		Name:         "enable_bbr",
+		Description:  "一键开启/关闭服务器 BBR 加速（写入 /etc/sysctl.d 并立即生效）；仅 Linux 且面板以 root 运行时可用",
+		Parameters:   toolParams(map[string]any{"enable": toolProp("boolean", "true 开启 / false 关闭，缺省 true")}),
 		NeedsConfirm: true,
 		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
 			var arg struct {
-				ID      uint  `json:"id"`
-				Revoked *bool `json:"revoked"`
+				Enable *bool `json:"enable"`
 			}
 			if err := decodeToolArgs(args, &arg); err != nil {
 				return nil, err
 			}
-			revoked := true
-			if arg.Revoked != nil {
-				revoked = *arg.Revoked
+			enable := true
+			if arg.Enable != nil {
+				enable = *arg.Enable
 			}
-			var record db.SubscriptionToken
-			if err := a.db.First(&record, arg.ID).Error; err != nil {
-				return nil, fmt.Errorf("订阅令牌不存在: %d", arg.ID)
+			if err := applyBBR(enable); err != nil {
+				return nil, err
 			}
-			if err := a.db.Model(&record).Update("revoked", revoked).Error; err != nil {
-				return nil, fmt.Errorf("更新订阅令牌失败: %w", err)
-			}
-			record.Revoked = revoked
-			return tokenView(record), nil
+			return readSystemStatus(), nil
 		},
 	})
 	a.ai.Register(ai.Tool{
@@ -693,11 +834,11 @@ func (a *API) registerAIModifyTools() {
 			var err error
 			switch arg.Action {
 			case "start":
-				err = a.core.Start()
+				err = a.core.Start(a.currentKernelConfig())
 			case "stop":
 				err = a.core.Stop()
 			case "restart":
-				err = a.core.Restart()
+				err = a.core.Restart(a.currentKernelConfig())
 			default:
 				return nil, fmt.Errorf("不支持的动作: %s（可选 start/stop/restart）", arg.Action)
 			}
@@ -709,93 +850,37 @@ func (a *API) registerAIModifyTools() {
 	})
 	a.ai.Register(ai.Tool{
 		Name:         "apply_config",
-		Description:  "聚合全部启用入站/出站/规则重新生成 sing-box 配置并应用（内核运行中则按新配置重启）；配置类修改后需调用本工具生效",
+		Description:  "聚合全部生效节点/出站/规则/DNS 重新生成 sing-box 配置并应用（内核运行中则按新配置重启）；配置类修改后需调用本工具生效",
 		Parameters:   map[string]any{"type": "object", "properties": map[string]any{}},
 		NeedsConfirm: true,
 		Exec: func(ctx context.Context, _ json.RawMessage) (any, error) {
+			if _, err := a.ReconcileQuota(); err != nil {
+				return nil, err
+			}
 			result, _, err := a.applyKernel(ctx)
 			return result, err
 		},
 	})
 	a.ai.Register(ai.Tool{
 		Name:        "set_settings",
-		Description: "更新面板全局设置（至少提供一项）：anti-AD 规则源地址、未命中规则兜底出站 tag",
+		Description: "更新面板全局设置：未命中规则的兜底出站 tag",
 		Parameters: toolParams(map[string]any{
-			"antiAdSource": toolProp("string", "anti-AD 规则源地址，空恢复官方默认源"),
-			"routeFinal":   toolProp("string", "未命中规则的兜底出站 tag，空用内核默认"),
-		}),
+			"routeFinal": toolProp("string", "未命中规则的兜底出站 tag，空用内核默认"),
+		}, "routeFinal"),
 		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
 			var arg struct {
-				AntiAdSource *string `json:"antiAdSource"`
-				RouteFinal   *string `json:"routeFinal"`
+				RouteFinal string `json:"routeFinal"`
 			}
 			if err := decodeToolArgs(args, &arg); err != nil {
 				return nil, err
 			}
-			if arg.AntiAdSource == nil && arg.RouteFinal == nil {
-				return nil, fmt.Errorf("至少提供一项设置")
+			final := strings.TrimSpace(arg.RouteFinal)
+			if err := a.setSetting(db.SettingRouteFinal, final); err != nil {
+				return nil, err
 			}
-			updated := gin.H{}
-			if arg.AntiAdSource != nil {
-				url := strings.TrimSpace(*arg.AntiAdSource)
-				if url != "" && !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-					return nil, fmt.Errorf("规则源地址须以 http:// 或 https:// 开头")
-				}
-				if err := a.setSetting(settingAntiAD, url); err != nil {
-					return nil, err
-				}
-				updated["antiAdSource"] = url
-			}
-			if arg.RouteFinal != nil {
-				final := strings.TrimSpace(*arg.RouteFinal)
-				if err := a.setSetting(settingRouteFinal, final); err != nil {
-					return nil, err
-				}
-				updated["routeFinal"] = final
-			}
-			return updated, nil
+			return gin.H{"routeFinal": final}, nil
 		},
 	})
-}
-
-// createInbound / updateInbound / deleteInbound 供 AI 工具复用的入站写操作（与 REST handler 同一校验路径）。
-func (a *API) createInbound(req inboundReq) (inboundView, error) {
-	in := db.Inbound{Enabled: true}
-	if err := a.applyInboundReq(&in, req, 0, ""); err != nil {
-		return inboundView{}, err
-	}
-	if err := a.db.Create(&in).Error; err != nil {
-		return inboundView{}, fmt.Errorf("创建入站失败: %w", err)
-	}
-	return a.inboundToView(in), nil
-}
-
-func (a *API) updateInbound(id uint, req inboundReq) (inboundView, error) {
-	var in db.Inbound
-	if err := a.db.First(&in, id).Error; err != nil {
-		return inboundView{}, fmt.Errorf("入站不存在: %d", id)
-	}
-	origProtocol := in.Protocol
-	if err := a.applyInboundReq(&in, req, id, origProtocol); err != nil {
-		return inboundView{}, err
-	}
-	if err := a.db.Save(&in).Error; err != nil {
-		return inboundView{}, fmt.Errorf("保存入站失败: %w", err)
-	}
-	return a.inboundToView(in), nil
-}
-
-func (a *API) deleteInbound(id uint) (gin.H, error) {
-	err := a.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("inbound_id = ?", id).Delete(&db.InboundTraffic{}).Error; err != nil {
-			return err
-		}
-		return tx.Delete(&db.Inbound{}, id).Error
-	})
-	if err != nil {
-		return nil, fmt.Errorf("删除入站失败: %w", err)
-	}
-	return gin.H{"deleted": id}, nil
 }
 
 // toolProp 构造参数属性描述；values 非空时附加枚举。

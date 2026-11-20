@@ -1,21 +1,24 @@
-<!-- 设置页：主题（三态/12 预设/UTheme 编辑器）；账号改密；内核（版本/启停/日志）；面板与内核在线更新；AI 供应商配置 -->
+<!-- 设置页：主题（三态/12 预设/UTheme 编辑器）；账号改密；内置内核（只读版本/启停/日志）；面板在线更新；AI 供应商配置；DNS 与系统优化（BBR） -->
 <script setup lang="ts">
+import { clipboard } from '@cat-kit/fe'
 import {
+  UAlert,
   UButton,
   UCard,
   UCardContent,
   UCardHeader,
   UForm,
   UInput,
+  UNumberInput,
   UPasswordInput,
   USegment,
   USelect,
-  UTable,
+  USwitch,
   UTabs,
   UTag,
   UTheme,
-  defineTableColumns,
   message,
+  messageConfirm,
 } from '@veltra/desktop'
 import type { FormExposed, TabItem } from '@veltra/desktop'
 import { Check } from '@veltra/icons/normal'
@@ -26,15 +29,14 @@ import FormGroupCard from '../components/FormGroupCard.vue'
 
 import { fetchAIConfig, saveAIConfig } from '../api/ai'
 import { fetchHealth } from '../api/auth'
-import {
-  fetchKernelLogs,
-  fetchKernelStatus,
-  fetchKernelVersions,
-  installKernel,
-  kernelAction,
-} from '../api/kernel'
-import type { KernelLogLine, KernelStatus, ReleaseVersion } from '../api/kernel'
+import { getDNS, saveDNS } from '../api/dns'
+import type { DNSPreset, DNSRule, DNSServer, DNSSettings } from '../api/dns'
+import { fetchKernelLogs, fetchKernelStatus, kernelAction } from '../api/kernel'
+import type { KernelLogLine, KernelStatus } from '../api/kernel'
 import { fetchPanelVersions, updatePanel } from '../api/panel'
+import type { ReleaseVersion } from '../api/panel'
+import { getSystemStatus, setBBR } from '../api/system'
+import type { SystemStatus } from '../api/system'
 import { useAuthStore } from '../stores/auth'
 import {
   activeSeries,
@@ -59,6 +61,8 @@ const tabs: TabItem[] = [
   { key: 'kernel', name: '内核' },
   { key: 'update', name: '面板更新' },
   { key: 'ai', name: 'AI 供应商' },
+  { key: 'dns', name: 'DNS' },
+  { key: 'system', name: '系统优化' },
 ]
 
 // ---------- 主题设置 ----------
@@ -132,30 +136,13 @@ async function handleSave() {
 
 // ---------- 内核管理 ----------
 
-/** 内核状态与日志 */
+/** 内置内核的运行状态与日志（内核编进面板，版本随面板固定，不可换版本） */
 const status = shallowRef<KernelStatus | null>(null)
 const logs = shallowRef<KernelLogLine[]>([])
 const acting = shallowRef<'start' | 'stop' | 'restart' | ''>('')
 const logBox = useTemplateRef<HTMLElement>('logBox')
 
-/** 版本列表 */
-const versions = shallowRef<ReleaseVersion[]>([])
-const loadingVersions = shallowRef(false)
-/** 正在安装的版本 tag；LATEST 表示「安装最新稳定版」 */
-const installing = shallowRef('')
-
 let pollTimer: ReturnType<typeof setInterval> | undefined
-
-const versionColumns = defineTableColumns([
-  { key: 'version', name: '版本', minWidth: 120 },
-  { key: 'channel', name: '类型', width: 90, align: 'center' },
-  { key: 'publishedAt', name: '发布时间', minWidth: 170 },
-  { key: 'actions', name: '操作', width: 110, align: 'center' },
-])
-
-function formatDateTime(iso?: string): string {
-  return iso ? new Date(iso).toLocaleString() : '-'
-}
 
 function formatUptime(seconds?: number): string {
   if (seconds === undefined) return '-'
@@ -183,18 +170,6 @@ async function refreshLogs(silent = true) {
   }
 }
 
-async function refreshVersions() {
-  loadingVersions.value = true
-  try {
-    const { versions: list } = await fetchKernelVersions()
-    versions.value = list
-  } catch {
-    // 网络错误已由请求封装统一提示
-  } finally {
-    loadingVersions.value = false
-  }
-}
-
 async function handleKernelAction(action: 'start' | 'stop' | 'restart') {
   acting.value = action
   try {
@@ -206,19 +181,6 @@ async function handleKernelAction(action: 'start' | 'stop' | 'restart') {
     acting.value = ''
     await refreshStatus()
     await refreshLogs()
-  }
-}
-
-async function handleInstall(tag = '') {
-  installing.value = tag || 'LATEST'
-  try {
-    const result = await installKernel(tag)
-    message.success(`内核 ${result.version} 安装成功`)
-  } catch {
-    // 错误已由请求封装统一提示
-  } finally {
-    installing.value = ''
-    await Promise.all([refreshStatus(false), refreshVersions()])
   }
 }
 
@@ -235,7 +197,7 @@ function stopPolling() {
   pollTimer = undefined
 }
 
-// ---------- 面板与内核在线更新 ----------
+// ---------- 面板在线更新 ----------
 
 /** 面板当前版本与可用版本 */
 const panelVersion = shallowRef('')
@@ -245,9 +207,8 @@ const panelUpdating = shallowRef(false)
 /** 面板更新阶段提示（下载替换 / 等待重启恢复） */
 const panelPhase = shallowRef('')
 
-/** 最新稳定版（面板与内核通用取法） */
+/** 最新稳定版 */
 const latestPanel = computed(() => panelVersions.value.find((item) => !item.prerelease))
-const latestKernel = computed(() => versions.value.find((item) => !item.prerelease))
 
 type UpdateState = 'unchecked' | 'latest' | 'available'
 
@@ -255,10 +216,6 @@ type UpdateState = 'unchecked' | 'latest' | 'available'
 const panelState = computed<UpdateState>(() => {
   if (!latestPanel.value) return 'unchecked'
   return latestPanel.value.installed ? 'latest' : 'available'
-})
-const kernelState = computed<UpdateState>(() => {
-  if (!latestKernel.value) return 'unchecked'
-  return latestKernel.value.installed ? 'latest' : 'available'
 })
 
 async function checkPanelUpdate() {
@@ -362,6 +319,238 @@ async function saveAI() {
   }
 }
 
+// ---------- DNS ----------
+
+const dnsLoading = shallowRef(false)
+const dnsSaving = shallowRef(false)
+/** 是否已加载过：再次切回本页签不覆盖未保存的编辑，需要刷新请点「重新加载」 */
+const dnsLoaded = shallowRef(false)
+const dnsTypes = shallowRef<string[]>([])
+const dnsStrategies = shallowRef<string[]>([])
+const dnsPresets = shallowRef<DNSPreset[]>([])
+
+/** 本地编辑副本：进入页签时填充，保存成功用后端返回回填 */
+const dnsForm = reactive({
+  enabled: true,
+  strategy: '',
+  servers: [] as DNSServer[],
+  rules: [] as DNSRule[],
+  final: '',
+})
+
+const typeOptions = computed(() => dnsTypes.value.map((type) => ({ label: type, value: type })))
+
+const strategyOptions = computed(() => [
+  { label: '不指定（内核默认）', value: '' },
+  ...dnsStrategies.value.map((strategy) => ({ label: strategy, value: strategy })),
+])
+
+/** 当前非空 tag，供默认服务器与规则引用 */
+const dnsTags = computed(() => dnsForm.servers.map((item) => item.tag.trim()).filter(Boolean))
+
+const tagOptions = computed(() => dnsTags.value.map((tag) => ({ label: tag, value: tag })))
+
+/** 重复的非空 tag（行内提示 + 提交前拦截） */
+const duplicateTags = computed(() => {
+  const seen = new Set<string>()
+  const duplicated = new Set<string>()
+  for (const tag of dnsTags.value) {
+    if (seen.has(tag)) duplicated.add(tag)
+    seen.add(tag)
+  }
+  return duplicated
+})
+
+/** 单行提示：tag 为空或重复时返回提示文案 */
+function serverTagHint(server: DNSServer): string {
+  const tag = server.tag.trim()
+  if (!tag) return 'tag 必填，规则与默认服务器靠它引用'
+  if (duplicateTags.value.has(tag)) return `tag「${tag}」与其它服务器重复`
+  return ''
+}
+
+/** 与后端 Validate 对齐的前端静态检查，给出行内提示（最终仍以后端 400 为准） */
+const dnsProblems = computed<string[]>(() => {
+  if (!dnsForm.enabled) return []
+  const problems: string[] = []
+  if (!dnsForm.servers.length) problems.push('启用 DNS 时至少需要一个 DNS 服务器。')
+  if (dnsForm.servers.some((item) => !item.tag.trim())) problems.push('服务器 tag 不能为空。')
+  if (duplicateTags.value.size) problems.push(`服务器 tag 重复：${[...duplicateTags.value].join('、')}。`)
+  if (dnsForm.servers.some((item) => item.type !== 'local' && !(item.server ?? '').trim())) {
+    problems.push('除 local 类型外，服务器地址必填。')
+  }
+  if (dnsForm.final && !dnsTags.value.includes(dnsForm.final)) problems.push('默认服务器不在现有 tag 中。')
+  if (dnsForm.rules.some((rule) => !dnsTags.value.includes(rule.server))) problems.push('存在规则没有选择有效的目标服务器。')
+  return problems
+})
+
+/** 深拷贝一份配置，避免预设对象被表单改动污染 */
+function cloneSettings(config: DNSSettings): DNSSettings {
+  return {
+    enabled: config.enabled,
+    strategy: config.strategy ?? '',
+    servers: (config.servers ?? []).map((item) => ({ ...item })),
+    rules: (config.rules ?? []).map((item) => ({ ...item })),
+    final: config.final ?? '',
+  }
+}
+
+function fillDNS(config: DNSSettings): void {
+  const next = cloneSettings(config)
+  dnsForm.enabled = next.enabled
+  dnsForm.strategy = next.strategy
+  dnsForm.servers = next.servers
+  dnsForm.rules = next.rules
+  dnsForm.final = next.final
+}
+
+async function loadDNS(): Promise<void> {
+  dnsLoading.value = true
+  try {
+    const data = await getDNS()
+    dnsTypes.value = data.types
+    dnsStrategies.value = data.strategies
+    dnsPresets.value = data.presets
+    fillDNS(data.config)
+    dnsLoaded.value = true
+  } catch {
+    // 错误已由请求封装统一提示
+  } finally {
+    dnsLoading.value = false
+  }
+}
+
+/** 应用预设只覆盖本地表单（会丢弃未保存改动，先确认），需再点「保存 DNS」才落库 */
+async function handleApplyPreset(preset: DNSPreset): Promise<void> {
+  const action = await messageConfirm({
+    title: '应用 DNS 预设',
+    message: `将用「${preset.name}」覆盖当前编辑中的服务器与规则，未保存的改动会丢失。确认继续吗？`,
+    confirmButtonText: '应用',
+    cancelButtonText: '取消',
+  }).onClosed
+  if (action !== 'confirm') return
+  // 预设本身不带启用状态，保留用户当前的开关选择
+  fillDNS({ ...preset.config, enabled: dnsForm.enabled })
+  message.success(
+    dnsForm.enabled ? '预设已填入，确认无误后点击「保存 DNS」' : '预设已填入，但 DNS 当前处于关闭状态，需打开开关并保存',
+  )
+}
+
+function addServer(): void {
+  dnsForm.servers.push({ tag: '', type: dnsTypes.value[0] ?? 'udp', server: '' })
+}
+
+function removeServer(index: number): void {
+  dnsForm.servers.splice(index, 1)
+}
+
+function addRule(): void {
+  dnsForm.rules.push({ domainSuffix: '', server: dnsTags.value[0] ?? '' })
+}
+
+function removeRule(index: number): void {
+  dnsForm.rules.splice(index, 1)
+}
+
+/** https / h3 需要 DoH 路径；local 不需要地址与端口 */
+function showPath(type: string): boolean {
+  return type === 'https' || type === 'h3'
+}
+
+/** 提交前清洗：去掉空白可选字段与空端口，避免被后端当作有效值 */
+function buildDNSPayload(): DNSSettings {
+  return {
+    enabled: dnsForm.enabled,
+    strategy: dnsForm.strategy || '',
+    servers: dnsForm.servers.map((item) => {
+      const server: DNSServer = { tag: item.tag.trim(), type: item.type }
+      const address = (item.server ?? '').trim()
+      if (item.type !== 'local' && address) server.server = address
+      if (item.type !== 'local' && item.serverPort) server.serverPort = item.serverPort
+      if (showPath(item.type) && item.path?.trim()) server.path = item.path.trim()
+      if (item.detour?.trim()) server.detour = item.detour.trim()
+      return server
+    }),
+    rules: dnsForm.rules.map((rule) => {
+      const next: DNSRule = { server: rule.server }
+      if (rule.domain?.trim()) next.domain = rule.domain.trim()
+      if (rule.domainSuffix?.trim()) next.domainSuffix = rule.domainSuffix.trim()
+      if (rule.domainKeyword?.trim()) next.domainKeyword = rule.domainKeyword.trim()
+      return next
+    }),
+    final: dnsForm.final || '',
+  }
+}
+
+async function handleSaveDNS(): Promise<void> {
+  dnsSaving.value = true
+  try {
+    const saved = await saveDNS(buildDNSPayload())
+    fillDNS(saved)
+    message.success('DNS 配置已保存；到「入站」页点「应用配置」后服务端生效')
+  } catch {
+    // 校验失败等错误已由请求封装统一提示
+  } finally {
+    dnsSaving.value = false
+  }
+}
+
+// ---------- 系统优化 ----------
+
+const systemStatus = shallowRef<SystemStatus | null>(null)
+const systemLoading = shallowRef(false)
+const bbrActing = shallowRef(false)
+
+const platformLabels: Record<string, string> = { linux: 'Linux', darwin: 'macOS', windows: 'Windows' }
+
+const platformLabel = computed(() => {
+  const platform = systemStatus.value?.platform ?? ''
+  return platform ? (platformLabels[platform] ?? platform) : '-'
+})
+
+async function loadSystemStatus(silent = true): Promise<void> {
+  systemLoading.value = true
+  try {
+    systemStatus.value = await getSystemStatus()
+  } catch {
+    if (!silent) message.error('查询系统状态失败')
+  } finally {
+    systemLoading.value = false
+  }
+}
+
+async function handleBBR(enable: boolean): Promise<void> {
+  const action = await messageConfirm({
+    title: enable ? '一键开启 BBR' : '关闭 BBR',
+    message: enable
+      ? '将写入 /etc/sysctl.d/99-proxy-ui-bbr.conf（fq + bbr）并执行 sysctl --system 立即生效，重启后仍然保留。确认开启吗？'
+      : '将把拥塞控制恢复为 cubic、队列规则恢复为 fq_codel，并执行 sysctl --system 立即生效。确认关闭 BBR 吗？',
+    confirmButtonText: enable ? '开启' : '关闭',
+    cancelButtonText: '取消',
+  }).onClosed
+  if (action !== 'confirm') return
+  bbrActing.value = true
+  try {
+    systemStatus.value = await setBBR(enable)
+    message.success(enable ? 'BBR 已开启' : '已关闭 BBR，恢复 cubic')
+  } catch {
+    // 无权限等错误已由请求封装统一提示
+  } finally {
+    bbrActing.value = false
+  }
+}
+
+async function copyManualCommand(): Promise<void> {
+  const command = systemStatus.value?.manualCommand
+  if (!command) return
+  try {
+    await clipboard.copy(command)
+    message.success('命令已复制，请在服务器上以 root 执行')
+  } catch {
+    message.error('复制失败，请手动复制')
+  }
+}
+
 watch(
   active,
   (tab) => {
@@ -375,14 +564,20 @@ watch(
     if (tab === 'kernel') {
       void refreshStatus(false)
       void refreshLogs()
-      void refreshVersions()
       startPolling()
       return
     }
     if (tab === 'update') {
       void checkPanelUpdate()
-      void refreshStatus(false)
-      void refreshVersions()
+      return
+    }
+    if (tab === 'dns') {
+      // 首次进入才拉取，避免切走再回来时覆盖正在编辑的内容
+      if (!dnsLoaded.value) void loadDNS()
+      return
+    }
+    if (tab === 'system') {
+      void loadSystemStatus(false)
     }
   },
 )
@@ -520,99 +715,50 @@ onBeforeUnmount(stopPolling)
     </template>
 
     <template #kernel>
-      <u-card class="kernel-card">
-        <u-card-header>sing-box 内核</u-card-header>
-        <u-card-content>
-          <EmptyState
-            v-if="status && !status.installed"
-            title="尚未安装 sing-box 内核"
-            description="在下方版本列表选择版本一键安装，安装后即可在此启动内核"
-          />
-          <template v-else>
-            <div class="kernel-meta">
-              <u-tag :type="status?.running ? 'success' : 'info'">
-                {{ status?.running ? '运行中' : '已停止' }}
-              </u-tag>
-              <span>版本：<strong>{{ status?.version || '未知' }}</strong></span>
-              <span v-if="status?.running">PID：{{ status.pid }}</span>
-              <span v-if="status?.running">运行时长：{{ formatUptime(status.uptimeSeconds) }}</span>
-            </div>
-            <div class="kernel-actions">
-              <u-button
-                type="primary"
-                :disabled="status?.running"
-                :loading="acting === 'start'"
-                @click="handleKernelAction('start')"
-              >
-                启动
-              </u-button>
-              <u-button
-                type="error"
-                :disabled="!status?.running"
-                :loading="acting === 'stop'"
-                @click="handleKernelAction('stop')"
-              >
-                停止
-              </u-button>
-              <u-button :disabled="!status?.running" :loading="acting === 'restart'" @click="handleKernelAction('restart')">
-                重启
-              </u-button>
-            </div>
-          </template>
-        </u-card-content>
-      </u-card>
-
-      <u-card class="kernel-card">
+      <u-card class="settings-card">
         <u-card-header>
           <div class="card-header-row">
-            <span>可用版本</span>
-            <div class="card-header-ops">
-              <u-button :loading="loadingVersions" @click="refreshVersions">刷新版本</u-button>
-              <u-button
-                type="primary"
-                plain
-                :loading="installing === 'LATEST'"
-                @click="handleInstall()"
-              >
-                安装最新稳定版
-              </u-button>
-            </div>
+            <span>内置 sing-box 内核</span>
+            <u-tag type="info">随面板编译，不可更换版本</u-tag>
           </div>
         </u-card-header>
         <u-card-content>
-          <u-table
-            :columns="versionColumns"
-            :data="versions"
-            row-key="tag"
-            border
-            :loading="loadingVersions"
-          >
-            <template #column:channel="{ rowData }">
-              <u-tag :type="rowData.prerelease ? 'warning' : 'success'">
-                {{ rowData.prerelease ? '预发布' : '稳定版' }}
-              </u-tag>
-            </template>
-            <template #column:publishedAt="{ rowData }">
-              {{ formatDateTime(rowData.publishedAt) }}
-            </template>
-            <template #column:actions="{ rowData }">
-              <u-tag v-if="rowData.installed" type="info">已安装</u-tag>
-              <u-button
-                v-else
-                text
-                size="small"
-                type="primary"
-                :loading="installing === rowData.tag"
-                @click="handleInstall(rowData.tag)"
-              >
-                安装
-              </u-button>
-            </template>
-          </u-table>
+          <div class="kernel-meta">
+            <u-tag :type="status?.running ? 'success' : 'info'">
+              {{ status?.running ? '运行中' : '已停止' }}
+            </u-tag>
+            <span>版本：<strong>{{ status?.version || '内置' }}</strong></span>
+            <span v-if="status?.running">运行时长：{{ formatUptime(status.uptimeSeconds) }}</span>
+          </div>
+          <div class="kernel-actions">
+            <u-button
+              type="primary"
+              :disabled="status?.running"
+              :loading="acting === 'start'"
+              @click="handleKernelAction('start')"
+            >
+              启动
+            </u-button>
+            <u-button
+              type="danger"
+              :disabled="!status?.running"
+              :loading="acting === 'stop'"
+              @click="handleKernelAction('stop')"
+            >
+              停止
+            </u-button>
+            <u-button :disabled="!status?.running" :loading="acting === 'restart'" @click="handleKernelAction('restart')">
+              重启
+            </u-button>
+          </div>
+          <p class="hint">
+            内核已编译进面板二进制，版本随面板版本一同升级，无需也不能单独安装或切换版本。
+            配置改动请到「入站」页点「应用配置」重新生成。
+          </p>
         </u-card-content>
       </u-card>
 
-      <u-card class="kernel-card">
+      <u-card class="settings-card">
         <u-card-header>
           <div class="card-header-row">
             <span>内核日志</span>
@@ -633,7 +779,7 @@ onBeforeUnmount(stopPolling)
     </template>
 
     <template #update>
-      <u-card class="kernel-card">
+      <u-card class="settings-card">
         <u-card-header>面板更新</u-card-header>
         <u-card-content>
           <div class="kernel-meta">
@@ -658,38 +804,300 @@ onBeforeUnmount(stopPolling)
           </div>
           <p v-if="panelState === 'unchecked'" class="hint">尚未获取可用版本，「一键更新」待「检查更新」完成后可用。</p>
           <p v-if="panelPhase" class="hint">{{ panelPhase }}</p>
-          <p class="hint">更新会替换面板二进制并自动重启进程，数据与配置保留。</p>
+          <p class="hint">更新会替换面板二进制并自动重启进程，数据与配置保留；内置内核随面板一同升级。</p>
+        </u-card-content>
+      </u-card>
+    </template>
+
+    <!-- 插槽书写顺序与页签显示顺序无关（显示顺序由 tabs 数组决定）；放在 #ai 之前是为了规避 vue-tsc 对末尾插槽的类型推断问题 -->
+    <template #dns>
+      <u-card size="small" class="settings-card">
+        <u-card-header>DNS 在这里作用在哪</u-card-header>
+        <u-card-content>
+          <p class="section-desc">
+            DNS 决定「域名解析成哪个 IP、由哪台服务器来解析」。面板里的这份配置会同时写进两处：服务端 sing-box
+            自身的配置（面板所在服务器自己出网时的解析），以及下发给客户端的订阅（sing-box / mihomo
+            客户端本地的解析）。因此这里改一次，服务端与客户端行为保持一致。
+          </p>
+          <p class="section-desc">
+            国内域名走国内 DNS、其余走 DoH 之类分流可以兼顾速度与防污染；把查询 detour 到代理出站还能避开本地运营商的
+            DNS 劫持。
+          </p>
         </u-card-content>
       </u-card>
 
-      <u-card class="kernel-card">
-        <u-card-header>sing-box 内核更新</u-card-header>
+      <u-card class="settings-card">
+        <u-card-header>预设方案</u-card-header>
         <u-card-content>
-          <div class="kernel-meta">
-            <span>
-              当前版本：<strong>{{ status?.version || (status?.installed ? '未知' : '未安装') }}</strong>
-            </span>
-            <span>最新稳定版：<strong>{{ latestKernel?.tag ?? '未检查' }}</strong></span>
-            <u-tag v-if="kernelState === 'latest'" type="success">已是最新版</u-tag>
+          <div class="section-desc">
+            预设只是一份模板：点击应用会把服务器、规则与默认服务器填进下方编辑器并丢弃未保存的改动，不会自动保存。
           </div>
-          <div class="kernel-actions">
-            <u-button :loading="loadingVersions" @click="refreshVersions">检查更新</u-button>
+          <div class="preset-list">
+            <div v-for="preset in dnsPresets" :key="preset.id" class="dns-preset">
+              <div class="dns-preset-info">
+                <div class="dns-preset-name">{{ preset.name }}</div>
+                <div class="dns-preset-desc">{{ preset.description }}</div>
+              </div>
+              <u-button type="primary" plain @click="handleApplyPreset(preset)">应用此预设</u-button>
+            </div>
+            <div v-if="!dnsPresets.length" class="section-desc">暂无可用预设。</div>
+          </div>
+        </u-card-content>
+      </u-card>
+
+      <u-card class="settings-card">
+        <u-card-header>
+          <div class="card-header-row">
+            <span>DNS 配置</span>
+            <u-button :loading="dnsLoading" @click="loadDNS">重新加载</u-button>
+          </div>
+        </u-card-header>
+        <u-card-content>
+          <div class="settings-row">
+            <div class="settings-field">
+              <div class="settings-label">启用自定义 DNS</div>
+              <div class="settings-body">
+                <u-switch v-model="dnsForm.enabled" />
+                <div class="settings-desc">
+                  关闭后服务端配置与订阅都不会注入 dns 段，域名解析交还给内核 / 客户端默认行为。
+                </div>
+              </div>
+            </div>
+            <div v-if="dnsForm.enabled" class="settings-field">
+              <div class="settings-label">默认解析策略</div>
+              <div class="settings-body">
+                <u-select
+                  v-model="dnsForm.strategy"
+                  :options="strategyOptions"
+                  :clearable="false"
+                  class="settings-input"
+                />
+                <div class="settings-desc">
+                  优先返回 IPv4 还是 IPv6。拿不准就选「不指定（内核默认）」，由内核按系统偏好决定。
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <u-alert
+            v-if="!dnsForm.enabled"
+            type="info"
+            class="block-alert"
+            title="DNS 已关闭"
+            description="当前不会向服务端配置与订阅注入 DNS 段：面板服务器与客户端都使用各自的内核默认解析。需要分流或防污染时再打开。"
+          />
+
+          <template v-else>
+            <!-- 服务器列表：tag / 类型 / 地址 / 端口 / DoH 路径 / 经由出站 -->
+            <section class="editor-block">
+              <div class="editor-head">
+                <div class="editor-title">
+                  DNS 服务器
+                  <u-tag size="small" type="info">{{ dnsForm.servers.length }} 个</u-tag>
+                </div>
+                <u-button size="small" @click="addServer">新增服务器</u-button>
+              </div>
+              <div v-for="(server, index) in dnsForm.servers" :key="index" class="editor-row">
+                <div class="editor-fields">
+                  <div class="editor-cell">
+                    <u-input v-model="server.tag" placeholder="tag，如 ali" />
+                    <div v-if="serverTagHint(server)" class="editor-warn">{{ serverTagHint(server) }}</div>
+                  </div>
+                  <u-select
+                    v-model="server.type"
+                    :options="typeOptions"
+                    :clearable="false"
+                    placeholder="类型"
+                  />
+                  <u-input
+                    v-if="server.type !== 'local'"
+                    v-model="server.server"
+                    placeholder="地址，如 223.5.5.5"
+                  />
+                  <u-number-input
+                    v-if="server.type !== 'local'"
+                    v-model="server.serverPort"
+                    placeholder="端口（可空）"
+                    :min="1"
+                    :max="65535"
+                  />
+                  <u-input
+                    v-if="showPath(server.type)"
+                    v-model="server.path"
+                    placeholder="DoH 路径，默认 /dns-query"
+                  />
+                  <u-input v-model="server.detour" placeholder="经由出站（可空，如 proxy）" />
+                </div>
+                <u-button text size="small" type="danger" @click="removeServer(index)">删除</u-button>
+              </div>
+              <p v-if="!dnsForm.servers.length" class="section-desc">还没有服务器，请至少添加一个。</p>
+              <p class="hint">
+                tag 是规则与默认服务器引用它的名字，必须非空且唯一；local 类型使用系统本地解析，不需要地址与端口；
+                https / h3 可填 DoH 路径；「经由出站」留空表示直连查询，填出站 tag 则由该出站发起查询。
+              </p>
+            </section>
+
+            <!-- 分流规则：域名条件 → 指定服务器 -->
+            <section class="editor-block">
+              <div class="editor-head">
+                <div class="editor-title">
+                  分流规则
+                  <u-tag size="small" type="info">{{ dnsForm.rules.length }} 条</u-tag>
+                </div>
+                <u-button size="small" @click="addRule">新增规则</u-button>
+              </div>
+              <div v-for="(rule, index) in dnsForm.rules" :key="index" class="editor-row">
+                <div class="editor-fields">
+                  <u-input v-model="rule.domain" placeholder="精确域名，逗号分隔" />
+                  <u-input v-model="rule.domainSuffix" placeholder="域名后缀，逗号分隔" />
+                  <u-input v-model="rule.domainKeyword" placeholder="域名关键字，逗号分隔" />
+                  <div class="editor-cell">
+                    <u-select v-model="rule.server" :options="tagOptions" :clearable="false" placeholder="目标服务器" />
+                    <div v-if="!rule.server" class="editor-warn">请选择目标服务器</div>
+                  </div>
+                </div>
+                <u-button text size="small" type="danger" @click="removeRule(index)">删除</u-button>
+              </div>
+              <p v-if="!dnsForm.rules.length" class="section-desc">
+                没有规则时全部查询都走默认服务器。
+              </p>
+              <p class="hint">
+                规则自上而下匹配：同一行填多个条件时任一命中即生效；多个值用英文逗号分隔（如
+                qq.com,baidu.com）。未命中任何规则的查询走下方默认服务器。
+              </p>
+            </section>
+
+            <div class="settings-row">
+              <div class="settings-field">
+                <div class="settings-label">默认服务器</div>
+                <div class="settings-body">
+                  <u-select
+                    v-model="dnsForm.final"
+                    :options="tagOptions"
+                    placeholder="留空则取第一个服务器"
+                    class="settings-input"
+                  />
+                  <div class="settings-desc">未命中任何规则的查询交给它；留空时使用服务器列表中的第一个。</div>
+                </div>
+              </div>
+            </div>
+
+            <u-alert
+              v-if="dnsProblems.length"
+              type="warning"
+              class="block-alert"
+              title="配置还有问题"
+              :description="dnsProblems.join(' ')"
+            />
+          </template>
+
+          <div class="card-actions">
+            <u-button type="primary" :loading="dnsSaving" @click="handleSaveDNS">保存 DNS</u-button>
+          </div>
+          <p class="hint">保存只写入面板配置；需到「入站」页点击「应用配置」重新生成并重启内核后才真正生效。</p>
+        </u-card-content>
+      </u-card>
+    </template>
+
+    <template #system>
+      <u-card class="settings-card">
+        <u-card-header>
+          <div class="card-header-row">
+            <span>系统优化（TCP 拥塞控制）</span>
+            <u-button :loading="systemLoading" @click="loadSystemStatus(false)">刷新状态</u-button>
+          </div>
+        </u-card-header>
+        <u-card-content>
+          <div class="status-grid">
+            <div class="status-item">
+              <div class="status-label">运行平台</div>
+              <div class="status-value">{{ platformLabel }}</div>
+            </div>
+            <div class="status-item">
+              <div class="status-label">当前拥塞控制算法</div>
+              <div class="status-value">
+                <u-tag :type="systemStatus?.congestionCtl ? 'primary' : 'info'">
+                  {{ systemStatus?.congestionCtl || '读取不到' }}
+                </u-tag>
+              </div>
+            </div>
+            <div class="status-item">
+              <div class="status-label">BBR 状态</div>
+              <div class="status-value">
+                <u-tag :type="systemStatus?.bbrEnabled ? 'success' : 'info'">
+                  {{ systemStatus?.bbrEnabled ? '已开启' : '未开启' }}
+                </u-tag>
+              </div>
+            </div>
+            <div class="status-item">
+              <div class="status-label">内核支持的算法</div>
+              <div class="status-value status-tags">
+                <u-tag v-for="cc in systemStatus?.availableCc ?? []" :key="cc" size="small">{{ cc }}</u-tag>
+                <span v-if="!systemStatus?.availableCc?.length" class="status-dim">读取不到</span>
+              </div>
+            </div>
+            <div class="status-item">
+              <div class="status-label">可用队列规则</div>
+              <div class="status-value status-tags">
+                <u-tag v-for="qdisc in systemStatus?.availableQdisc ?? []" :key="qdisc" size="small">
+                  {{ qdisc }}
+                </u-tag>
+                <span v-if="!systemStatus?.availableQdisc?.length" class="status-dim">读取不到</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 可一键开启：主操作；已开启：展示状态 + 次级关闭（仅在面板有权限改 sysctl 时提供） -->
+          <div v-if="systemStatus?.bbrEnabled || systemStatus?.supported" class="bbr-actions">
+            <template v-if="systemStatus.bbrEnabled">
+              <u-tag type="success">已开启</u-tag>
+              <u-button :disabled="!systemStatus.supported" :loading="bbrActing" @click="handleBBR(false)">
+                关闭 BBR
+              </u-button>
+            </template>
             <u-button
-              v-if="kernelState === 'available'"
+              v-else-if="systemStatus.supported"
               type="primary"
-              plain
-              :loading="installing === 'LATEST'"
-              @click="handleInstall()"
+              :loading="bbrActing"
+              @click="handleBBR(true)"
             >
-              一键更新到最新
+              一键开启 BBR
             </u-button>
-            <u-button v-else-if="kernelState === 'latest'" :loading="installing === 'LATEST'" @click="handleInstall()">
-              重装最新版
-            </u-button>
-            <u-button v-else disabled>一键更新到最新</u-button>
           </div>
-          <p v-if="kernelState === 'unchecked'" class="hint">尚未获取可用版本，请先「检查更新」。</p>
-          <p class="hint">内核运行中时请先在「内核」分区停止；完整版本列表与内核日志见「内核」分区。</p>
+          <p v-else-if="!systemStatus" class="section-desc">正在读取系统状态…</p>
+
+          <u-alert
+            v-if="systemStatus && !systemStatus.supported"
+            type="warning"
+            class="block-alert"
+            title="无法在面板内一键开启"
+            :description="systemStatus.reason || '当前环境不支持在面板内修改拥塞控制算法，请用下方命令手动开启。'"
+          />
+
+          <p class="hint">
+            BBR 是 Google 提出的拥塞控制算法，在有丢包或高延迟的链路上能显著提升吞吐、减少排队延迟，
+            对跨运营商、跨境线路的代理转发尤其明显。开启后对本机所有 TCP 连接生效。
+          </p>
+          <p class="hint">
+            这里只管系统级的 TCP 拥塞控制；入站若使用 QUIC / Hysteria 之类的协议，其单独的拥塞控制设置在各入站的
+            「高级选项」里配置。
+          </p>
+        </u-card-content>
+      </u-card>
+
+      <u-card v-if="systemStatus && !systemStatus.supported" class="settings-card">
+        <u-card-header>
+          <div class="card-header-row">
+            <span>手动开启（在服务器上以 root 执行）</span>
+            <u-button size="small" @click="copyManualCommand">复制</u-button>
+          </div>
+        </u-card-header>
+        <u-card-content>
+          <pre class="code-block">{{ systemStatus.manualCommand }}</pre>
+          <p class="hint">
+            命令会写入 /etc/sysctl.d/99-proxy-ui-bbr.conf 并执行 sysctl --system 立即生效，重启后仍然保留。
+            执行完回到本页点「刷新状态」确认。
+          </p>
         </u-card-content>
       </u-card>
     </template>
@@ -740,15 +1148,12 @@ onBeforeUnmount(stopPolling)
         </u-card-content>
       </u-card>
     </template>
+
   </u-tabs>
 </template>
 
 <style scoped>
 .settings-form {
-  margin-bottom: 16px;
-}
-
-.kernel-card {
   margin-bottom: 16px;
 }
 
@@ -768,6 +1173,205 @@ onBeforeUnmount(stopPolling)
 .header-meta {
   font-size: var(--u-font-size-main-small);
   color: var(--u-text-color-second);
+}
+
+/* ---------- DNS 与系统优化 ---------- */
+
+.settings-card {
+  margin-bottom: 16px;
+}
+
+/* 区块说明行：统一次级文案形态 */
+.section-desc {
+  margin: 0 0 12px;
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+  line-height: 1.7;
+}
+
+.section-desc:last-child {
+  margin-bottom: 0;
+}
+
+.dns-preset {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--u-border-color);
+  border-radius: var(--u-radius-default);
+}
+
+.preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dns-preset-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dns-preset-name {
+  font-weight: 600;
+}
+
+.dns-preset-desc {
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+}
+
+.block-alert {
+  margin: 12px 0;
+}
+
+.settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.settings-label {
+  width: 150px;
+  flex-shrink: 0;
+  line-height: 32px;
+}
+
+.settings-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-desc {
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+}
+
+.settings-input {
+  width: 100%;
+}
+
+/* 服务器 / 规则行编辑器 */
+.editor-block {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--u-border-color);
+}
+
+.editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.editor-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.editor-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.editor-row + .editor-row {
+  border-top: 1px dashed var(--u-border-color);
+}
+
+.editor-fields {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 单格：控件 + 行内校验提示 */
+.editor-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.editor-warn {
+  color: var(--u-color-warning);
+  font-size: var(--u-font-size-main-small);
+}
+
+/* 系统优化状态栅格 */
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.status-label {
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+}
+
+.status-value {
+  font-size: 14px;
+}
+
+.status-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.status-dim {
+  color: var(--u-text-color-second);
+  font-size: var(--u-font-size-main-small);
+}
+
+.bbr-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+/* 手动命令代码块：等宽 + 可横向滚动 */
+.code-block {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border: 1px solid var(--u-border-color);
+  border-radius: var(--u-radius-small);
+  background: var(--u-bg-color-middle);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--u-font-size-main-small);
+  line-height: 1.7;
+  white-space: pre;
 }
 
 /* ---------- 主题设置 ---------- */
@@ -871,11 +1475,6 @@ onBeforeUnmount(stopPolling)
   align-items: center;
   justify-content: space-between;
   flex: 1;
-}
-
-.card-header-ops {
-  display: flex;
-  gap: 8px;
 }
 
 .kernel-log {

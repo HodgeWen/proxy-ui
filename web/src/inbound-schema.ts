@@ -1,5 +1,8 @@
-// 入站声明式表单定义：八协议元信息、字段 schema、默认值生成与弱配置警示。
-// 默认值与警示口径和后端 internal/singbox（DefaultInboundConfig / InboundWarnings）保持一致。
+// 入站声明式表单定义：七协议元信息、字段 schema、连接层默认值与弱配置警示。
+//
+// 口径说明：入站是一个真实监听（协议 + 监听地址/端口 + TLS/Reality/混淆/带宽/拥塞算法），
+// 不含任何用户凭据；用户凭据由后端为入站内每个用户独立生成，多用户共享同一监听端口。
+// 默认值与警示口径和后端 internal/singbox（NewTemplateConfig / InboundWarnings）保持一致。
 import type { Certificate } from './api/cert'
 
 /** 表单字段类型 */
@@ -33,7 +36,6 @@ export interface ProtocolDef {
   name: string
   desc: string
   recommended: boolean
-  defaultPort: number
   tls: boolean
   basic: FieldDef[]
   advanced: FieldDef[]
@@ -43,6 +45,18 @@ export interface ProtocolDef {
 export interface InboundWarning {
   text: string
   jump?: 'tls'
+}
+
+/** 监听地址选项：语义化三档，避免用户填错地址格式 */
+export const LISTEN_OPTIONS: FieldOption[] = [
+  { label: '双栈（IPv4 + IPv6）', value: '::' },
+  { label: '仅 IPv4', value: '0.0.0.0' },
+  { label: '仅本机（走反向代理）', value: '127.0.0.1' },
+]
+
+/** 监听地址 + 端口的展示串；IPv6 地址按 URL 习惯加方括号 */
+export function listenLabel(listen: string, port: number): string {
+  return `${listen.includes(':') ? `[${listen}]` : listen}:${port}`
 }
 
 /** TLS/证书区块字段（启用 TLS 的协议共用） */
@@ -99,18 +113,22 @@ export const TLS_FIELDS: FieldDef[] = [
   },
 ]
 
+/** ALPN 选项 */
+const ALPN_OPTIONS: FieldOption[] = [
+  { label: 'h3', value: 'h3' },
+  { label: 'h2', value: 'h2' },
+  { label: 'http/1.1', value: 'http/1.1' },
+]
+
 /** TLS 高级字段（归入高级选项折叠区） */
 export const TLS_ADVANCED: FieldDef[] = [
   {
     field: 'tls.alpn',
     label: 'ALPN',
     type: 'multiselect',
-    description: 'TLS ALPN 协商协议；QUIC 类协议（Hysteria2/TUIC）需含 h3，HTTPS 场景常用 h2 / http/1.1',
-    options: [
-      { label: 'h3', value: 'h3' },
-      { label: 'h2', value: 'h2' },
-      { label: 'http/1.1', value: 'http/1.1' },
-    ],
+    description:
+      'TLS ALPN 协商协议列表。QUIC 类协议（Hysteria2 / TUIC）必须含 h3（留空时内核会补 h3，但建议显式填上以便与客户端对齐）；普通 TLS 常用 h2 / http/1.1',
+    options: ALPN_OPTIONS,
   },
 ]
 
@@ -125,29 +143,26 @@ const CC_OPTIONS: FieldOption[] = [
   { label: 'new_reno', value: 'new_reno' },
 ]
 
+const BBR_PROFILE_OPTIONS: FieldOption[] = [
+  { label: 'standard（默认，通用）', value: 'standard' },
+  { label: 'conservative（保守，低带宽 / 弱机器）', value: 'conservative' },
+  { label: 'aggressive（激进，高带宽 / 低丢包）', value: 'aggressive' },
+]
+
 const SS_METHODS: FieldOption[] = [
   { label: '2022-blake3-aes-128-gcm', value: '2022-blake3-aes-128-gcm' },
   { label: '2022-blake3-aes-256-gcm', value: '2022-blake3-aes-256-gcm' },
-  { label: '2022-blake3-chacha20-poly1305', value: '2022-blake3-chacha20-poly1305' },
 ]
 
-/** 八协议定义，推荐组排前 */
+/** 七协议定义，推荐组排前 */
 export const PROTOCOL_DEFS: ProtocolDef[] = [
   {
     protocol: 'vless',
     name: 'VLESS + Reality',
     desc: 'Reality 伪装握手，无需自有证书',
     recommended: true,
-    defaultPort: 443,
     tls: true,
     basic: [
-      {
-        field: 'uuid',
-        label: 'UUID',
-        type: 'input',
-        placeholder: '用户 UUID',
-        description: '客户端认证的用户 UUID，订阅链接会带上它；默认已随机生成，可直接使用',
-      },
       {
         field: 'flow',
         label: '流控',
@@ -167,7 +182,8 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
         field: 'reality.privateKey',
         label: 'Reality 私钥',
         type: 'input',
-        description: 'x25519 私钥（base64 raw url），内核用于完成 Reality 握手；默认已生成，需与公钥配套',
+        description:
+          'x25519 私钥（base64 raw url），内核用于完成 Reality 握手；创建入站时已自动生成，需与公钥配套。本入站所有用户共用同一对密钥',
       },
       {
         field: 'reality.publicKey',
@@ -204,36 +220,49 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     name: 'Hysteria2',
     desc: '基于 QUIC 的高速协议',
     recommended: true,
-    defaultPort: 443,
     tls: true,
     basic: [
       {
-        field: 'password',
-        label: '认证密码',
-        type: 'password',
-        description: '客户端认证密码，订阅链接会带上它；默认已随机生成，可直接使用',
+        field: 'obfsEnabled',
+        label: '启用混淆',
+        type: 'switch',
+        description: 'salamander 混淆把 QUIC 流量伪装成普通 UDP，可降低被识别概率；密码为本入站所有用户共用，默认关闭',
       },
-    ],
-    advanced: [
       {
         field: 'obfsPassword',
         label: '混淆密码',
         type: 'password',
-        description: 'salamander 混淆密码，可将流量伪装成普通 QUIC；留空不启用混淆',
+        description: 'salamander 混淆密码，本入站所有用户共用；启用混淆时必填，需与客户端保持一致，建议用长随机串',
+        when: (cfg) => !!cfg.obfsEnabled,
       },
+    ],
+    advanced: [
       {
         field: 'upMbps',
-        label: '上行上限 (Mbps)',
+        label: '上行带宽上限 (Mbps)',
         type: 'number',
         min: 0,
-        description: '上行带宽上限（Mbps）；填服务器真实上行可让拥塞控制更准确，0 表示不限制',
+        description: '留空（0）为不限制。不限带宽时客户端会使用 BBR（吞吐最好）；一旦设置带宽上限，客户端将被强制改用 Brutal',
       },
       {
         field: 'downMbps',
-        label: '下行上限 (Mbps)',
+        label: '下行带宽上限 (Mbps)',
         type: 'number',
         min: 0,
-        description: '下行带宽上限（Mbps）；0 表示不限制',
+        description: '留空（0）为不限制，含义同上行带宽',
+      },
+      {
+        field: 'ignoreClientBandwidth',
+        label: '忽略客户端带宽设置',
+        type: 'switch',
+        description: '开启后要求客户端放弃 Brutal、统一使用 BBR 拥塞控制（需带宽不限）',
+      },
+      {
+        field: 'bbrProfile',
+        label: 'BBR 档位',
+        type: 'select',
+        description: '内核 BBR 拥塞控制档位；不确定就用 standard，高带宽低丢包可试 aggressive',
+        options: BBR_PROFILE_OPTIONS,
       },
     ],
   },
@@ -242,28 +271,14 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     name: 'TUIC v5',
     desc: 'QUIC 低延迟协议',
     recommended: true,
-    defaultPort: 443,
     tls: true,
-    basic: [
-      {
-        field: 'uuid',
-        label: 'UUID',
-        type: 'input',
-        description: '客户端认证的 UUID，订阅链接会带上它；默认已随机生成，可直接使用',
-      },
-      {
-        field: 'password',
-        label: '认证密码',
-        type: 'password',
-        description: '客户端认证密码，与 UUID 配合使用；默认已随机生成',
-      },
-    ],
+    basic: [],
     advanced: [
       {
         field: 'congestionControl',
         label: '拥塞控制',
         type: 'select',
-        description: 'QUIC 拥塞控制算法；bbr 在高丢包链路下表现最好',
+        description: 'QUIC 拥塞控制算法；bbr 在高丢包链路下表现最好，为面板默认值',
         options: CC_OPTIONS,
       },
     ],
@@ -273,16 +288,8 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     name: 'AnyTLS',
     desc: 'TLS 流量复用协议',
     recommended: true,
-    defaultPort: 443,
     tls: true,
-    basic: [
-      {
-        field: 'password',
-        label: '认证密码',
-        type: 'password',
-        description: '客户端认证密码，订阅链接会带上它；默认已随机生成，可直接使用',
-      },
-    ],
+    basic: [],
     advanced: [],
   },
   {
@@ -290,16 +297,8 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     name: 'Trojan',
     desc: 'TLS 加密，需配置证书',
     recommended: false,
-    defaultPort: 443,
     tls: true,
-    basic: [
-      {
-        field: 'password',
-        label: '认证密码',
-        type: 'password',
-        description: '客户端认证密码，流量经 TLS 加密；建议使用长随机串，默认已随机生成',
-      },
-    ],
+    basic: [],
     advanced: [],
   },
   {
@@ -307,15 +306,8 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     name: 'VMess + WS + TLS',
     desc: 'WebSocket 传输，CDN 友好',
     recommended: false,
-    defaultPort: 443,
     tls: true,
     basic: [
-      {
-        field: 'uuid',
-        label: 'UUID',
-        type: 'input',
-        description: '客户端认证的用户 UUID，订阅链接会带上它；默认已随机生成，可直接使用',
-      },
       {
         field: 'wsPath',
         label: 'WS 路径',
@@ -331,33 +323,16 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     name: 'Shadowsocks-2022',
     desc: 'AEAD 2022 系列加密',
     recommended: false,
-    defaultPort: 8388,
     tls: false,
     basic: [
       {
         field: 'method',
         label: '加密方法',
         type: 'select',
-        description: 'Shadowsocks-2022 加密方法，决定密钥长度；客户端需选择相同方法',
+        description: 'Shadowsocks-2022 加密方法，决定各节点密钥长度；默认 128 位已足够安全且开销更低',
         options: SS_METHODS,
       },
-      {
-        field: 'password',
-        label: '密钥',
-        type: 'input',
-        description: '按加密方法要求定长的 base64 密钥（128 位需 16 字节、256 位需 32 字节）；默认已随机生成',
-      },
     ],
-    advanced: [],
-  },
-  {
-    protocol: 'direct',
-    name: 'Direct',
-    desc: '明文直连入站，适合内网中转',
-    recommended: false,
-    defaultPort: 8080,
-    tls: false,
-    basic: [],
     advanced: [],
   },
 ]
@@ -372,27 +347,11 @@ export function certOptions(certs: Certificate[]): FieldOption[] {
   return certs.map((c) => ({ label: c.name, value: c.id }))
 }
 
-// ---------- 默认值生成（随机凭据在浏览器本地生成） ----------
-
-/** n 字节安全随机数的 base64 串 */
-function randBase64(n: number): string {
-  const buf = new Uint8Array(n)
-  crypto.getRandomValues(buf)
-  return btoa(String.fromCharCode(...buf))
-}
+// ---------- 连接层默认值（凭据由后端为入站内每个用户独立生成） ----------
 
 /** n 字节安全随机数的 hex 串 */
 function randHex(n: number): string {
   return Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => b.toString(16).padStart(2, '0')).join('')
-}
-
-/** v4 UUID（crypto.randomUUID 仅安全上下文可用，用 getRandomValues 自行实现） */
-function randomUUID(): string {
-  const buf = crypto.getRandomValues(new Uint8Array(16))
-  buf[6] = (buf[6] & 0x0f) | 0x40 // version 4
-  buf[8] = (buf[8] & 0x3f) | 0x80 // RFC 4122 variant
-  const hex = Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('')
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
 // ---------- X25519（RFC 7748 ladder 实现，纯 BigInt；不依赖 crypto.subtle 的安全上下文） ----------
@@ -490,14 +449,17 @@ function realityKeypair(): { privateKey: string; publicKey: string } {
   return { privateKey: b64url(privateKey), publicKey: b64url(publicKey) }
 }
 
-/** 生成协议默认配置（与后端 DefaultInboundConfig 同口径；managed 证书待用户选择） */
+/**
+ * 生成协议连接层默认配置，不含任何用户凭据（凭据由后端为入站内每个用户生成）。
+ * QUIC 类协议默认 ALPN 含 h3、拥塞算法默认 bbr；Shadowsocks 的服务端 PSK 由后端补齐，
+ * Hysteria2 混淆默认关闭（混淆密码是入站级共享密钥，由使用者自行填写，不在前端随机生成）。
+ */
 export function defaultInboundConfig(protocol: string): Record<string, any> {
   const managedTLS = { enabled: true, certMode: 'managed' }
   switch (protocol) {
     case 'vless': {
       const keypair = realityKeypair()
       return {
-        uuid: randomUUID(),
         flow: 'xtls-rprx-vision',
         reality: {
           enabled: true,
@@ -511,44 +473,36 @@ export function defaultInboundConfig(protocol: string): Record<string, any> {
       }
     }
     case 'hysteria2':
-      return { password: randBase64(16), tls: { ...managedTLS } }
+      return {
+        obfsEnabled: false,
+        obfsPassword: '',
+        upMbps: 0,
+        downMbps: 0,
+        bbrProfile: 'standard',
+        // QUIC 类协议 ALPN 必须含 h3：创建入站即给默认值，避免保存后握手失败
+        tls: { enabled: true, certMode: 'managed', alpn: ['h3'] },
+      }
     case 'tuic':
       return {
-        uuid: randomUUID(),
-        password: randBase64(16),
         congestionControl: 'bbr',
         tls: { enabled: true, certMode: 'managed', alpn: ['h3'] },
       }
     case 'anytls':
-      return { password: randBase64(16), tls: { ...managedTLS } }
     case 'trojan':
-      return { password: randBase64(16), tls: { ...managedTLS } }
+      return { tls: { ...managedTLS } }
     case 'vmess':
-      return { uuid: randomUUID(), wsPath: '/', tls: { ...managedTLS } }
+      return { wsPath: '/', tls: { ...managedTLS } }
     case 'shadowsocks':
-      return { method: '2022-blake3-aes-128-gcm', password: randBase64(16) }
-    case 'direct':
-      return {}
+      return { method: '2022-blake3-aes-128-gcm' }
   }
   throw new Error(`不支持的入站协议: ${protocol}`)
 }
 
 // ---------- 弱配置警示（保存前在表单内联展示，口径与后端 InboundWarnings 一致） ----------
 
-/** SS2022 方法所需密钥字节数 */
-const SS2022_KEY_BYTES: Record<string, number> = {
-  '2022-blake3-aes-128-gcm': 16,
-  '2022-blake3-aes-256-gcm': 32,
-  '2022-blake3-chacha20-poly1305': 32,
-}
-
-/** base64 密钥解码后长度是否与方法要求不符（解码失败视为不合规） */
-function keyMismatch(password: string, want: number): boolean {
-  try {
-    return atob(password).length !== want
-  } catch {
-    return true
-  }
+/** QUIC 类协议（ALPN 必须含 h3） */
+function isQuicProtocol(protocol: string): boolean {
+  return protocol === 'hysteria2' || protocol === 'tuic'
 }
 
 /** 计算弱配置警示；jump 指向表单内可修复该问题的区块 */
@@ -562,6 +516,13 @@ export function computeInboundWarnings(protocol: string, cfg: Record<string, any
       (tls.certMode === 'path' && (!tls.certPath || !tls.keyPath))
     if (tls.enabled && missing) {
       warnings.push({ text: 'TLS 已启用但未配置证书，应用配置将失败', jump: 'tls' })
+    }
+  }
+  /** QUIC 协议若显式配置了 ALPN 但不含 h3，握手会失败 */
+  const alpnWarning = () => {
+    const alpn: string[] = tls.alpn ?? []
+    if (alpn.length > 0 && !alpn.includes('h3')) {
+      warnings.push({ text: 'QUIC 类协议 ALPN 需含 h3，当前配置不含 h3' })
     }
   }
   switch (protocol) {
@@ -578,42 +539,50 @@ export function computeInboundWarnings(protocol: string, cfg: Record<string, any
       break
     }
     case 'hysteria2':
-      if (!cfg.password) warnings.push({ text: 'Hysteria2 密码为空' })
       if (!tls.enabled) warnings.push({ text: 'Hysteria2 必须启用 TLS，当前已关闭', jump: 'tls' })
-      else certWarning()
+      else {
+        certWarning()
+        alpnWarning()
+      }
+      if (cfg.obfsEnabled && !cfg.obfsPassword) warnings.push({ text: '已启用混淆但混淆密码为空' })
+      if ((cfg.upMbps ?? 0) > 0 && (cfg.downMbps ?? 0) > 0) {
+        warnings.push({ text: '已设置带宽上限，客户端将无法使用 BBR（如需 BBR 请保持带宽不限）' })
+      }
       break
     case 'tuic':
-      if (!cfg.uuid || !cfg.password) warnings.push({ text: 'UUID 或密码为空' })
       if (!tls.enabled) warnings.push({ text: 'TUIC 必须启用 TLS，当前已关闭', jump: 'tls' })
-      else certWarning()
+      else {
+        certWarning()
+        alpnWarning()
+      }
       break
     case 'anytls':
-      if (!cfg.password) warnings.push({ text: 'AnyTLS 密码为空' })
       if (!tls.enabled) warnings.push({ text: 'AnyTLS 必须启用 TLS，当前已关闭', jump: 'tls' })
       else certWarning()
       break
     case 'trojan':
-      if (!cfg.password) warnings.push({ text: 'Trojan 密码为空' })
       if (!tls.enabled) warnings.push({ text: 'Trojan 未启用 TLS，密码将明文传输', jump: 'tls' })
       else certWarning()
       break
     case 'vmess':
-      if (!cfg.uuid) warnings.push({ text: 'UUID 为空' })
       if (!tls.enabled) warnings.push({ text: 'VMess 未启用 TLS，流量将明文传输', jump: 'tls' })
       else certWarning()
       break
     case 'shadowsocks': {
-      const method = cfg.method ?? ''
-      if (!cfg.password) warnings.push({ text: '密钥为空' })
-      else if (!method.startsWith('2022-')) warnings.push({ text: '非 Shadowsocks-2022 加密方法，强度较弱' })
-      else {
-        const want = SS2022_KEY_BYTES[method]
-        if (want !== undefined && keyMismatch(cfg.password, want)) {
-          warnings.push({ text: `SS2022 密钥强度不足，需 base64 编码的 ${want} 字节密钥` })
-        }
-      }
+      if (!String(cfg.method ?? '').startsWith('2022-')) warnings.push({ text: '非 Shadowsocks-2022 加密方法，强度较弱' })
       break
     }
   }
   return warnings
+}
+
+/** 端口/节点相关提示：QUIC 协议需要 UDP 可达 */
+export function protocolNotes(protocol: string): string[] {
+  if (isQuicProtocol(protocol)) {
+    return [
+      'QUIC 类协议走 UDP：若前面有防火墙或安全组，需放行 UDP 端口',
+      '若入站监听仅本机（走反向代理），UDP 通常无法被 Nginx 转发，建议直连公网端口',
+    ]
+  }
+  return []
 }
