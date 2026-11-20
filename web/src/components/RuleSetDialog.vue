@@ -17,6 +17,7 @@ import { computed, reactive, shallowRef, watch } from 'vue'
 
 import { createRuleSetItem, deleteRuleSetItem, updateRuleSetItem } from '../api/rule'
 import type { RuleSet, RuleSetItem, RuleSetItemPayload } from '../api/rule'
+import { dialogStyle } from '../dialog-style'
 
 const props = defineProps<{
   ruleSet: RuleSet | null
@@ -220,7 +221,7 @@ watch(visible, (open) => {
 </script>
 
 <template>
-  <u-dialog v-model="visible" :title="`维护规则集内容 · ${ruleSet?.name ?? ''}`" style="width: 900px; max-width: 96vw">
+  <u-dialog v-model="visible" :title="`维护规则集内容 · ${ruleSet?.name ?? ''}`" :style="dialogStyle(900)">
     <template v-if="ruleSet">
       <div class="set-head">
         <div class="set-title">
@@ -286,10 +287,11 @@ watch(visible, (open) => {
             <!-- 编辑态：表单就地展开在该行内，不另开编辑区 -->
             <div v-if="editingId === item.id" class="item-editor">
               <div class="item-editor-title">{{ editorTitle }}</div>
+                <!-- 单列：行内编辑区宽度随弹框收窄，固定 2 列会挤压 132px label 与控件 -->
                 <u-form
                   :ref="(el: unknown) => bindEditor(item.id, el)"
                   :model="editor"
-                  :cols="2"
+                  :cols="1"
                   label-width="132px"
                 >
                 <u-form-item

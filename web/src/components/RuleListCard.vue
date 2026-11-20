@@ -24,6 +24,7 @@ import type { FormExposed } from '@veltra/desktop'
 import { computed, reactive, shallowRef, watch } from 'vue'
 
 import EmptyState from './EmptyState.vue'
+import { dialogStyle } from '../dialog-style'
 
 const props = defineProps<{
   rules: RuleRecord[]
@@ -342,7 +343,7 @@ function handleMaintain(): void {
         每条规则 = 匹配对象 × 匹配方式 + 匹配值 → 出站，流量自上而下逐条匹配、命中即走对应出站；顺序影响结果，可用「上移 / 下移」调整。
       </div>
       <!-- 不用 text-ellipsis：它会给含按钮的操作列也挂悬浮提示；只在匹配条件单元格内自行截断 -->
-      <u-table :columns="columns" :data="rules" row-key="id" border stripe>
+      <u-table :columns="columns" :data="rules" row-key="id" stripe>
         <template #empty>
           <EmptyState
             v-if="!loading"
@@ -395,7 +396,7 @@ function handleMaintain(): void {
     </u-card-content>
   </u-card>
 
-  <u-dialog v-model="formVisible" :title="editing ? '编辑规则' : '新建规则'" style="width: 600px; max-width: 96vw">
+  <u-dialog v-model="formVisible" :title="editing ? '编辑规则' : '新建规则'" :style="dialogStyle(600)">
     <u-form ref="formRef" :model="form" :cols="1" label-width="92px">
       <u-form-item
         label="匹配对象"

@@ -23,6 +23,7 @@ import type { FormExposed } from '@veltra/desktop'
 import { reactive, shallowRef } from 'vue'
 
 import EmptyState from './EmptyState.vue'
+import { dialogStyle } from '../dialog-style'
 
 defineProps<{
   ruleSets: RuleSet[]
@@ -128,7 +129,7 @@ async function handleDelete(row: RuleSet): Promise<void> {
       <div class="card-desc">
         规则集是「一个 tag + 多条内容项」的规则来源包：每条内容项同时带 sing-box 与 mihomo 源地址，同一时刻只有一条启用，规则下载用的就是它。切换下载来源 = 启用另一条内容项，引用它的规则无需改动。内置规则集与仍被规则引用的规则集不可删除（悬停「删除」可看原因）。
       </div>
-      <u-table :columns="columns" :data="ruleSets" row-key="id" border stripe>
+      <u-table :columns="columns" :data="ruleSets" row-key="id" stripe>
         <template #empty>
           <EmptyState
             v-if="!loading"
@@ -180,7 +181,7 @@ async function handleDelete(row: RuleSet): Promise<void> {
     </u-card-content>
   </u-card>
 
-  <u-dialog v-model="formVisible" :title="editing ? `编辑规则集 · ${editing.name}` : '新建规则集'" style="width: 520px; max-width: 96vw">
+  <u-dialog v-model="formVisible" :title="editing ? `编辑规则集 · ${editing.name}` : '新建规则集'" :style="dialogStyle(520)">
     <u-form ref="formRef" :model="form" :cols="1" label-width="80px">
       <u-form-item
         label="名称"

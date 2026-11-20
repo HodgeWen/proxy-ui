@@ -26,6 +26,7 @@ import { computed, defineComponent, h, nextTick, reactive, ref, shallowRef, useT
 import { useRouter } from 'vue-router'
 
 import FormGroupCard from './FormGroupCard.vue'
+import { dialogStyle } from '../dialog-style'
 import {
   LISTEN_OPTIONS,
   PROTOCOL_DEFS,
@@ -209,7 +210,7 @@ defineExpose({ openCreate, openEdit })
 </script>
 
 <template>
-  <u-dialog v-model="visible" :title="dialogTitle" style="width: 1120px; max-width: 96vw">
+  <u-dialog v-model="visible" :title="dialogTitle" :style="dialogStyle(1120)">
     <!-- 语义说明：解释这里配的是什么 -->
     <div class="form-intro">
       这里配置一个<b>真实监听</b>：协议、监听地址与端口，以及连接层参数（TLS / Reality / 混淆 / 拥塞算法）。

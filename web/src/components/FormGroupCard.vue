@@ -1,5 +1,5 @@
 <!-- 弹框表单分组卡片：加粗标题栏（底部 1px 分隔线）+ chevron 点击折叠，默认展开；
-     主体内置断点栅格（窄屏 1 列、≥md 2 列），表单项经 span 占列、'full' 占整行 -->
+     主体内置断点栅格（窄屏 1 列、其余 2 列），表单项经 span 占列、'full' 占整行 -->
 <script setup lang="ts">
 import { UGrid } from '@veltra/desktop'
 import { Down } from '@veltra/icons/normal'
@@ -21,7 +21,9 @@ const collapsed = defineModel<boolean>('collapsed', { default: false })
       <Down class="form-group-card__chevron" :class="{ 'is-collapsed': collapsed }" />
     </button>
     <div v-show="!collapsed" class="form-group-card__body">
-      <u-grid :cols="{ xs: 1, md: 2 }" gap="0 12px">
+      <!-- cols 必须显式写全每个断点：UGrid 断点对象对未指定的高位断点（含 default）回落 24 列，
+           漏写 lg/xl 会让宽容器（弹框最大化 / 大屏）下的表单项被挤进 24 列而堆叠错乱 -->
+      <u-grid :cols="{ xs: 1, sm: 2, md: 2, lg: 2, xl: 2 }" gap="0 12px">
         <slot />
       </u-grid>
     </div>
@@ -30,7 +32,6 @@ const collapsed = defineModel<boolean>('collapsed', { default: false })
 
 <style scoped>
 .form-group-card {
-  grid-column: 1 / -1;
   border: 1px solid var(--u-border-color);
   border-radius: var(--u-radius-default);
   background: var(--u-bg-color-top);
@@ -83,5 +84,13 @@ const collapsed = defineModel<boolean>('collapsed', { default: false })
 
 .form-group-card__body {
   padding: 12px 14px;
+}
+</style>
+
+<style>
+/* 占整行只对表单栅格内的卡片有意义（scoped 样式选不到祖先，故单独一条非 scoped 规则）：
+   不在 u-form 里（如设置页主题卡内直接摆放）时保持常规块级流，不给无关父容器写栅格坐标 */
+.u-form .form-group-card {
+  grid-column: 1 / -1;
 }
 </style>

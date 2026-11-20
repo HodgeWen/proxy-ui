@@ -26,6 +26,7 @@ import { computed, onMounted, ref, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 
 import EmptyState from '../components/EmptyState.vue'
+import { dialogStyle } from '../dialog-style'
 import { PROTOCOL_DEFS, listenLabel, protocolDef } from '../inbound-schema'
 
 const router = useRouter()
@@ -133,7 +134,7 @@ onMounted(refresh)
         每个用户都是独立身份：有自己的凭据、在订阅里是一个独立节点，流量也按用户单独累计。
         任何改动保存后立即生效，内核随即按新配置重建。
       </div>
-      <u-table :columns="columns" :data="inbounds" row-key="id" border :loading="loading">
+      <u-table :columns="columns" :data="inbounds" row-key="id" :loading="loading">
         <template #empty>
           <EmptyState
             v-if="!loading"
@@ -182,7 +183,7 @@ onMounted(refresh)
   </u-card>
 
   <!-- 新建入口：推荐组排前分组展示 -->
-  <u-dialog v-model="pickerVisible" title="新建入站" style="width: 640px; max-width: 96vw">
+  <u-dialog v-model="pickerVisible" title="新建入站" :style="dialogStyle(640)">
     <p class="picker-tip">选择协议后填写监听地址、端口与连接层参数；端口留空会自动分配一个随机空闲端口。</p>
     <div class="proto-group">
       <p class="proto-group-title">推荐</p>

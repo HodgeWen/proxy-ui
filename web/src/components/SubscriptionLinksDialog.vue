@@ -17,6 +17,7 @@ import { computed } from 'vue'
 
 import { formatBytes, subscriptionLink } from '../api/subscription'
 import type { SubscriptionToken } from '../api/subscription'
+import { dialogStyle } from '../dialog-style'
 import { protocolDef } from '../inbound-schema'
 
 const visible = defineModel<boolean>('visible', { default: false })
@@ -84,7 +85,7 @@ function handleDownloadPNG(): void {
   <u-dialog
     v-model="visible"
     :title="`订阅链接 · ${token?.name || '未命名'}`"
-    style="width: 780px; max-width: 96vw"
+    :style="dialogStyle(780)"
   >
     <template v-if="token">
       <u-alert
@@ -123,7 +124,7 @@ function handleDownloadPNG(): void {
         共 {{ token.nodes.length }} 个节点，来自 {{ inboundCount }} 个入站。
         <b>同一入站的节点共用该入站的端口</b>，客户端靠各自的凭据区分用户，因此端口重复是正常的。
       </p>
-      <u-table :columns="nodeColumns" :data="token.nodes" row-key="userId" border size="small">
+      <u-table :columns="nodeColumns" :data="token.nodes" row-key="userId" size="small">
         <template #empty>
           <span class="cell-dim">尚未勾选入站，客户端订阅里没有任何节点</span>
         </template>

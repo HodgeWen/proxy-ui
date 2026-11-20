@@ -28,6 +28,7 @@ import { onMounted, reactive, shallowRef } from 'vue'
 
 import EmptyState from '../components/EmptyState.vue'
 import FormGroupCard from '../components/FormGroupCard.vue'
+import { dialogStyle } from '../dialog-style'
 
 const certs = shallowRef<Certificate[]>([])
 const loading = shallowRef(false)
@@ -260,109 +261,108 @@ onMounted(refresh)
     </u-card-content>
   </u-card>
 
-  <u-dialog v-model="formVisible" :title="editing ? `编辑证书 · ${editing.name}` : '新增证书'" style="width: 1120px; max-width: 96vw">
-    <div class="dialog-scroll">
-      <u-form ref="formRef" :model="form" :cols="1" label-width="112px">
-        <FormGroupCard title="基本信息">
-          <u-form-item
-            label="名称"
-            field="name"
-            :rules="form.source === 'self' && !editing ? undefined : { required: '请输入名称' }"
-            :tips="form.source === 'self' && !editing ? '证书备注名，供入站 TLS 引用时识别；留空取主域名' : '证书备注名，供入站 TLS 引用时识别'"
-          >
-            <u-input v-model="form.name" placeholder="证书备注名" />
-          </u-form-item>
-          <u-form-item
-            v-if="!editing"
-            label="来源"
-            field="source"
-            tips="一键自签由面板生成并保管（适合自用）；上传/粘贴已有证书 PEM 交面板保管；服务器路径只引用不接管文件"
-          >
-            <u-select v-model="form.source" :options="sourceOptions" />
-          </u-form-item>
-        </FormGroupCard>
+  <u-dialog v-model="formVisible" :title="editing ? `编辑证书 · ${editing.name}` : '新增证书'" :style="dialogStyle(1120)">
+    <!-- 内容超高时由 UDialog 自带滚动容器接管，header / footer 常驻 -->
+    <u-form ref="formRef" :model="form" :cols="1" label-width="112px">
+      <FormGroupCard title="基本信息">
+        <u-form-item
+          label="名称"
+          field="name"
+          :rules="form.source === 'self' && !editing ? undefined : { required: '请输入名称' }"
+          :tips="form.source === 'self' && !editing ? '证书备注名，供入站 TLS 引用时识别；留空取主域名' : '证书备注名，供入站 TLS 引用时识别'"
+        >
+          <u-input v-model="form.name" placeholder="证书备注名" />
+        </u-form-item>
+        <u-form-item
+          v-if="!editing"
+          label="来源"
+          field="source"
+          tips="一键自签由面板生成并保管（适合自用）；上传/粘贴已有证书 PEM 交面板保管；服务器路径只引用不接管文件"
+        >
+          <u-select v-model="form.source" :options="sourceOptions" />
+        </u-form-item>
+      </FormGroupCard>
 
-        <!-- 一键自签（仅新增） -->
-        <FormGroupCard v-if="!editing && form.source === 'self'" title="自签参数">
-          <u-form-item
-            label="主域名"
-            field="domain"
-            :rules="{ required: '请输入主域名' }"
-            tips="作为证书 CN 与首个 SAN；客户端连接入站时使用的域名需与之一致"
-          >
-            <u-input v-model="form.domain" placeholder="如 example.com" />
-          </u-form-item>
-          <u-form-item
-            label="有效期"
-            field="days"
-            :rules="{ required: '请输入有效期天数' }"
-            tips="自签证书需要手动轮换，自用建议一次给足（默认 10 年）；1-36500 天"
-          >
-            <u-number-input v-model="form.days" :min="1" :max="36500" placeholder="天数（默认 3650）" />
-          </u-form-item>
-          <u-form-item
-            label="附加 SAN"
-            field="sans"
-            span="full"
-            tips="额外覆盖的域名或 IP（如 www.example.com、10.0.0.8），可留空；输入后回车添加"
-          >
-            <u-multi-select v-model="form.sans" filterable creatable clearable placeholder="输入域名或 IP 后回车" />
-          </u-form-item>
-          <u-form-item label="密钥类型" field="keyType" tips="默认 ECDSA P-256：体积小、握手快；老客户端兼容性有问题时换 RSA 2048">
-            <u-select v-model="form.keyType" :options="keyTypeOptions" />
-          </u-form-item>
-        </FormGroupCard>
+      <!-- 一键自签（仅新增） -->
+      <FormGroupCard v-if="!editing && form.source === 'self'" title="自签参数">
+        <u-form-item
+          label="主域名"
+          field="domain"
+          :rules="{ required: '请输入主域名' }"
+          tips="作为证书 CN 与首个 SAN；客户端连接入站时使用的域名需与之一致"
+        >
+          <u-input v-model="form.domain" placeholder="如 example.com" />
+        </u-form-item>
+        <u-form-item
+          label="有效期"
+          field="days"
+          :rules="{ required: '请输入有效期天数' }"
+          tips="自签证书需要手动轮换，自用建议一次给足（默认 10 年）；1-36500 天"
+        >
+          <u-number-input v-model="form.days" :min="1" :max="36500" placeholder="天数（默认 3650）" />
+        </u-form-item>
+        <u-form-item
+          label="附加 SAN"
+          field="sans"
+          span="full"
+          tips="额外覆盖的域名或 IP（如 www.example.com、10.0.0.8），可留空；输入后回车添加"
+        >
+          <u-multi-select v-model="form.sans" filterable creatable clearable placeholder="输入域名或 IP 后回车" />
+        </u-form-item>
+        <u-form-item label="密钥类型" field="keyType" tips="默认 ECDSA P-256：体积小、握手快；老客户端兼容性有问题时换 RSA 2048">
+          <u-select v-model="form.keyType" :options="keyTypeOptions" />
+        </u-form-item>
+      </FormGroupCard>
 
-        <!-- 上传/粘贴 PEM -->
-        <FormGroupCard v-if="form.source === 'managed'" title="证书内容">
-          <u-form-item
-            label="证书 PEM"
-            field="certPem"
-            span="full"
-            :rules="editing ? undefined : { required: '请粘贴或上传证书 PEM' }"
-            tips="PEM 格式证书全文（-----BEGIN CERTIFICATE----- 开头）；编辑时留空表示仅改名"
-          >
-            <u-textarea v-model="form.certPem" :rows="4" placeholder="-----BEGIN CERTIFICATE-----" />
-            <u-button class="pem-upload" @click="certFileInput?.click()">上传证书文件</u-button>
-            <input ref="certFileInput" type="file" accept=".pem,.crt,.cer,text/plain" hidden @change="pickPem('certPem', $event)" />
-          </u-form-item>
-          <u-form-item
-            label="私钥 PEM"
-            field="keyPem"
-            span="full"
-            :rules="editing ? undefined : { required: '请粘贴或上传私钥 PEM' }"
-            tips="PEM 格式私钥全文（-----BEGIN PRIVATE KEY----- 开头）；填写则需与证书成对替换"
-          >
-            <u-textarea v-model="form.keyPem" :rows="4" placeholder="-----BEGIN PRIVATE KEY-----" />
-            <u-button class="pem-upload" @click="keyFileInput?.click()">上传私钥文件</u-button>
-            <input ref="keyFileInput" type="file" accept=".pem,.key,text/plain" hidden @change="pickPem('keyPem', $event)" />
-          </u-form-item>
-        </FormGroupCard>
+      <!-- 上传/粘贴 PEM -->
+      <FormGroupCard v-if="form.source === 'managed'" title="证书内容">
+        <u-form-item
+          label="证书 PEM"
+          field="certPem"
+          span="full"
+          :rules="editing ? undefined : { required: '请粘贴或上传证书 PEM' }"
+          tips="PEM 格式证书全文（-----BEGIN CERTIFICATE----- 开头）；编辑时留空表示仅改名"
+        >
+          <u-textarea v-model="form.certPem" :rows="4" placeholder="-----BEGIN CERTIFICATE-----" />
+          <u-button class="pem-upload" @click="certFileInput?.click()">上传证书文件</u-button>
+          <input ref="certFileInput" type="file" accept=".pem,.crt,.cer,text/plain" hidden @change="pickPem('certPem', $event)" />
+        </u-form-item>
+        <u-form-item
+          label="私钥 PEM"
+          field="keyPem"
+          span="full"
+          :rules="editing ? undefined : { required: '请粘贴或上传私钥 PEM' }"
+          tips="PEM 格式私钥全文（-----BEGIN PRIVATE KEY----- 开头）；填写则需与证书成对替换"
+        >
+          <u-textarea v-model="form.keyPem" :rows="4" placeholder="-----BEGIN PRIVATE KEY-----" />
+          <u-button class="pem-upload" @click="keyFileInput?.click()">上传私钥文件</u-button>
+          <input ref="keyFileInput" type="file" accept=".pem,.key,text/plain" hidden @change="pickPem('keyPem', $event)" />
+        </u-form-item>
+      </FormGroupCard>
 
-        <!-- 引用服务器路径 -->
-        <FormGroupCard v-if="form.source === 'path'" title="文件路径">
-          <u-form-item
-            label="证书路径"
-            field="certPath"
-            span="full"
-            :rules="editing ? undefined : { required: '请输入证书路径' }"
-            tips="服务器上证书文件的绝对路径，内核进程需有读取权限"
-          >
-            <u-input v-model="form.certPath" placeholder="服务器上证书文件绝对路径" />
-          </u-form-item>
-          <u-form-item
-            label="私钥路径"
-            field="keyPath"
-            span="full"
-            :rules="editing ? undefined : { required: '请输入私钥路径' }"
-            tips="服务器上私钥文件的绝对路径，与证书路径配套使用"
-          >
-            <u-input v-model="form.keyPath" placeholder="服务器上私钥文件绝对路径" />
-          </u-form-item>
-        </FormGroupCard>
-      </u-form>
-      <p v-if="editing && form.source === 'managed'" class="pem-hint">留空 PEM 内容表示仅改名；填写则需成对替换。</p>
-    </div>
+      <!-- 引用服务器路径 -->
+      <FormGroupCard v-if="form.source === 'path'" title="文件路径">
+        <u-form-item
+          label="证书路径"
+          field="certPath"
+          span="full"
+          :rules="editing ? undefined : { required: '请输入证书路径' }"
+          tips="服务器上证书文件的绝对路径，内核进程需有读取权限"
+        >
+          <u-input v-model="form.certPath" placeholder="服务器上证书文件绝对路径" />
+        </u-form-item>
+        <u-form-item
+          label="私钥路径"
+          field="keyPath"
+          span="full"
+          :rules="editing ? undefined : { required: '请输入私钥路径' }"
+          tips="服务器上私钥文件的绝对路径，与证书路径配套使用"
+        >
+          <u-input v-model="form.keyPath" placeholder="服务器上私钥文件绝对路径" />
+        </u-form-item>
+      </FormGroupCard>
+    </u-form>
+    <p v-if="editing && form.source === 'managed'" class="pem-hint">留空 PEM 内容表示仅改名；填写则需成对替换。</p>
     <template #footer="{ close }">
       <u-button text @click="close()">取消</u-button>
       <u-button type="primary" :loading="saving" @click="handleSave">
@@ -416,12 +416,6 @@ onMounted(refresh)
 .cell-expired {
   color: var(--u-color-error);
   font-size: var(--u-font-size-main-small);
-}
-
-/* 弹框表单超出可视高度时内部滚动，footer 常驻 */
-.dialog-scroll {
-  max-height: calc(90vh - 160px);
-  overflow-y: auto;
 }
 
 .pem-upload {

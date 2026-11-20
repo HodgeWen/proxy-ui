@@ -29,6 +29,7 @@ import { computed, nextTick, onBeforeUnmount, reactive, shallowRef, useTemplateR
 
 import EmptyState from '../components/EmptyState.vue'
 import FormGroupCard from '../components/FormGroupCard.vue'
+import { dialogStyle } from '../dialog-style'
 
 import {
   createAIModel,
@@ -1459,7 +1460,7 @@ onBeforeUnmount(stopPolling)
       <u-dialog
         v-model="aiProviderDialog"
         :title="aiProviderEditingId ? '编辑 AI 供应商' : '新增 AI 供应商'"
-        style="width: 520px"
+        :style="dialogStyle(520)"
       >
         <u-form :model="aiProviderForm" :cols="1" label-width="96px">
           <u-input
@@ -1496,7 +1497,7 @@ onBeforeUnmount(stopPolling)
       <u-dialog
         v-model="aiModelDialog"
         :title="aiModelEditingId ? '编辑模型' : '手工添加模型'"
-        style="width: 560px"
+        :style="dialogStyle(560)"
       >
         <u-form :model="aiModelForm" :cols="1" label-width="96px">
           <u-input
@@ -1565,7 +1566,7 @@ onBeforeUnmount(stopPolling)
       </u-dialog>
 
       <!-- 从供应商 /models 拉取并多选导入 -->
-      <u-dialog v-model="aiImportDialog" title="从 /models 导入模型" style="width: 560px">
+      <u-dialog v-model="aiImportDialog" title="从 /models 导入模型" :style="dialogStyle(560)">
         <EmptyState v-if="aiImportFetching" title="正在从供应商 /models 拉取…" />
         <template v-else-if="aiUpstreamModels.length">
           <u-multi-select

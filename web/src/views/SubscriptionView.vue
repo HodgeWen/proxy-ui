@@ -32,6 +32,7 @@ import { computed, onMounted, reactive, shallowRef, useTemplateRef } from 'vue'
 
 import EmptyState from '../components/EmptyState.vue'
 import SubscriptionLinksDialog from '../components/SubscriptionLinksDialog.vue'
+import { dialogStyle } from '../dialog-style'
 import { listInbounds } from '../api/inbound'
 import type { Inbound } from '../api/inbound'
 import {
@@ -357,7 +358,7 @@ onMounted(refresh)
         流量按用户归属统计，所以配额用尽、到期或停用时只暂停这个人的节点，同端口的其他人不受影响。
       </p>
       <div v-loading="loading" class="table-wrap">
-        <u-table :columns="columns" :data="users" row-key="id" border>
+        <u-table :columns="columns" :data="users" row-key="id">
           <template #empty>
             <EmptyState
               v-if="!loading"
@@ -430,7 +431,7 @@ onMounted(refresh)
   <u-dialog
     v-model="editorVisible"
     :title="editingId ? '编辑订阅用户' : '新建订阅用户'"
-    style="width: 620px; max-width: 96vw"
+    :style="dialogStyle(620)"
   >
     <u-form ref="editorForm" :model="form" :cols="1" label-width="88px">
       <u-input

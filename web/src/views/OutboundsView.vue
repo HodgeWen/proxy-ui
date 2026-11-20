@@ -27,6 +27,7 @@ import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
 
 import EmptyState from '../components/EmptyState.vue'
 import FormGroupCard from '../components/FormGroupCard.vue'
+import { dialogStyle } from '../dialog-style'
 
 const outbounds = shallowRef<Outbound[]>([])
 const loading = shallowRef(false)
@@ -323,7 +324,7 @@ onMounted(refresh)
       </div>
     </u-card-header>
     <u-card-content>
-      <u-table :columns="columns" :data="outbounds" row-key="id" border stripe :loading="loading">
+      <u-table :columns="columns" :data="outbounds" row-key="id" stripe :loading="loading">
         <template #empty>
           <EmptyState
             v-if="!loading"
@@ -360,66 +361,69 @@ onMounted(refresh)
     </u-card-content>
   </u-card>
 
-  <u-dialog v-model="formVisible" :title="editing ? `编辑出站 · ${editing.name}` : '新建自定义出站'" style="width: 1120px; max-width: 96vw">
-    <div class="dialog-scroll">
-      <u-form ref="formRef" :model="form" :cols="1" label-width="92px">
-        <FormGroupCard title="基础配置">
-          <u-form-item
-            label="名称"
-            field="name"
-            :rules="{ required: '请输入名称' }"
-            tips="出站 tag，供路由规则与策略组引用；需与其它出站、策略组名不重复"
-          >
-            <u-input v-model="form.name" placeholder="出站 tag，供规则引用" clearable />
-          </u-form-item>
-          <u-form-item label="类型" field="type" :rules="{ required: '请选择类型' }" :tips="typeTips">
-            <u-select v-model="form.type" :options="typeOptions" placeholder="选择或输入出站类型" filterable creatable />
-          </u-form-item>
-          <!-- 当前类型的必填附加字段提示：让用户知道只填服务器还不够 -->
-          <p v-if="requiredText" class="type-required">{{ requiredText }}</p>
-          <u-form-item
-            label="服务器"
-            field="server"
-            tips="远端代理服务器地址（域名或 IP）；wireguard 的对端地址在附加配置 peers 里，此处可留空"
-          >
-            <u-input v-model="form.server" placeholder="远端服务器地址" clearable />
-          </u-form-item>
-          <u-form-item label="服务器端口" field="serverPort" tips="远端代理服务器端口，1-65535；按协议常见值如 443 / 8388">
-            <u-number-input v-model="form.serverPort" :min="1" :max="65535" />
-          </u-form-item>
-        </FormGroupCard>
+  <u-dialog
+    v-model="formVisible"
+    :title="editing ? `编辑出站 · ${editing.name}` : '新建自定义出站'"
+    :style="dialogStyle(1120)"
+  >
+    <!-- 内容超高时由 UDialog 自带滚动容器接管，header / footer 常驻 -->
+    <u-form ref="formRef" :model="form" :cols="1" label-width="92px">
+      <FormGroupCard title="基础配置">
+        <u-form-item
+          label="名称"
+          field="name"
+          :rules="{ required: '请输入名称' }"
+          tips="出站 tag，供路由规则与策略组引用；需与其它出站、策略组名不重复"
+        >
+          <u-input v-model="form.name" placeholder="出站 tag，供规则引用" clearable />
+        </u-form-item>
+        <u-form-item label="类型" field="type" :rules="{ required: '请选择类型' }" :tips="typeTips">
+          <u-select v-model="form.type" :options="typeOptions" placeholder="选择或输入出站类型" filterable creatable />
+        </u-form-item>
+        <!-- 当前类型的必填附加字段提示：让用户知道只填服务器还不够 -->
+        <p v-if="requiredText" class="type-required">{{ requiredText }}</p>
+        <u-form-item
+          label="服务器"
+          field="server"
+          tips="远端代理服务器地址（域名或 IP）；wireguard 的对端地址在附加配置 peers 里，此处可留空"
+        >
+          <u-input v-model="form.server" placeholder="远端服务器地址" clearable />
+        </u-form-item>
+        <u-form-item label="服务器端口" field="serverPort" tips="远端代理服务器端口，1-65535；按协议常见值如 443 / 8388">
+          <u-number-input v-model="form.serverPort" :min="1" :max="65535" />
+        </u-form-item>
+      </FormGroupCard>
 
-        <FormGroupCard v-model:collapsed="advancedCollapsed" title="高级选项">
-          <u-form-item
-            label="附加配置"
-            field="extraJson"
-            span="full"
-            tips="JSON 对象，与服务器地址一起合并进出站配置（如密码、UUID、传输层等协议字段），下方有当前类型的字段样例"
-            :rules="{ validator: validateExtra }"
-          >
-            <u-textarea v-model="form.extraJson" :rows="6" placeholder='例如 { "password": "..." }' />
-          </u-form-item>
-          <!-- 当前类型的附加字段样例：可折叠预览、一键填入（已填内容先确认再覆盖） -->
-          <div v-if="typeSampleText" class="extra-sample">
-            <div class="extra-sample-head">
-              <span>{{ form.type }} 附加字段样例（按实际服务端参数修改占位值）</span>
-              <u-button size="small" @click="fillSample">填入样例</u-button>
-            </div>
-            <pre class="extra-sample-code">{{ typeSampleText }}</pre>
+      <FormGroupCard v-model:collapsed="advancedCollapsed" title="高级选项">
+        <u-form-item
+          label="附加配置"
+          field="extraJson"
+          span="full"
+          tips="JSON 对象，与服务器地址一起合并进出站配置（如密码、UUID、传输层等协议字段），下方有当前类型的字段样例"
+          :rules="{ validator: validateExtra }"
+        >
+          <u-textarea v-model="form.extraJson" :rows="6" placeholder='例如 { "password": "..." }' />
+        </u-form-item>
+        <!-- 当前类型的附加字段样例：可折叠预览、一键填入（已填内容先确认再覆盖） -->
+        <div v-if="typeSampleText" class="extra-sample">
+          <div class="extra-sample-head">
+            <span>{{ form.type }} 附加字段样例（按实际服务端参数修改占位值）</span>
+            <u-button size="small" @click="fillSample">填入样例</u-button>
           </div>
-        </FormGroupCard>
+          <pre class="extra-sample-code">{{ typeSampleText }}</pre>
+        </div>
+      </FormGroupCard>
 
-        <!-- 每种类型适合什么场景：默认折叠，选型时展开对照 -->
-        <FormGroupCard v-model:collapsed="cheatsheetCollapsed" title="类型速查（每种类型适合什么）">
-          <dl class="type-cheatsheet">
-            <div v-for="opt in typeOptions" :key="opt.value" class="type-cheatsheet-row">
-              <dt>{{ opt.label }}</dt>
-              <dd>{{ TYPE_NOTES[opt.value]?.scene }}</dd>
-            </div>
-          </dl>
-        </FormGroupCard>
-      </u-form>
-    </div>
+      <!-- 每种类型适合什么场景：默认折叠，选型时展开对照 -->
+      <FormGroupCard v-model:collapsed="cheatsheetCollapsed" title="类型速查（每种类型适合什么）">
+        <dl class="type-cheatsheet">
+          <div v-for="opt in typeOptions" :key="opt.value" class="type-cheatsheet-row">
+            <dt>{{ opt.label }}</dt>
+            <dd>{{ TYPE_NOTES[opt.value]?.scene }}</dd>
+          </div>
+        </dl>
+      </FormGroupCard>
+    </u-form>
     <template #footer="{ close }">
       <u-button text @click="close()">取消</u-button>
       <u-button type="primary" :loading="saving" @click="handleSave">保存</u-button>
@@ -465,12 +469,6 @@ onMounted(refresh)
 .page-ops {
   display: flex;
   gap: 8px;
-}
-
-/* 弹框表单超出可视高度时内部滚动，footer 常驻 */
-.dialog-scroll {
-  max-height: calc(90vh - 160px);
-  overflow-y: auto;
 }
 
 /* 当前类型的必填附加字段提示：与表单 tips 同色态，整行展示 */

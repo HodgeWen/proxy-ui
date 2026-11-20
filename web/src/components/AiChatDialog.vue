@@ -12,6 +12,7 @@ import { useRouter } from 'vue-router'
 
 import { callAITool, fetchAITools, fetchAITransport } from '../api/ai'
 import type { AiToolSchema } from '../api/ai'
+import { dialogStyle } from '../dialog-style'
 import EmptyState from './EmptyState.vue'
 
 const visible = defineModel<boolean>({ default: false })
@@ -89,7 +90,7 @@ function retry(): void {
 </script>
 
 <template>
-  <u-dialog v-model="visible" title="AI 助手" style="width: min(1280px, 94vw)">
+  <u-dialog v-model="visible" title="AI 助手" :style="dialogStyle(1280, 94)">
     <template #default="{ maximized }">
       <!-- 未就绪三态（加载中/加载失败/无可用供应商）与对话本体占满弹框内容区 -->
       <div

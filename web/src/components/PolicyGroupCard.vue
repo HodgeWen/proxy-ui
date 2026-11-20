@@ -27,6 +27,7 @@ import { computed, reactive, ref, shallowRef, watch } from 'vue'
 
 import EmptyState from './EmptyState.vue'
 import FormGroupCard from './FormGroupCard.vue'
+import { dialogStyle } from '../dialog-style'
 
 const props = defineProps<{
   groups: PolicyGroup[]
@@ -173,7 +174,7 @@ async function handleSave(): Promise<void> {
       <div class="card-desc">
         策略组是随订阅下发到客户端的分组选择器（客户端上的「节点选择 / 自动选择」），聚合多个成员供规则与兜底出站引用。三种模式：固定=固定用一个节点、自动=自动测延迟选最快、故障转移=自动测速切换到可用节点（带容差防抖，恢复后切回）。
       </div>
-      <u-table :columns="columns" :data="groups" row-key="id" border stripe>
+      <u-table :columns="columns" :data="groups" row-key="id" stripe>
         <template #empty>
           <EmptyState
             v-if="!loading"
@@ -210,7 +211,7 @@ async function handleSave(): Promise<void> {
     </u-card-content>
   </u-card>
 
-  <u-dialog v-model="formVisible" :title="editing ? `编辑策略组 · ${editing.name}` : '新建策略组'" style="width: 760px; max-width: 96vw">
+  <u-dialog v-model="formVisible" :title="editing ? `编辑策略组 · ${editing.name}` : '新建策略组'" :style="dialogStyle(760)">
     <u-form ref="formRef" :model="form" :cols="1" label-width="92px">
       <FormGroupCard title="基础配置">
         <u-form-item

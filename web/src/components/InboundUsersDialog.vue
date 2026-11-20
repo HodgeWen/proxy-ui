@@ -16,6 +16,7 @@ import { computed, ref, shallowRef } from 'vue'
 import type { Inbound, InboundUser } from '../api/inbound'
 import { createUser, deleteUser, setUserEnabled } from '../api/inbound'
 import { formatBytes } from '../api/subscription'
+import { dialogStyle } from '../dialog-style'
 import { listenLabel } from '../inbound-schema'
 
 const visible = defineModel<boolean>('visible', { default: false })
@@ -93,7 +94,7 @@ async function handleDelete(row: InboundUser): Promise<void> {
 </script>
 
 <template>
-  <u-dialog v-model="visible" :title="title" style="width: 880px; max-width: 96vw">
+  <u-dialog v-model="visible" :title="title" :style="dialogStyle(880)">
     <div class="users-intro">
       本入站监听 <code class="endpoint">{{ endpoint }}</code>，下列用户共享这一端口，各自持有独立凭据；
       用户名即客户端订阅里的节点名，也是流量统计的归属维度。
@@ -108,7 +109,7 @@ async function handleDelete(row: InboundUser): Promise<void> {
       勾选本入站时会自动生成同名用户。
     </p>
 
-    <u-table :columns="columns" :data="users" row-key="id" border size="small">
+    <u-table :columns="columns" :data="users" row-key="id" size="small">
       <template #empty>
         <span class="cell-dim">该入站下还没有用户，新建一个即可用独立凭据连接</span>
       </template>

@@ -140,7 +140,7 @@ function formatUptime(seconds?: number): string {
         </div>
       </u-card-header>
       <u-card-content>
-        <u-table :columns="trafficColumns" :data="trafficRows" row-key="tag" border stripe>
+        <u-table :columns="trafficColumns" :data="trafficRows" row-key="tag" stripe>
           <template #column:tag="{ rowData }">
             <span class="mono">{{ rowData.tag }}</span>
           </template>
