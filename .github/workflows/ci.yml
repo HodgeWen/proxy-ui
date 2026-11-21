@@ -1,0 +1,65 @@
+# CI：前端构建 / Go 测试（含内置内核标签）/ 双平台发布编译（linux-amd64 + darwin-arm64）
+# 发版流水线另由 release 流程接入，此处只做校验。
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# 同一分支/PR 的新推送取消旧任务，节省额度
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    name: 前端构建
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      # setup-bun 自带缓存只覆盖 bun 本体，包缓存按官方建议走 ~/.bun/install/cache
+      - uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('web/bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+      - run: bun install --frozen-lockfile
+      - run: bun run build # 含 vue-tsc 类型检查
+
+  backend:
+    name: Go 测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod # Go 版本以 go.mod 为准
+          cache-dependency-path: go.sum
+      # 必须经 Makefile 跑以带上内置内核构建标签
+      - run: make test
+
+  build:
+    name: 双平台编译
+    needs: [web, backend] # 前两者任一失败即跳过昂贵的交叉编译
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('web/bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      # 走发布脚本验证真实发版路径：前端 → linux/amd64 与 darwin/arm64 交叉编译 → checksums.txt
+      - run: ./scripts/build.sh
