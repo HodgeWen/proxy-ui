@@ -3,6 +3,7 @@
 import {
   auroraTheme,
   celadonTheme,
+  currentTheme,
   darkTheme,
   gildedTheme,
   guochaoTheme,
@@ -15,7 +16,6 @@ import {
   newspaperTheme,
   wildTheme,
 } from '@veltra/styles/theme'
-import { currentTheme } from '@veltra/styles/theme'
 import type { Theme, ThemeSeries, UITheme } from '@veltra/styles/theme'
 import { computed, ref } from 'vue'
 

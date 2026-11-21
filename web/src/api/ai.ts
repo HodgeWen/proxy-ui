@@ -136,14 +136,14 @@ export function importAIModels(providerId: number, modelIds: string[]): Promise<
   })
 }
 
-/** 查询 createOpenAITransport 元数据（启用且配置完整的供应商与其启用模型） */
+/** 查询 createOpenAITransport 元数据（启用且配置完整的供应商与其启用模型）；静默请求，失败由对话弹框内呈现 */
 export function fetchAITransport(): Promise<AiTransport> {
-  return request<AiTransport>('/api/ai/transport')
+  return request<AiTransport>('/api/ai/transport', { silent: true })
 }
 
-/** 查询面板工具描述列表 */
+/** 查询面板工具描述列表；静默请求，失败由对话弹框内呈现 */
 export function fetchAITools(): Promise<AiToolSchema[]> {
-  return request<AiToolSchema[]>('/api/ai/tools')
+  return request<AiToolSchema[]>('/api/ai/tools', { silent: true })
 }
 
 /** 执行面板工具（静默请求，错误抛给对话组件以在工具卡片内呈现） */

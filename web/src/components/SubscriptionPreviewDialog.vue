@@ -1,13 +1,13 @@
 <!-- 订阅配置预览弹框：sing-box / mihomo 双格式切换，等宽只读代码区展示该用户的真实导出；
      预览忽略配额与到期，只要有启用中的节点就渲染，无节点时给出明确原因 -->
 <script setup lang="ts">
-import { clipboard } from '@cat-kit/fe'
-import { UAlert, UButton, UDialog, USegment, message, vLoading } from '@veltra/desktop'
+import { UAlert, UButton, UDialog, USegment, vLoading } from '@veltra/desktop'
 import { shallowRef, watch } from 'vue'
 
 import { previewSubscription } from '../api/subscription'
 import type { PreviewFormat, SubscriptionToken } from '../api/subscription'
 import { dialogStyle } from '../dialog-style'
+import { copyText } from '../utils/clipboard'
 
 const visible = defineModel<boolean>('visible', { default: false })
 const { token } = defineProps<{ token: SubscriptionToken | null }>()
@@ -37,25 +37,17 @@ async function load(): Promise<void> {
   }
 }
 
-// 打开即渲染默认格式（sing-box）；切换格式重新拉取
+// 打开即加载默认格式（sing-box）；关闭时重置格式，避免重开时触发 format watcher 并发发两次请求
 watch(visible, (open) => {
-  if (!open) return
-  format.value = 'sing-box'
-  void load()
+  if (open) {
+    void load()
+  } else {
+    format.value = 'sing-box'
+  }
 })
 watch(format, () => {
   if (visible.value) void load()
 })
-
-async function handleCopy(): Promise<void> {
-  if (!content.value) return
-  try {
-    await clipboard.copy(content.value)
-    message.success('已复制')
-  } catch {
-    message.error('复制失败，请手动复制')
-  }
-}
 </script>
 
 <template>
@@ -68,7 +60,7 @@ async function handleCopy(): Promise<void> {
       <div class="preview" :style="{ height: maximized ? '100%' : 'calc(90vh - 150px)' }">
         <div class="toolbar">
           <u-segment v-model="format" :items="FORMAT_ITEMS" />
-          <u-button size="small" :disabled="!content" @click="handleCopy">复制</u-button>
+          <u-button size="small" :disabled="!content" @click="copyText(content)">复制</u-button>
         </div>
         <p class="note">预览忽略配额与到期状态，仅展示该用户当前可用节点的真实导出。</p>
         <u-alert

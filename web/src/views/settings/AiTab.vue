@@ -1,41 +1,15 @@
-<!-- 设置页「AI 供应商」页签：供应商 / 模型双 CRUD（三个弹框）+ 从上游 /models 多选导入 -->
+<!-- 设置页「AI 供应商」页签：供应商与模型列表展示、启停与删除交互（新增/编辑/导入弹框已拆出） -->
 <script setup lang="ts">
-import {
-  UButton,
-  UCard,
-  UCardContent,
-  UCardHeader,
-  UDialog,
-  UForm,
-  UFormItem,
-  UInput,
-  UMultiSelect,
-  UNumberInput,
-  UPasswordInput,
-  USelect,
-  USwitch,
-  UTag,
-  message,
-} from '@veltra/desktop'
-import { TriangleAlert } from '@veltra/icons/normal'
-import { computed, onActivated, reactive, shallowRef } from 'vue'
+import { UButton, UCard, UCardContent, UCardHeader, USwitch, UTag, message } from '@veltra/desktop'
+import { computed, onActivated, shallowRef } from 'vue'
 
-import EmptyState from '../../components/EmptyState.vue'
-import DialogFooter from '../../components/DialogFooter.vue'
+import { deleteAIModel, deleteAIProvider, fetchAIProviders, updateAIProvider } from '../../api/ai'
+import type { AiModel, AiProvider } from '../../api/ai'
+import { useEnabledOverride } from '../../composables/useEnabledOverride'
 import { confirmAction } from '../../confirm-action'
-import { dialogStyle } from '../../dialog-style'
-import {
-  createAIModel,
-  createAIProvider,
-  deleteAIModel,
-  deleteAIProvider,
-  fetchAIProviders,
-  fetchAIUpstreamModels,
-  importAIModels,
-  updateAIModel,
-  updateAIProvider,
-} from '../../api/ai'
-import type { AiModel, AiModelInput, AiProvider, AiReasoningLevel, AiUpstreamModel } from '../../api/ai'
+import AiImportDialog from './AiImportDialog.vue'
+import AiModelDialog from './AiModelDialog.vue'
+import AiProviderDialog from './AiProviderDialog.vue'
 
 /** 供应商列表（视图内含各自模型） */
 const aiProviders = shallowRef<AiProvider[]>([])
@@ -52,78 +26,20 @@ async function loadAIProviders(silent = true): Promise<void> {
   }
 }
 
-/** 供应商编辑弹框（新增/编辑共用；apiKey 留空表示保留已存 Key） */
-const aiProviderDialog = shallowRef(false)
-const aiProviderEditingId = shallowRef(0)
-const aiProviderSaving = shallowRef(false)
-const aiProviderHasKey = shallowRef(false)
-const aiProviderForm = reactive({ name: '', baseUrl: '', apiKey: '', enabled: true })
-
-/** 含 // 的示例 URL 放 script 侧绑定：模板属性字符串里的 // 会被 vue-tsc 的单行 props 改写误当注释，损坏生成代码 */
-const baseUrlPlaceholder = '如 https://api.openai.com/v1'
-
-function openProviderCreate(): void {
-  aiProviderEditingId.value = 0
-  aiProviderForm.name = ''
-  aiProviderForm.baseUrl = ''
-  aiProviderForm.apiKey = ''
-  aiProviderForm.enabled = true
-  aiProviderHasKey.value = false
-  aiProviderDialog.value = true
-}
-
-function openProviderEdit(provider: AiProvider): void {
-  aiProviderEditingId.value = provider.id
-  aiProviderForm.name = provider.name
-  aiProviderForm.baseUrl = provider.baseUrl
-  aiProviderForm.apiKey = ''
-  aiProviderForm.enabled = provider.enabled
-  aiProviderHasKey.value = provider.hasKey
-  aiProviderDialog.value = true
-}
-
-async function saveAIProvider(): Promise<void> {
-  if (!aiProviderForm.name.trim() || !aiProviderForm.baseUrl.trim()) {
-    message.error('供应商名称与接口地址不能为空')
-    return
-  }
-  aiProviderSaving.value = true
-  try {
-    const input = {
-      name: aiProviderForm.name.trim(),
-      baseUrl: aiProviderForm.baseUrl.trim(),
-      apiKey: aiProviderForm.apiKey.trim(),
-      enabled: aiProviderForm.enabled,
-    }
-    if (aiProviderEditingId.value) {
-      await updateAIProvider(aiProviderEditingId.value, input)
-    } else {
-      await createAIProvider(input)
-    }
-    message.success('AI 供应商已保存')
-    aiProviderDialog.value = false
-    await loadAIProviders()
-  } catch {
-    // 校验失败等错误已由请求封装统一提示
-  } finally {
-    aiProviderSaving.value = false
-  }
-}
-
-/** 启停供应商（apiKey 留空语义为保留已存 Key） */
-async function toggleAIProvider(provider: AiProvider): Promise<void> {
-  try {
+/** 启停供应商（apiKey 留空语义为保留已存 Key；走本地覆写表避免失败时开关错位） */
+const { rowEnabled, togglingId, toggle: toggleAIProvider } = useEnabledOverride(
+  aiProviders,
+  async (provider, enabled) => {
     await updateAIProvider(provider.id, {
       name: provider.name,
       baseUrl: provider.baseUrl,
       apiKey: '',
-      enabled: !provider.enabled,
+      enabled,
     })
+    aiProviders.value = aiProviders.value.map((p) => (p.id === provider.id ? { ...p, enabled } : p))
     await loadAIProviders()
-  } catch {
-    // 错误已由请求封装统一提示
-  }
-}
+  },
+)
 
 async function removeAIProvider(provider: AiProvider): Promise<void> {
   const ok = await confirmAction(
@@ -142,133 +58,6 @@ async function removeAIProvider(provider: AiProvider): Promise<void> {
   }
 }
 
-/** 模型编辑弹框（新增/编辑共用；推理等级为行编辑器） */
-const aiModelDialog = shallowRef(false)
-const aiModelProviderId = shallowRef(0)
-const aiModelEditingId = shallowRef(0)
-const aiModelSaving = shallowRef(false)
-const aiModelForm = reactive({
-  modelId: '',
-  label: '',
-  description: '',
-  contextWindow: null as number | null,
-  defaultReasoningLevel: '',
-  enabled: true,
-})
-/** 推理等级行（值 + 文案；默认等级单独下拉选择） */
-const aiLevelRows = reactive<{ value: string; label: string }[]>([])
-
-/** 默认等级选项：取行编辑器里非空且不重复的值 */
-const aiLevelOptions = computed(() => {
-  const seen = new Set<string>()
-  const options: { label: string; value: string }[] = []
-  for (const row of aiLevelRows) {
-    const value = row.value.trim()
-    if (!value || seen.has(value)) continue
-    seen.add(value)
-    options.push({ label: row.label.trim() || value, value })
-  }
-  return options
-})
-
-function openModelCreate(providerId: number): void {
-  aiModelProviderId.value = providerId
-  aiModelEditingId.value = 0
-  aiModelForm.modelId = ''
-  aiModelForm.label = ''
-  aiModelForm.description = ''
-  aiModelForm.contextWindow = null
-  aiModelForm.defaultReasoningLevel = ''
-  aiModelForm.enabled = true
-  aiLevelRows.splice(0, aiLevelRows.length)
-  aiModelDialog.value = true
-}
-
-function openModelEdit(providerId: number, model: AiModel): void {
-  aiModelProviderId.value = providerId
-  aiModelEditingId.value = model.id
-  aiModelForm.modelId = model.modelId
-  aiModelForm.label = model.label
-  aiModelForm.description = model.description
-  aiModelForm.contextWindow = model.contextWindow || null
-  aiModelForm.defaultReasoningLevel = model.defaultReasoningLevel
-  aiModelForm.enabled = model.enabled
-  aiLevelRows.splice(0, aiLevelRows.length, ...model.reasoningLevels.map((level) => ({ ...level })))
-  aiModelDialog.value = true
-}
-
-function addLevelRow(): void {
-  aiLevelRows.push({ value: '', label: '' })
-}
-
-function removeLevelRow(index: number): void {
-  const [removed] = aiLevelRows.splice(index, 1)
-  if (removed && aiModelForm.defaultReasoningLevel === removed.value) {
-    aiModelForm.defaultReasoningLevel = ''
-  }
-}
-
-/** 与后端校验对齐的提交前检查，通过则拼出模型入参 */
-function buildModelInput(): AiModelInput | null {
-  const modelId = aiModelForm.modelId.trim()
-  if (!modelId) {
-    message.error('模型 id 不能为空')
-    return null
-  }
-  const levels: AiReasoningLevel[] = []
-  const seen = new Set<string>()
-  for (const row of aiLevelRows) {
-    const value = row.value.trim()
-    if (!value) {
-      message.error('推理等级的值不能为空')
-      return null
-    }
-    if (seen.has(value)) {
-      message.error(`推理等级值重复：${value}`)
-      return null
-    }
-    seen.add(value)
-    levels.push({ value, label: row.label.trim() || value })
-  }
-  if (!levels.length && aiModelForm.defaultReasoningLevel) {
-    message.error('未配置推理等级时不能指定默认等级')
-    return null
-  }
-  if (aiModelForm.defaultReasoningLevel && !seen.has(aiModelForm.defaultReasoningLevel)) {
-    message.error('默认推理等级不在等级列表内')
-    return null
-  }
-  return {
-    modelId,
-    label: aiModelForm.label.trim(),
-    description: aiModelForm.description.trim(),
-    reasoningLevels: levels,
-    defaultReasoningLevel: aiModelForm.defaultReasoningLevel,
-    contextWindow: aiModelForm.contextWindow ?? 0,
-    enabled: aiModelForm.enabled,
-  }
-}
-
-async function saveAIModel(): Promise<void> {
-  const input = buildModelInput()
-  if (!input) return
-  aiModelSaving.value = true
-  try {
-    if (aiModelEditingId.value) {
-      await updateAIModel(aiModelEditingId.value, input)
-    } else {
-      await createAIModel(aiModelProviderId.value, input)
-    }
-    message.success('模型已保存')
-    aiModelDialog.value = false
-    await loadAIProviders()
-  } catch {
-    // 模型 id 重复等错误已由请求封装统一提示
-  } finally {
-    aiModelSaving.value = false
-  }
-}
-
 async function removeAIModel(model: AiModel): Promise<void> {
   const ok = await confirmAction('删除模型', `确认删除模型「${model.modelId}」吗？`, true, '删除')
   if (!ok) return
@@ -281,61 +70,48 @@ async function removeAIModel(model: AiModel): Promise<void> {
   }
 }
 
-/** 上游 /models 拉取 + 多选导入弹框 */
-const aiImportDialog = shallowRef(false)
-const aiImportProviderId = shallowRef(0)
-const aiImportFetching = shallowRef(false)
-const aiImportSaving = shallowRef(false)
-const aiUpstreamModels = shallowRef<AiUpstreamModel[]>([])
-const aiImportSelected = shallowRef<string[]>([])
+// ---------- 弹框状态 ----------
 
+const providerDialogVisible = shallowRef(false)
+const editingProvider = shallowRef<AiProvider | null>(null)
+
+function openProviderCreate(): void {
+  editingProvider.value = null
+  providerDialogVisible.value = true
+}
+
+function openProviderEdit(provider: AiProvider): void {
+  editingProvider.value = provider
+  providerDialogVisible.value = true
+}
+
+const modelDialogVisible = shallowRef(false)
+const modelProviderId = shallowRef(0)
+const editingModel = shallowRef<AiModel | null>(null)
+
+function openModelCreate(providerId: number): void {
+  modelProviderId.value = providerId
+  editingModel.value = null
+  modelDialogVisible.value = true
+}
+
+function openModelEdit(providerId: number, model: AiModel): void {
+  modelProviderId.value = providerId
+  editingModel.value = model
+  modelDialogVisible.value = true
+}
+
+const importDialogVisible = shallowRef(false)
+const importProviderId = shallowRef(0)
 /** 全库已存在的模型 id（选项上标记「已存在」，导入时后端也会跳过） */
-const aiExistingIds = computed(() => new Set(aiProviders.value.flatMap((p) => p.models.map((m) => m.modelId))))
+const existingModelIds = computed(() => new Set(aiProviders.value.flatMap((p) => p.models.map((m) => m.modelId))))
 
-const aiImportOptions = computed(() =>
-  aiUpstreamModels.value.map((m) => ({
-    label: aiExistingIds.value.has(m.id) ? `${m.id}（已存在）` : m.ownedBy ? `${m.id}（${m.ownedBy}）` : m.id,
-    value: m.id,
-  })),
-)
-
-async function openImport(provider: AiProvider): Promise<void> {
-  aiImportProviderId.value = provider.id
-  aiImportSelected.value = []
-  aiUpstreamModels.value = []
-  aiImportDialog.value = true
-  aiImportFetching.value = true
-  try {
-    aiUpstreamModels.value = await fetchAIUpstreamModels(provider.id)
-  } catch {
-    // 拉取失败错误已由请求封装统一提示；弹框内给出重试入口
-  } finally {
-    aiImportFetching.value = false
-  }
+function openImport(provider: AiProvider): void {
+  importProviderId.value = provider.id
+  importDialogVisible.value = true
 }
 
-async function retryImport(): Promise<void> {
-  const provider = aiProviders.value.find((p) => p.id === aiImportProviderId.value)
-  if (provider) await openImport(provider)
-}
-
-async function confirmImport(): Promise<void> {
-  if (!aiImportSelected.value.length) {
-    message.error('请先选择要导入的模型')
-    return
-  }
-  aiImportSaving.value = true
-  try {
-    const { imported } = await importAIModels(aiImportProviderId.value, aiImportSelected.value)
-    message.success(`已导入 ${imported} 个模型（已存在的自动跳过）`)
-    aiImportDialog.value = false
-    await loadAIProviders()
-  } catch {
-    // 错误已由请求封装统一提示
-  } finally {
-    aiImportSaving.value = false
-  }
-}
+// ---------- 展示格式化 ----------
 
 /** 模型行推理等级摘要：值（文案）列表 + 默认标记 */
 function levelSummary(model: AiModel): string {
@@ -389,7 +165,11 @@ onActivated(() => {
             <span class="ai-provider-url">{{ provider.baseUrl }}</span>
           </div>
           <div class="ai-provider-ops">
-            <u-switch :model-value="provider.enabled" @update:model-value="() => toggleAIProvider(provider)" />
+            <u-switch
+              :model-value="rowEnabled(provider)"
+              :disabled="togglingId === provider.id"
+              @update:model-value="(v: boolean) => toggleAIProvider(provider, v)"
+            />
             <u-button size="small" @click="openProviderEdit(provider)">编辑</u-button>
             <u-button size="small" type="danger" plain @click="removeAIProvider(provider)">删除</u-button>
           </div>
@@ -426,146 +206,19 @@ onActivated(() => {
     </u-card-content>
   </u-card>
 
-  <!-- 供应商新增/编辑 -->
-  <u-dialog
-    v-model="aiProviderDialog"
-    :title="aiProviderEditingId ? '编辑 AI 供应商' : '新增 AI 供应商'"
-    :style="dialogStyle(520)"
-  >
-    <u-form :model="aiProviderForm" :cols="1" label-width="96px">
-      <u-input
-        label="名称"
-        field="name"
-        clearable
-        placeholder="如 OpenAI / DeepSeek / 本地 vLLM"
-        tips="仅用于界面展示的供应商名称"
-      />
-      <u-input
-        label="接口地址"
-        field="baseUrl"
-        clearable
-        :placeholder="baseUrlPlaceholder"
-        tips="OpenAI 兼容服务的 base-url，通常以 /v1 结尾；支持任意 OpenAI 兼容供应商"
-      />
-      <u-password-input
-        label="API Key"
-        field="apiKey"
-        :placeholder="aiProviderHasKey ? '已配置，留空保持不变' : '供应商 API Key（仅保存在服务端）'"
-        tips="仅保存在面板服务端且不回显；已配置后留空表示保持不变"
-      />
-      <u-form-item label="启用">
-        <u-switch v-model="aiProviderForm.enabled" active-text="参与对话与模型选择" />
-      </u-form-item>
-    </u-form>
-    <template #footer="{ close }">
-      <DialogFooter :loading="aiProviderSaving" @cancel="close" @confirm="saveAIProvider" />
-    </template>
-  </u-dialog>
-
-  <!-- 模型新增/编辑（含推理等级行编辑器） -->
-  <u-dialog
-    v-model="aiModelDialog"
-    :title="aiModelEditingId ? '编辑模型' : '手工添加模型'"
-    :style="dialogStyle(560)"
-  >
-    <u-form :model="aiModelForm" :cols="1" label-width="96px">
-      <u-input
-        label="模型 id"
-        field="modelId"
-        clearable
-        placeholder="如 gpt-6.2 / deepseek-v4.1-flash"
-        tips="发往上游的模型名，须为该供应商支持的模型且跨供应商全局唯一"
-      />
-      <u-input
-        label="显示名"
-        field="label"
-        clearable
-        placeholder="如 GPT 6.2（可空，缺省显示模型 id）"
-        tips="对话弹框模型选择器里展示的名字"
-      />
-      <u-input
-        label="描述"
-        field="description"
-        clearable
-        placeholder="如 旗舰多模态，适合复杂任务（可空）"
-        tips="展示在模型选择器，帮助区分模型用途"
-      />
-      <u-form-item label="上下文窗口">
-        <div class="ai-field-column">
-          <u-number-input
-            v-model="aiModelForm.contextWindow"
-            :min="0"
-            :step="1000"
-            placeholder="不限"
-            class="ai-field-control"
-          />
-          <div class="ai-field-hint">模型上下文窗口（token），0 或留空表示未知</div>
-        </div>
-      </u-form-item>
-      <u-form-item label="启用">
-        <u-switch v-model="aiModelForm.enabled" active-text="参与对话与模型选择" />
-      </u-form-item>
-      <u-form-item label="推理等级">
-        <div class="ai-field-column">
-          <div v-for="(row, index) in aiLevelRows" :key="index" class="ai-level-row">
-            <u-input v-model="row.value" placeholder="值，如 low / medium / high" />
-            <u-input v-model="row.label" placeholder="文案，如 低（可空，缺省用值）" />
-            <u-button text size="small" type="danger" @click="removeLevelRow(index)">删除</u-button>
-          </div>
-          <u-button size="small" @click="addLevelRow">添加等级</u-button>
-          <u-select
-            v-if="aiLevelOptions.length"
-            v-model="aiModelForm.defaultReasoningLevel"
-            :options="aiLevelOptions"
-            clearable
-            placeholder="默认推理等级（可空）"
-            class="ai-field-control"
-          />
-          <div class="ai-field-hint">
-            值写入请求的 reasoning_effort，文案用于界面展示；同一模型配出 2 档及以上时，
-            对话弹框内会出现推理等级选择器，未显式选择时使用默认等级。
-          </div>
-        </div>
-      </u-form-item>
-    </u-form>
-    <template #footer="{ close }">
-      <DialogFooter :loading="aiModelSaving" @cancel="close" @confirm="saveAIModel" />
-    </template>
-  </u-dialog>
-
-  <!-- 从供应商 /models 拉取并多选导入 -->
-  <u-dialog v-model="aiImportDialog" title="从 /models 导入模型" :style="dialogStyle(560)">
-    <EmptyState v-if="aiImportFetching" title="正在从供应商 /models 拉取…" />
-    <template v-else-if="aiUpstreamModels.length">
-      <u-multi-select
-        v-model="aiImportSelected"
-        :options="aiImportOptions"
-        filterable
-        placeholder="搜索并多选要导入的模型"
-        class="ai-field-control"
-      />
-      <p class="hint">已存在的模型 id 会自动跳过；导入后可在模型列表里补推理等级与上下文窗口。</p>
-    </template>
-    <EmptyState
-      v-else
-      :icon="TriangleAlert"
-      title="拉取失败或没有可用模型"
-      description="请确认供应商接口地址与 API Key 可用后重试"
-      cta-text="重试"
-      @cta="retryImport"
-    />
-    <template #footer="{ close }">
-      <u-button text @click="close()">取消</u-button>
-      <u-button
-        type="primary"
-        :disabled="!aiImportSelected.length"
-        :loading="aiImportSaving"
-        @click="confirmImport"
-      >
-        导入所选（{{ aiImportSelected.length }}）
-      </u-button>
-    </template>
-  </u-dialog>
+  <AiProviderDialog v-model:visible="providerDialogVisible" :provider="editingProvider" @saved="loadAIProviders" />
+  <AiModelDialog
+    v-model:visible="modelDialogVisible"
+    :provider-id="modelProviderId"
+    :model="editingModel"
+    @saved="loadAIProviders"
+  />
+  <AiImportDialog
+    v-model:visible="importDialogVisible"
+    :provider-id="importProviderId"
+    :existing-ids="existingModelIds"
+    @saved="loadAIProviders"
+  />
 </template>
 
 <style scoped>
@@ -685,30 +338,5 @@ onActivated(() => {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
-}
-
-/* 弹框内自定义复合控件的纵排容器（控件 + 行内说明） */
-.ai-field-column {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-}
-
-.ai-field-control {
-  width: 100%;
-}
-
-.ai-field-hint {
-  color: var(--u-text-color-second);
-  font-size: var(--u-font-size-main-small);
-}
-
-/* 推理等级行编辑器：值 + 文案 + 删除 */
-.ai-level-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: 8px;
-  align-items: center;
 }
 </style>

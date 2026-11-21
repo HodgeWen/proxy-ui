@@ -1,4 +1,5 @@
-/** 展示层通用格式化：字节数与运行时长，各页面共用，勿在视图内再各写一份。 */
+/** 展示层通用格式化：字节数、运行时长与日期时间，各页面共用，勿在视图内再各写一份。 */
+import { date } from '@cat-kit/core'
 
 /** 字节数转人类可读（如 1.5 MB） */
 export function formatBytes(bytes: number): string {
@@ -16,4 +17,11 @@ export function formatUptime(seconds?: number): string {
   const m = Math.floor((seconds % 3600) / 60)
   const s = Math.floor(seconds % 60)
   return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':')
+}
+
+/** 格式化日期时间为 yyyy-MM-dd HH:mm:ss；无效时间显示 - */
+export function formatDateTime(value: string): string {
+  if (!value) return '-'
+  const d = date(value)
+  return Number.isNaN(d.timestamp) ? '-' : d.format('yyyy-MM-dd HH:mm:ss')
 }

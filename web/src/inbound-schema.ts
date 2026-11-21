@@ -26,9 +26,15 @@ export interface FieldDef {
   /** UFormItem 栅格占位；缺省 1 列，'full' 占整行（长文本/路径类字段） */
   span?: number | 'full'
   options?: FieldOption[]
-  when?: (cfg: Record<string, any>) => boolean
+  when?: (cfg: Record<string, unknown>) => boolean
   min?: number
   max?: number
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
 }
 
 /** 协议定义：元信息 + 字段 schema */
@@ -86,7 +92,7 @@ export const TLS_FIELDS: FieldDef[] = [
       { label: '面板存储证书', value: 'managed' },
       { label: '服务器本地路径', value: 'path' },
     ],
-    when: (cfg) => !!cfg.tls?.enabled,
+    when: (cfg) => !!asRecord(cfg.tls).enabled,
   },
   // tls.certId 的选项由表单组件按证书列表动态生成
   {
@@ -94,7 +100,7 @@ export const TLS_FIELDS: FieldDef[] = [
     label: '选择证书',
     type: 'select',
     description: '选择面板「证书」页中已存储的证书（上传/粘贴或一键自签），保存后自动写出对应 PEM',
-    when: (cfg) => !!cfg.tls?.enabled && cfg.tls?.certMode === 'managed',
+    when: (cfg) => !!asRecord(cfg.tls).enabled && asRecord(cfg.tls).certMode === 'managed',
   },
   {
     field: 'tls.certPath',
@@ -103,7 +109,7 @@ export const TLS_FIELDS: FieldDef[] = [
     placeholder: '服务器上证书文件绝对路径',
     description: '服务器上证书文件的绝对路径，内核进程需有读取权限',
     span: 'full',
-    when: (cfg) => !!cfg.tls?.enabled && cfg.tls?.certMode === 'path',
+    when: (cfg) => !!asRecord(cfg.tls).enabled && asRecord(cfg.tls).certMode === 'path',
   },
   {
     field: 'tls.keyPath',
@@ -112,7 +118,7 @@ export const TLS_FIELDS: FieldDef[] = [
     placeholder: '服务器上私钥文件绝对路径',
     description: '服务器上私钥文件的绝对路径，与证书路径配套使用',
     span: 'full',
-    when: (cfg) => !!cfg.tls?.enabled && cfg.tls?.certMode === 'path',
+    when: (cfg) => !!asRecord(cfg.tls).enabled && asRecord(cfg.tls).certMode === 'path',
   },
 ]
 
@@ -172,7 +178,7 @@ export const TLS_ADVANCED: FieldDef[] = [
     placeholder: '-----BEGIN ECH KEYS-----',
     description:
       'ECH 密钥 PEM 文本（BEGIN ECH KEYS）。可用内核自带命令由域名生成；与「ECH 密钥路径」二选一，填了密钥内核才真正启用 ECH',
-    when: (cfg) => !!cfg.tls?.ech?.enabled,
+    when: (cfg) => !!asRecord(asRecord(cfg.tls).ech).enabled,
   },
   {
     field: 'tls.ech.keyPath',
@@ -181,7 +187,7 @@ export const TLS_ADVANCED: FieldDef[] = [
     span: 'full',
     placeholder: '服务器上 ECH 密钥文件绝对路径',
     description: '服务器上 ECH 密钥文件的绝对路径，适合密钥由外部工具轮换的场景；与内联密钥二选一',
-    when: (cfg) => !!cfg.tls?.ech?.enabled,
+    when: (cfg) => !!asRecord(asRecord(cfg.tls).ech).enabled,
   },
 ]
 
@@ -211,7 +217,7 @@ function multiplexFields(effective: boolean): FieldDef[] {
       label: '多路复用填充',
       type: 'switch',
       description: '仅在启用多路复用后生效：随机化复用流的长度，降低按包长识别协议的概率，代价是少量带宽开销',
-      when: (cfg) => !!cfg.multiplex?.enabled,
+      when: (cfg) => !!asRecord(cfg.multiplex).enabled,
     },
   ]
 }
@@ -394,7 +400,7 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
         span: 'full',
         placeholder: '服务器上静态站点目录绝对路径',
         description: '该目录下的文件会作为 HTTP 响应返回；目录不存在时内核将无法启动',
-        when: (cfg) => cfg.masquerade?.type === 'file',
+        when: (cfg) => asRecord(cfg.masquerade).type === 'file',
       },
       {
         field: 'masquerade.proxyUrl',
@@ -403,7 +409,7 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
         span: 'full',
         placeholder: 'https://example.com',
         description: '探测请求被反代到该站点，响应原样返回；需以 http:// 或 https:// 开头',
-        when: (cfg) => cfg.masquerade?.type === 'proxy',
+        when: (cfg) => asRecord(cfg.masquerade).type === 'proxy',
       },
       {
         field: 'masquerade.statusCode',
@@ -412,7 +418,7 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
         min: 100,
         max: 599,
         description: '固定响应的 HTTP 状态码，留空按 200 处理',
-        when: (cfg) => cfg.masquerade?.type === 'string',
+        when: (cfg) => asRecord(cfg.masquerade).type === 'string',
       },
       {
         field: 'masquerade.content',
@@ -421,7 +427,7 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
         span: 'full',
         placeholder: '<html><body>Not Found</body></html>',
         description: '固定返回的 HTML 正文，留空会返回空响应，探测方易判定异常',
-        when: (cfg) => cfg.masquerade?.type === 'string',
+        when: (cfg) => asRecord(cfg.masquerade).type === 'string',
       },
     ],
   },
@@ -543,9 +549,11 @@ function isQuicProtocol(protocol: string): boolean {
 const DURATION_RE = /^0$|^([0-9]+(\.[0-9]+)?(ns|us|µs|μs|ms|s|m|h))+$/
 
 /** 计算弱配置警示；jump 指向表单内可修复该问题的区块 */
-export function computeInboundWarnings(protocol: string, cfg: Record<string, any> = {}): InboundWarning[] {
+export function computeInboundWarnings(protocol: string, cfg: Record<string, unknown> = {}): InboundWarning[] {
   const warnings: InboundWarning[] = []
-  const tls = cfg.tls ?? {}
+  const tls = asRecord(cfg.tls)
+  const ech = asRecord(tls.ech)
+  const multiplex = asRecord(cfg.multiplex)
   const certWarning = () => {
     const missing =
       !tls.certMode ||
@@ -557,7 +565,7 @@ export function computeInboundWarnings(protocol: string, cfg: Record<string, any
   }
   /** QUIC 协议若显式配置了 ALPN 但不含 h3，握手会失败 */
   const alpnWarning = () => {
-    const alpn: string[] = tls.alpn ?? []
+    const alpn = Array.isArray(tls.alpn) ? (tls.alpn as string[]) : []
     if (alpn.length > 0 && !alpn.includes('h3')) {
       warnings.push({ text: 'QUIC 类协议 ALPN 需含 h3，当前配置不含 h3' })
     }
@@ -565,23 +573,25 @@ export function computeInboundWarnings(protocol: string, cfg: Record<string, any
   /** TLS 版本与 ECH 的弱配置（与后端 InboundWarnings.advancedWarnings 同口径） */
   const advancedTlsWarning = () => {
     const versions = ['1.0', '1.1', '1.2', '1.3']
-    if (tls.minVersion && !versions.includes(tls.minVersion)) {
-      warnings.push({ text: `TLS 最低版本 ${tls.minVersion} 不是合法值（1.0/1.1/1.2/1.3）` })
+    const minVersion = typeof tls.minVersion === 'string' ? tls.minVersion : ''
+    const maxVersion = typeof tls.maxVersion === 'string' ? tls.maxVersion : ''
+    if (minVersion && !versions.includes(minVersion)) {
+      warnings.push({ text: `TLS 最低版本 ${minVersion} 不是合法值（1.0/1.1/1.2/1.3）` })
     }
-    if (tls.maxVersion && !versions.includes(tls.maxVersion)) {
-      warnings.push({ text: `TLS 最高版本 ${tls.maxVersion} 不是合法值（1.0/1.1/1.2/1.3）` })
+    if (maxVersion && !versions.includes(maxVersion)) {
+      warnings.push({ text: `TLS 最高版本 ${maxVersion} 不是合法值（1.0/1.1/1.2/1.3）` })
     }
-    if (tls.minVersion && tls.maxVersion && tls.minVersion > tls.maxVersion) {
+    if (minVersion && maxVersion && minVersion > maxVersion) {
       warnings.push({ text: 'TLS 最低版本高于最高版本，握手将失败' })
     }
-    if (tls.ech?.enabled && !tls.ech.key && !tls.ech.keyPath) {
+    if (ech.enabled && !ech.key && !ech.keyPath) {
       warnings.push({ text: '已启用 ECH 但未提供 ECH 密钥或密钥路径，内核将忽略该配置' })
     }
   }
   /** 多路复用只在 sing-box 的 VLESS / Trojan / VMess / Shadowsocks 入站生效 */
   const multiplexWarning = () => {
     const supported = ['vless', 'trojan', 'vmess', 'shadowsocks']
-    if (cfg.multiplex?.enabled && !supported.includes(protocol)) {
+    if (multiplex.enabled && !supported.includes(protocol)) {
       warnings.push({ text: `${protocol} 入站不支持多路复用（内核会忽略该设置），QUIC/AnyTLS 自身已多路复用` })
     }
     if (cfg.tcpFastOpen && isQuicProtocol(protocol)) {
@@ -590,10 +600,11 @@ export function computeInboundWarnings(protocol: string, cfg: Record<string, any
   }
   /** Hysteria2 masquerade 弱配置 */
   const masqueradeWarning = () => {
-    const m = cfg.masquerade ?? {}
+    const m = asRecord(cfg.masquerade)
+    const proxyUrl = typeof m.proxyUrl === 'string' ? m.proxyUrl : ''
     if (m.type === 'file' && !m.directory) warnings.push({ text: 'masquerade 类型为静态目录但未填目录，内核将无法启动' })
-    if (m.type === 'proxy' && !m.proxyUrl) warnings.push({ text: 'masquerade 类型为反代站点但未填反代 URL，内核将无法启动' })
-    if (m.type === 'proxy' && m.proxyUrl && !/^https?:\/\//.test(m.proxyUrl)) {
+    if (m.type === 'proxy' && !proxyUrl) warnings.push({ text: 'masquerade 类型为反代站点但未填反代 URL，内核将无法启动' })
+    if (m.type === 'proxy' && proxyUrl && !/^https?:\/\//.test(proxyUrl)) {
       warnings.push({ text: 'masquerade 反代 URL 需以 http:// 或 https:// 开头' })
     }
     if (m.type === 'string' && !m.content) warnings.push({ text: 'masquerade 类型为固定响应但正文为空，将返回空响应' })
@@ -601,40 +612,45 @@ export function computeInboundWarnings(protocol: string, cfg: Record<string, any
   multiplexWarning()
   switch (protocol) {
     case 'vless': {
-      const reality = cfg.reality?.enabled
-      if (!reality && !tls.enabled) {
+      const reality = asRecord(cfg.reality)
+      if (!reality.enabled && !tls.enabled) {
         warnings.push({ text: '未启用 Reality 或 TLS，流量将明文传输', jump: 'tls' })
-      } else if (!reality) {
+      } else if (!reality.enabled) {
         warnings.push({ text: '未启用 Reality（推荐）' })
         certWarning()
       } else if (!tls.enabled) {
         warnings.push({ text: 'Reality 已启用，将忽略 TLS 开关强制启用 TLS（无需证书）' })
       }
-      if (reality && tls.ech?.enabled) {
+      if (reality.enabled && ech.enabled) {
         warnings.push({ text: 'Reality 已启用，ECH 不会写入内核配置（内核不允许两者并存），如需 ECH 请关闭 Reality' })
       }
       break
     }
-    case 'hysteria2':
+    case 'hysteria2': {
+      const upMbps = typeof cfg.upMbps === 'number' ? cfg.upMbps : 0
+      const downMbps = typeof cfg.downMbps === 'number' ? cfg.downMbps : 0
       // Hysteria2 / TUIC / AnyTLS / Trojan 的表单强制启用 TLS（tlsRequired），无需再警示「未启用 TLS」
       certWarning()
       alpnWarning()
       if (cfg.obfsEnabled && !cfg.obfsPassword) warnings.push({ text: '已启用混淆但混淆密码为空' })
-      if ((cfg.upMbps ?? 0) > 0 && (cfg.downMbps ?? 0) > 0) {
+      if (upMbps > 0 && downMbps > 0) {
         warnings.push({ text: '已设置带宽上限，客户端将无法使用 BBR（如需 BBR 请保持带宽不限）' })
       }
       masqueradeWarning()
       break
-    case 'tuic':
+    }
+    case 'tuic': {
+      const heartbeat = typeof cfg.heartbeat === 'string' ? cfg.heartbeat : ''
       certWarning()
       alpnWarning()
       if (cfg.zeroRttHandshake) {
         warnings.push({ text: '已启用 0-RTT 握手：可省一个 RTT，但会牺牲前向安全性' })
       }
-      if (cfg.heartbeat && !DURATION_RE.test(cfg.heartbeat)) {
-        warnings.push({ text: `心跳间隔 ${cfg.heartbeat} 不是合法时长（如 10s / 30s）` })
+      if (heartbeat && !DURATION_RE.test(heartbeat)) {
+        warnings.push({ text: `心跳间隔 ${heartbeat} 不是合法时长（如 10s / 30s）` })
       }
       break
+    }
     case 'anytls':
     case 'trojan':
       certWarning()

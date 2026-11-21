@@ -19,7 +19,7 @@ import {
   message,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
-import { reactive, shallowRef } from 'vue'
+import { reactive, shallowRef, useTemplateRef } from 'vue'
 
 import EmptyState from './EmptyState.vue'
 import DialogFooter from './DialogFooter.vue'
@@ -67,7 +67,7 @@ function deleteBlockReason(ruleSet: RuleSet): string {
 const formVisible = shallowRef(false)
 const saving = shallowRef(false)
 const editing = shallowRef<RuleSet | null>(null)
-const formRef = shallowRef<FormExposed>()
+const formRef = useTemplateRef<FormExposed>('formRef')
 const form = reactive({ name: '', description: '' })
 
 function openCreate(): void {

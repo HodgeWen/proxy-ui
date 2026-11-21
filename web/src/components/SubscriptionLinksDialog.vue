@@ -1,15 +1,15 @@
 <!-- 订阅链接弹窗：按格式分 tab（自动适配 / sing-box / clash·mihomo），每个 tab 展示该格式的
      链接、复制按钮与对应二维码；停用/到期/超额时在顶部提示链接当前不可用 -->
 <script setup lang="ts">
-import { clipboard } from '@cat-kit/fe'
 import { qrcode } from 'etiket/qr'
-import { UAlert, UButton, UDialog, UTabs, message } from '@veltra/desktop'
+import { UAlert, UButton, UDialog, UTabs } from '@veltra/desktop'
 import type { TabItem } from '@veltra/desktop'
 import { computed, shallowRef, watch } from 'vue'
 
 import { subscriptionLink } from '../api/subscription'
 import type { SubscriptionToken } from '../api/subscription'
 import { dialogStyle } from '../dialog-style'
+import { copyText } from '../utils/clipboard'
 
 const visible = defineModel<boolean>('visible', { default: false })
 const { token } = defineProps<{ token: SubscriptionToken | null }>()
@@ -63,15 +63,6 @@ const blockedReasons = computed(() => {
   if (token.overQuota) reasons.push('流量配额已用尽，客户端拉取订阅返回 403')
   return reasons
 })
-
-async function handleCopy(text: string): Promise<void> {
-  try {
-    await clipboard.copy(text)
-    message.success('已复制')
-  } catch {
-    message.error('复制失败，请手动复制')
-  }
-}
 </script>
 
 <template>
@@ -94,7 +85,7 @@ async function handleCopy(text: string): Promise<void> {
         <template v-for="fmt in formats" :key="fmt.key" #[fmt.key]>
           <div class="link-head">
             <code class="link-value">{{ fmt.link }}</code>
-            <u-button size="small" text type="primary" @click="handleCopy(fmt.link)">复制</u-button>
+            <u-button size="small" text type="primary" @click="copyText(fmt.link)">复制</u-button>
           </div>
           <div class="qr">
             <!-- etiket 生成的订阅二维码 SVG（内容为面板自身链接，可信），当前 tab 才渲染 -->

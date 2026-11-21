@@ -1,5 +1,6 @@
 <!-- 设置页「面板更新」页签：检查可用版本、一键更新（下载替换 + 等待重启恢复） -->
 <script setup lang="ts">
+import { sleep } from '@cat-kit/core'
 import { UButton, UCard, UCardContent, UCardHeader, UTag, message } from '@veltra/desktop'
 import { computed, onActivated, shallowRef } from 'vue'
 
@@ -64,7 +65,7 @@ async function handlePanelUpdate() {
 /** 等待面板重启恢复且版本号变为目标版本；60 秒内未恢复返回 false */
 async function waitPanelOnline(targetVersion: string): Promise<boolean> {
   for (let i = 0; i < 60; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await sleep(1000)
     try {
       const health = await fetchHealth()
       if (health.version === targetVersion) return true

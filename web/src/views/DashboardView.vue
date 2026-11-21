@@ -109,10 +109,14 @@ function formatRate(n: number): string {
           </u-tag>
           <span>版本：<strong>{{ status?.version || '-' }}</strong></span>
           <span>运行时长：{{ formatUptime(status?.uptimeSeconds) }}</span>
-        </div>
-        <!-- 内核起不来时给原因与修复路径，而不是只亮一个「已停止」 -->
-        <div v-if="status && !status.running && status.error" class="kernel-error">
-          启动失败：{{ status.error }}。修正配置后重新保存任一配置，内核会自动重建。
+          <!-- 失败原因合入行内单行省略展示，避免 2s 轮询状态切换时挤动下方卡片 -->
+          <span
+            v-if="status && !status.running && status.error"
+            class="kernel-error"
+            :title="`启动失败：${status.error}。修正配置后重新保存任一配置，内核会自动重建。`"
+          >
+            启动失败：{{ status.error }}（修正配置后重新保存可重建）
+          </span>
         </div>
       </u-card-content>
     </u-card>
@@ -191,15 +195,22 @@ function formatRate(n: number): string {
   display: flex;
   align-items: center;
   gap: 20px;
-  flex-wrap: wrap;
   font-size: var(--u-font-size-main-default);
 }
 
-/* 内核停止原因：次级警示色，不抢占指标卡视觉 */
+.kernel-meta > :not(.kernel-error) {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* 内核停止原因：行内单行省略呈现，不撑高卡片 */
 .kernel-error {
-  margin-top: var(--u-gap-default);
-  font-size: var(--u-font-size-main-default);
-  color: var(--u-color-warning, #e6a23c);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--u-color-warning);
 }
 
 /* 主指标（实时速率）占满一行两列并抬面放大 */

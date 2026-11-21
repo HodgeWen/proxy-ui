@@ -28,10 +28,10 @@ proxy-ui/
         ├── api/          # 请求封装与各资源接口（入站/出站/证书/规则+规则集/策略组/订阅用户/统计/内核/DNS/AI/面板更新）
         ├── stores/       # Pinia：auth
         ├── views/        # 向导（一次性设置码）/登录/仪表盘（内核只读状态、实时速率、按用户累计流量、pendingChanges 黄条）/入站（列表，用户数只读）/出站/证书（一键自签、上传/粘贴 PEM、路径引用，到期倒计时）/规则（按对象分四 tab：路由规则/规则集/策略组/兜底与模板）/订阅用户（配额用量；链接弹框按格式分 tab 带各自二维码；双格式配置预览弹框）/设置（拆分为 settings/ 六个平级 tab：主题/账号/内核/面板更新/AI/DNS，UTableEditor 编辑 DNS 行）
-        ├── settings/     # 设置页六个 tab 组件（ThemeTab/AccountTab/KernelTab/PanelUpdateTab/AiTab/DnsTab）
-        ├── components/   # AppLayout、AiChatDialog（顶栏 AI 助手近全屏对话弹框）、EmptyState、FormGroupCard、InboundForm、RuleListCard、RuleSetCard、RuleSetDialog、RuleEditDialog、PolicyGroupCard、FinalTemplatesCard、SubscriptionLinksDialog、SubscriptionEditorDialog、SubscriptionPreviewDialog（sing-box/mihomo 双格式只读预览）、DialogFooter
-        ├── composables/  # useEnabledOverride（USwitch 失败不下刷 workaround，两卡片共用）
-        ├── utils/        # format.ts（formatBytes/formatUptime）
+        ├── settings/     # 设置页六个 tab 组件（ThemeTab/AccountTab/KernelTab/PanelUpdateTab/AiTab/DnsTab）及 AI 弹框（AiProviderDialog/AiModelDialog/AiImportDialog）
+        ├── components/   # AppLayout、AiChatDialog（顶栏 AI 助手近全屏对话弹框）、EmptyState、FormGroupCard、InboundForm、OutboundEditorDialog、RuleListCard、RuleSetCard、RuleSetDialog、RuleEditDialog、PolicyGroupCard、FinalTemplatesCard、SubscriptionLinksDialog、SubscriptionEditorDialog、SubscriptionPreviewDialog（sing-box/mihomo 双格式只读预览）、DialogFooter
+        ├── composables/  # useEnabledOverride（USwitch 失败不下刷 workaround，多列表/卡片共用）
+        ├── utils/        # format.ts（formatBytes/formatUptime/formatDateTime）、clipboard.ts（copyText）
         ├── inbound-schema.ts # 七协议字段 schema 与弱配置警示（默认值经 template 端点取后端单一来源）
         └── router/       # 路由与守卫
 ```

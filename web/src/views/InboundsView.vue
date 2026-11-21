@@ -20,25 +20,25 @@ import {
   defineTableColumns,
   message,
 } from '@veltra/desktop'
-import { computed, onMounted, ref, shallowRef } from 'vue'
+import { onMounted, shallowRef, useTemplateRef } from 'vue'
 import { useRouter } from 'vue-router'
 
 import EmptyState from '../components/EmptyState.vue'
+import { useEnabledOverride } from '../composables/useEnabledOverride'
 import { confirmAction } from '../confirm-action'
 import { dialogStyle } from '../dialog-style'
 import { PROTOCOL_DEFS, listenLabel, protocolDef } from '../inbound-schema'
 
+const recommended = PROTOCOL_DEFS.filter((p) => p.recommended)
+const classic = PROTOCOL_DEFS.filter((p) => !p.recommended)
+
 const router = useRouter()
 
-const inbounds = ref<Inbound[]>([])
+const inbounds = shallowRef<Inbound[]>([])
 const loading = shallowRef(false)
 const pickerVisible = shallowRef(false)
-const togglingId = shallowRef(0)
 
-const inboundForm = shallowRef<InstanceType<typeof InboundForm>>()
-
-const recommended = computed(() => PROTOCOL_DEFS.filter((p) => p.recommended))
-const classic = computed(() => PROTOCOL_DEFS.filter((p) => !p.recommended))
+const inboundForm = useTemplateRef<InstanceType<typeof InboundForm>>('inboundForm')
 
 const columns = defineTableColumns([
   { key: 'name', name: '名称', minWidth: 160 },
@@ -67,18 +67,14 @@ function startCreate(protocol: string): void {
   inboundForm.value?.openCreate(protocol)
 }
 
-async function handleToggle(row: Inbound, enabled: boolean): Promise<void> {
-  togglingId.value = row.id
-  try {
+const { rowEnabled, togglingId, toggle: handleToggle } = useEnabledOverride(
+  inbounds,
+  async (row, enabled) => {
     await setInboundEnabled(row.id, enabled)
-    row.enabled = enabled
+    inbounds.value = inbounds.value.map((item) => (item.id === row.id ? { ...item, enabled } : item))
     message.success(enabled ? '入站已启用并已生效' : '入站已停用，其下全部用户已随之下线')
-  } catch {
-    // 错误已由请求封装统一提示
-  } finally {
-    togglingId.value = 0
-  }
-}
+  },
+)
 
 /** 危险操作：删除入站会连带删除其全部用户、流量记录与订阅绑定，二次确认 */
 async function handleDelete(row: Inbound): Promise<void> {
@@ -152,8 +148,8 @@ onMounted(refresh)
         <template #column:enabled="{ rowData }">
           <u-switch
             size="small"
-            :model-value="rowData.enabled"
-            :loading="togglingId === rowData.id"
+            :model-value="rowEnabled(rowData)"
+            :disabled="togglingId === rowData.id"
             @update:model-value="(v: boolean) => handleToggle(rowData, v)"
           />
         </template>

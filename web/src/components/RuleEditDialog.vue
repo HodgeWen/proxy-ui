@@ -5,7 +5,7 @@ import { createRule, updateRule } from '../api/rule'
 import type { RuleMatchMethod, RuleMatchType, RulePayload, RuleRecord, RuleSet } from '../api/rule'
 import { UButton, UDialog, UForm, UFormItem, UInput, USelect, message } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
-import { computed, reactive, shallowRef, watch } from 'vue'
+import { computed, reactive, shallowRef, useTemplateRef, watch } from 'vue'
 
 import { dialogStyle } from '../dialog-style'
 import { matchMethodLabel } from '../rule-labels'
@@ -25,7 +25,7 @@ const emit = defineEmits<{
 }>()
 
 const saving = shallowRef(false)
-const formRef = shallowRef<FormExposed>()
+const formRef = useTemplateRef<FormExposed>('formRef')
 const form = reactive<{
   matchType: RuleMatchType
   matchMethod: RuleMatchMethod | ''

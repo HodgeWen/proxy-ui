@@ -13,8 +13,6 @@ export interface TokenNode {
   /** 用户名，即客户端节点名 */
   name: string
   enabled: boolean
-  /** 管理员手动停用 */
-  disabled: boolean
   suspended: boolean
   uploadBytes: number
   downloadBytes: number

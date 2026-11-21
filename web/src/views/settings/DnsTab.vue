@@ -14,6 +14,7 @@ import {
   UTip,
   message,
 } from '@veltra/desktop'
+import { copy } from '@cat-kit/core'
 import type { TableEditorColumn } from '@veltra/desktop'
 import { QuestionFilled } from '@veltra/icons/normal'
 import { computed, onMounted, reactive, shallowRef, watch } from 'vue'
@@ -147,24 +148,16 @@ watch(
   },
 )
 
-/** 深拷贝一份配置，避免预设对象被表单改动污染 */
-function cloneSettings(config: DNSSettings): DNSSettings {
-  return {
-    enabled: config.enabled,
-    strategy: config.strategy ?? '',
-    servers: (config.servers ?? []).map((item) => ({ ...item })),
-    rules: (config.rules ?? []).map((item) => ({ ...item })),
-    final: config.final ?? '',
-  }
-}
-
+/** 深拷贝一份配置回填本地表单，避免预设对象被表单改动污染 */
 function fillDNS(config: DNSSettings): void {
-  const next = cloneSettings(config)
-  dnsForm.enabled = next.enabled
-  dnsForm.strategy = next.strategy
-  dnsForm.servers = next.servers
-  dnsForm.rules = next.rules
-  dnsForm.final = next.final
+  const next = copy(config)
+  Object.assign(dnsForm, {
+    enabled: next.enabled,
+    strategy: next.strategy ?? '',
+    servers: next.servers ?? [],
+    rules: next.rules ?? [],
+    final: next.final ?? '',
+  })
 }
 
 async function loadDNS(): Promise<void> {

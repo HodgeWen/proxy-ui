@@ -1,6 +1,7 @@
 <!-- 订阅用户新建 / 编辑弹窗：名称、流量配额（数值 + 单位换算）、到期时间（永久 / 日期 + 时刻）、勾选入站；
      打开时按 token 回填并拉取入站列表，保存走创建 / 更新，成功后 emit saved 由父页刷新列表 -->
 <script setup lang="ts">
+import { date } from '@cat-kit/core'
 import {
   UDatePicker,
   UDialog,
@@ -13,7 +14,7 @@ import {
   USwitch,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
-import { computed, reactive, shallowRef, watch } from 'vue'
+import { computed, reactive, shallowRef, useTemplateRef, watch } from 'vue'
 
 import { listInbounds } from '../api/inbound'
 import type { Inbound } from '../api/inbound'
@@ -44,7 +45,7 @@ const UNIT_BYTES: Record<Exclude<QuotaUnit, 'none'>, number> = {
 }
 
 const saving = shallowRef(false)
-const formRef = shallowRef<FormExposed>()
+const formRef = useTemplateRef<FormExposed>('formRef')
 const inbounds = shallowRef<Inbound[]>([])
 
 const form = reactive({
@@ -99,11 +100,10 @@ function splitQuota(bytes: number): { value: number | undefined; unit: QuotaUnit
 
 /** 表单到期时刻拆成日期 + 时间（本地时区） */
 function splitDateTime(iso: string): { date: string; time: string } {
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
+  const d = date(iso)
   return {
-    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    time: `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`,
+    date: d.format('yyyy-MM-dd'),
+    time: d.format('HH:mm:ss'),
   }
 }
 

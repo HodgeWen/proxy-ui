@@ -6,7 +6,7 @@ import { nextTick, onActivated, onDeactivated, onUnmounted, shallowRef, useTempl
 import EmptyState from '../../components/EmptyState.vue'
 import { fetchKernelLogs, fetchKernelStatus } from '../../api/kernel'
 import type { KernelLogLine, KernelStatus } from '../../api/kernel'
-import { formatUptime } from '../../utils/format'
+import { formatDateTime, formatUptime } from '../../utils/format'
 
 /** 内置内核的只读运行状态与日志（内核编进面板随面板自动运行，不可启停或换版本） */
 const status = shallowRef<KernelStatus | null>(null)
@@ -89,7 +89,7 @@ onUnmounted(stopPolling)
       <EmptyState v-if="!logs.length" title="暂无内核日志" />
       <div v-else ref="logBox" class="code-block kernel-log">
         <div v-for="(item, index) in logs" :key="index" class="kernel-log-line">
-          <span class="kernel-log-time">{{ new Date(item.time).toLocaleTimeString() }}</span>
+          <span class="kernel-log-time">{{ formatDateTime(item.time) }}</span>
           <span :class="['kernel-log-stream', `is-${item.stream}`]">{{ item.stream }}</span>
           <span class="kernel-log-text">{{ item.line }}</span>
         </div>

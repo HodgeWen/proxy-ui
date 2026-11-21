@@ -12,6 +12,7 @@ import {
   UCardContent,
   UCardHeader,
   UDialog,
+  UFilePicker,
   UForm,
   UFormItem,
   UInput,
@@ -25,13 +26,14 @@ import {
   message,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
-import { onMounted, reactive, shallowRef } from 'vue'
+import { nextTick, onMounted, reactive, shallowRef, useTemplateRef } from 'vue'
 
 import EmptyState from '../components/EmptyState.vue'
 import DialogFooter from '../components/DialogFooter.vue'
 import FormGroupCard from '../components/FormGroupCard.vue'
 import { confirmAction } from '../confirm-action'
 import { dialogStyle } from '../dialog-style'
+import { formatDateTime } from '../utils/format'
 
 const certs = shallowRef<Certificate[]>([])
 const loading = shallowRef(false)
@@ -72,7 +74,7 @@ function isExpired(row: Certificate): boolean {
 function expiryText(row: Certificate): string {
   if (row.certError) return row.certError
   if (!row.notAfter) return '—'
-  const base = new Date(row.notAfter).toLocaleString()
+  const base = formatDateTime(row.notAfter)
   const days = row.daysLeft
   if (days === null) return base
   return days >= 0 ? `${base}（剩 ${days} 天）` : `${base}（已过期 ${-days} 天）`
@@ -83,24 +85,26 @@ function expiryText(row: Certificate): string {
 /** 新增来源：self 一键自签 / managed 上传粘贴 PEM / path 引用服务器路径；编辑沿用记录的 mode */
 type FormSource = 'self' | 'managed' | 'path'
 
+function defaultCertForm() {
+  return {
+    name: '',
+    source: 'self' as FormSource,
+    domain: '',
+    sans: [] as string[],
+    days: 3650,
+    keyType: 'p256' as CertKeyType,
+    certPem: '',
+    keyPem: '',
+    certPath: '',
+    keyPath: '',
+  }
+}
+
 const formVisible = shallowRef(false)
 const editing = shallowRef<Certificate | null>(null)
 const saving = shallowRef(false)
-const formRef = shallowRef<FormExposed>()
-const certFileInput = shallowRef<HTMLInputElement>()
-const keyFileInput = shallowRef<HTMLInputElement>()
-const form = reactive({
-  name: '',
-  source: 'self' as FormSource,
-  domain: '',
-  sans: [] as string[],
-  days: 3650,
-  keyType: 'p256' as CertKeyType,
-  certPem: '',
-  keyPem: '',
-  certPath: '',
-  keyPath: '',
-})
+const formRef = useTemplateRef<FormExposed>('formRef')
+const form = reactive(defaultCertForm())
 
 const sourceOptions = [
   { label: '一键自签（推荐自用）', value: 'self' },
@@ -116,29 +120,28 @@ const keyTypeOptions = [
 
 function openCreate(): void {
   editing.value = null
-  Object.assign(form, {
-    name: '', source: 'self', domain: '', sans: [], days: 3650, keyType: 'p256',
-    certPem: '', keyPem: '', certPath: '', keyPath: '',
-  })
+  Object.assign(form, defaultCertForm())
   formVisible.value = true
+  void nextTick(() => formRef.value?.clearValidate())
 }
 
 /** 编辑沿用记录的引用方式（创建后不可变更）：自签证书按面板存储口径编辑 */
 function openEdit(row: Certificate): void {
   editing.value = row
-  Object.assign(form, {
-    name: row.name, source: row.mode, domain: '', sans: [], days: 3650, keyType: 'p256',
-    certPem: '', keyPem: '', certPath: row.certPath, keyPath: row.keyPath,
+  Object.assign(form, defaultCertForm(), {
+    name: row.name,
+    source: row.mode,
+    certPath: row.certPath,
+    keyPath: row.keyPath,
   })
   formVisible.value = true
+  void nextTick(() => formRef.value?.clearValidate())
 }
 
 /** 读取本地证书/私钥文件内容填入文本域 */
-async function pickPem(target: 'certPem' | 'keyPem', event: Event): Promise<void> {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
+async function pickPem(target: 'certPem' | 'keyPem', files: File[]): Promise<void> {
+  const file = files[0]
   if (file) form[target] = await file.text()
-  input.value = ''
 }
 
 async function handleSave(): Promise<void> {
@@ -329,8 +332,9 @@ onMounted(refresh)
           tips="PEM 格式证书全文（-----BEGIN CERTIFICATE----- 开头）；编辑时留空表示仅改名"
         >
           <u-textarea v-model="form.certPem" :rows="4" placeholder="-----BEGIN CERTIFICATE-----" />
-          <u-button class="pem-upload" @click="certFileInput?.click()">上传证书文件</u-button>
-          <input ref="certFileInput" type="file" accept=".pem,.crt,.cer,text/plain" hidden @change="pickPem('certPem', $event)" />
+          <u-file-picker class="pem-upload" accept=".pem,.crt,.cer,text/plain" @pick="pickPem('certPem', $event)">
+            <u-button>上传证书文件</u-button>
+          </u-file-picker>
         </u-form-item>
         <u-form-item
           label="私钥 PEM"
@@ -340,8 +344,9 @@ onMounted(refresh)
           tips="PEM 格式私钥全文（-----BEGIN PRIVATE KEY----- 开头）；填写则需与证书成对替换"
         >
           <u-textarea v-model="form.keyPem" :rows="4" placeholder="-----BEGIN PRIVATE KEY-----" />
-          <u-button class="pem-upload" @click="keyFileInput?.click()">上传私钥文件</u-button>
-          <input ref="keyFileInput" type="file" accept=".pem,.key,text/plain" hidden @change="pickPem('keyPem', $event)" />
+          <u-file-picker class="pem-upload" accept=".pem,.key,text/plain" @pick="pickPem('keyPem', $event)">
+            <u-button>上传私钥文件</u-button>
+          </u-file-picker>
         </u-form-item>
       </FormGroupCard>
 
@@ -395,7 +400,7 @@ onMounted(refresh)
 
 /* 已过期 / 解析失败的到期信息用错误色，与状态标签一起构成醒目提示 */
 .cell-expired {
-  color: var(--u-color-error);
+  color: var(--u-color-danger);
   font-size: var(--u-font-size-main-small);
 }
 

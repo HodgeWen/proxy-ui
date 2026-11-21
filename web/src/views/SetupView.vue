@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { message, UButton, UCard, UCardContent, UCardHeader, UForm, UInput, UPasswordInput } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
-import { reactive, shallowRef } from 'vue'
+import { reactive, shallowRef, useTemplateRef } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { useAuthStore } from '../stores/auth'
@@ -10,7 +10,7 @@ import { useAuthStore } from '../stores/auth'
 const router = useRouter()
 const auth = useAuthStore()
 
-const formRef = shallowRef<FormExposed>()
+const formRef = useTemplateRef<FormExposed>('formRef')
 const submitting = shallowRef(false)
 const form = reactive({ setupCode: '', username: '', password: '', confirm: '' })
 

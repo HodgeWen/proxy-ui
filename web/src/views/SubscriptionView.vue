@@ -9,6 +9,7 @@ import {
   UCard,
   UCardContent,
   UCardHeader,
+  UProgress,
   UTable,
   UTag,
   defineTableColumns,
@@ -32,7 +33,7 @@ import {
 import type { SubscriptionToken } from '../api/subscription'
 import { confirmAction } from '../confirm-action'
 import { protocolDef } from '../inbound-schema'
-import { formatBytes } from '../utils/format'
+import { formatBytes, formatDateTime } from '../utils/format'
 
 // ---------- 列表 ----------
 
@@ -92,10 +93,6 @@ function protocolShortName(protocol: string): string {
   return protocolName(protocol)
     .replace(/-\d[\w.]*$/, '')
     .split(' ')[0]
-}
-
-function formatTime(value: string): string {
-  return new Date(value).toLocaleString()
 }
 
 // ---------- 订阅链接弹窗 ----------
@@ -246,13 +243,13 @@ onMounted(refresh)
                 </span>
                 <span v-if="rowData.trafficLimitBytes" class="cell-dim">{{ usagePercent(rowData) }}%</span>
               </div>
-              <div v-if="rowData.trafficLimitBytes" class="usage-bar">
-                <div
-                  class="usage-bar-fill"
-                  :class="{ 'is-over': rowData.overQuota }"
-                  :style="{ width: `${usagePercent(rowData)}%` }"
-                ></div>
-              </div>
+              <u-progress
+                v-if="rowData.trafficLimitBytes"
+                :percentage="usagePercent(rowData)"
+                :type="rowData.overQuota ? 'danger' : 'primary'"
+              >
+                <template #default />
+              </u-progress>
             </div>
           </template>
           <template #column:nodes="{ rowData }">
@@ -260,11 +257,11 @@ onMounted(refresh)
             <span v-else class="cell-dim">未勾选入站</span>
           </template>
           <template #column:expiresAt="{ rowData }">
-            {{ rowData.expiresAt ? formatTime(rowData.expiresAt) : '永久' }}
+            {{ rowData.expiresAt ? formatDateTime(rowData.expiresAt) : '永久' }}
           </template>
           <template #column:lastUsedAt="{ rowData }">
             <span :class="{ 'cell-dim': !rowData.lastUsedAt }">
-              {{ rowData.lastUsedAt ? formatTime(rowData.lastUsedAt) : '从未使用' }}
+              {{ rowData.lastUsedAt ? formatDateTime(rowData.lastUsedAt) : '从未使用' }}
             </span>
           </template>
           <template #column:links="{ rowData }">
@@ -333,22 +330,5 @@ onMounted(refresh)
   justify-content: space-between;
   gap: 8px;
   font-size: var(--u-font-size-main-small);
-}
-
-.usage-bar {
-  height: 4px;
-  border-radius: 2px;
-  background-color: var(--u-bg-color-hover);
-  overflow: hidden;
-}
-
-.usage-bar-fill {
-  height: 100%;
-  background-color: var(--u-color-primary);
-  transition: width var(--u-transition-fast) var(--u-transition-ease-out);
-}
-
-.usage-bar-fill.is-over {
-  background-color: var(--u-color-danger);
 }
 </style>

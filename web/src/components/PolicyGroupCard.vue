@@ -22,7 +22,7 @@ import {
   message,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
-import { computed, reactive, ref, shallowRef } from 'vue'
+import { computed, reactive, ref, shallowRef, useTemplateRef } from 'vue'
 
 import { useEnabledOverride } from '../composables/useEnabledOverride'
 import { confirmAction } from '../confirm-action'
@@ -92,7 +92,7 @@ async function handleDelete(row: PolicyGroup): Promise<void> {
 const formVisible = shallowRef(false)
 const saving = shallowRef(false)
 const editing = shallowRef<PolicyGroup | null>(null)
-const formRef = shallowRef<FormExposed>()
+const formRef = useTemplateRef<FormExposed>('formRef')
 /** 分组卡片默认展开，重开弹框时复位 */
 const memberCollapsed = ref(false)
 const form = reactive<{ name: string; mode: PolicyGroupPayload['mode']; members: string[] }>({

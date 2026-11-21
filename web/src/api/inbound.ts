@@ -37,8 +37,8 @@ export function listInbounds(): Promise<Inbound[]> {
 
 /** 按协议取新建默认配置模板（后端 NewTemplateConfig 单一来源，含预生成的 Reality 密钥与 SS PSK）；
     silent：拉取失败由调用方兜底空配置，不弹统一错误提示 */
-export async function fetchInboundTemplate(protocol: string): Promise<Record<string, any>> {
-  const { config } = await request<{ config: Record<string, any> }>(
+export async function fetchInboundTemplate(protocol: string): Promise<Record<string, unknown>> {
+  const { config } = await request<{ config: Record<string, unknown> }>(
     `/api/inbounds/template/${protocol}`,
     { silent: true },
   )

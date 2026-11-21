@@ -20,6 +20,7 @@ import {
   UTextarea,
   message,
 } from '@veltra/desktop'
+import type { FormExposed } from '@veltra/desktop'
 import type { Component, PropType } from 'vue'
 import { copy, o } from '@cat-kit/core'
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, reactive, ref, shallowRef, useTemplateRef } from 'vue'
@@ -59,7 +60,7 @@ const SchemaField = defineComponent({
   name: 'SchemaField',
   props: {
     def: { type: Object as PropType<FieldDef>, required: true },
-    model: { type: Object as PropType<Record<string, any>>, required: true },
+    model: { type: Object as PropType<Record<string, unknown>>, required: true },
     certs: { type: Array as PropType<Certificate[]>, default: () => [] },
   },
   setup(props) {
@@ -67,7 +68,7 @@ const SchemaField = defineComponent({
       const d = props.def
       if (d.when && !d.when(props.model)) return null
       const current = o(props.model).get(d.field)
-      const controlProps: Record<string, any> = {
+      const controlProps: Record<string, unknown> = {
         modelValue: d.type === 'multiselect' ? current ?? [] : current,
         'onUpdate:modelValue': (value: unknown) => {
           o(props.model).set(d.field, value)
@@ -102,8 +103,8 @@ const SchemaField = defineComponent({
 const visible = shallowRef(false)
 const def = shallowRef<ProtocolDef>(PROTOCOL_DEFS[0])
 const editing = shallowRef<Inbound | null>(null)
-const form = reactive<Record<string, any>>({})
-const formRef = shallowRef<{ validate: () => Promise<boolean>; clearValidate: () => void }>()
+const form = reactive<Record<string, unknown>>({})
+const formRef = useTemplateRef<FormExposed>('formRef')
 const certs = shallowRef<Certificate[]>([])
 const saving = shallowRef(false)
 /** TLS 分组默认展开（证书选择是关键配置），高级分组默认折叠 */
@@ -135,15 +136,18 @@ function resetForm(): void {
 
 /** 后端模板经 omitempty 省略零值字段：补回零值外壳，select/switch 控件才能落在默认档
     （如 TUIC 心跳的「内核默认」、Shadowsocks 网络的「TCP + UDP」）；默认值本身仍来自后端模板 */
-function templateShells(tpl: Record<string, any>): Record<string, any> {
-  const shells: Record<string, any> = {
+function templateShells(tpl: Record<string, unknown>): Record<string, unknown> {
+  const shells: Record<string, unknown> = {
     tcpFastOpen: false,
     multiplex: { enabled: false, padding: false },
     heartbeat: '',
     network: '',
     ...tpl,
   }
-  if ('masquerade' in tpl) shells.masquerade = { type: '', ...tpl.masquerade }
+  if ('masquerade' in tpl) {
+    const rawMasq = tpl.masquerade && typeof tpl.masquerade === 'object' ? (tpl.masquerade as Record<string, unknown>) : {}
+    shells.masquerade = { type: '', ...rawMasq }
+  }
   return shells
 }
 
@@ -155,7 +159,7 @@ async function openCreate(protocol: string): Promise<void> {
   def.value = target
   editing.value = null
   resetForm()
-  let tpl: Record<string, any> = {}
+  let tpl: Record<string, unknown> = {}
   try {
     tpl = await fetchInboundTemplate(protocol)
   } catch {
@@ -174,14 +178,18 @@ function openEdit(row: Inbound): void {
   editing.value = row
   resetForm()
   // row.config 是表格行里的响应式 Proxy，structuredClone 会抛 DataCloneError，用 copy 深拷贝
-  const cfg = copy(row.config ?? {}) as Record<string, any>
-  if (target.tls && !cfg.tls) cfg.tls = { enabled: false }
+  const cfg = copy(row.config ?? {})
+  const rawTls = cfg.tls && typeof cfg.tls === 'object' ? (cfg.tls as Record<string, unknown>) : null
+  if (target.tls && !rawTls) cfg.tls = { enabled: false }
   // 协议要求必须 TLS 的旧记录（历史数据可能关着）：编辑时直接修正为开启
-  if (target.tlsRequired) cfg.tls.enabled = true
+  if (target.tlsRequired) {
+    cfg.tls = { ...(rawTls ?? {}), enabled: true }
+  }
   // 旧记录缺少新字段的嵌套结构：只补「功能关闭」的空壳，不套用新建默认值
   // （Hysteria2 混淆默认开只作用于新建，编辑已有入站必须保持原值）
   if (!cfg.multiplex) cfg.multiplex = { enabled: false, padding: false }
-  if (cfg.tls && !cfg.tls.ech) cfg.tls.ech = { enabled: false }
+  const currentTls = cfg.tls && typeof cfg.tls === 'object' ? (cfg.tls as Record<string, unknown>) : null
+  if (currentTls && !currentTls.ech) currentTls.ech = { enabled: false }
   if (row.protocol === 'hysteria2' && !cfg.masquerade) cfg.masquerade = { type: '' }
   Object.assign(form, { name: row.name, listen: row.listen, listenPort: row.listenPort }, cfg)
   if (target.tls) void reloadCerts()
@@ -221,15 +229,19 @@ async function handleSave(): Promise<void> {
   if (!(await formRef.value?.validate())) return
   saving.value = true
   try {
-    const { name, listen, listenPort, ...config } = JSON.parse(JSON.stringify(form))
+    const { name, listen, listenPort, ...config } = copy(form)
     // 协议要求必须 TLS：开关不可关闭，保存口径也强制为开启（双保险）
-    if (def.value.tlsRequired) config.tls = { ...(config.tls ?? {}), enabled: true }
+    if (def.value.tlsRequired) {
+      const prevTls =
+        config.tls && typeof config.tls === 'object' ? (config.tls as Record<string, unknown>) : {}
+      config.tls = { ...prevTls, enabled: true }
+    }
     const payload: InboundPayload = {
-      name: name ?? '',
+      name: typeof name === 'string' ? name : '',
       protocol: def.value.protocol,
-      listen: (listen ?? '::') as ListenAddress,
+      listen: (typeof listen === 'string' && listen ? listen : '::') as ListenAddress,
       // 端口留空（undefined）时后端分配随机空闲端口
-      listenPort: listenPort || undefined,
+      listenPort: typeof listenPort === 'number' && listenPort ? listenPort : undefined,
       config,
     }
     const saved = editing.value ? await updateInbound(editing.value.id, payload) : await createInbound(payload)
@@ -254,13 +266,6 @@ defineExpose({ openCreate, openEdit })
     <div class="form-intro">
       这里配置一个<b>真实监听</b>：协议、监听地址与端口，以及连接层参数（TLS / Reality / 混淆 / 拥塞算法）。
       该端口由本入站下的所有用户共享；用户在「订阅用户」页勾选本入站时自动生成独立凭据，用户名即客户端订阅里的节点名。
-    </div>
-
-    <div v-if="warnings.length" class="form-warnings">
-      <div v-for="w in warnings" :key="w.text" class="form-warning">
-        <span class="form-warning-text">⚠ {{ w.text }}</span>
-        <u-button v-if="w.jump === 'tls'" text type="primary" @click="jumpToTls">去配置 TLS</u-button>
-      </div>
     </div>
 
     <u-form ref="formRef" :model="form" :cols="1" label-width="112px">
@@ -328,6 +333,14 @@ defineExpose({ openCreate, openEdit })
       </div>
     </u-form>
 
+    <!-- 弱配置警示置于表单底部，避免输入时动态增减顶动光标下方的表单控件 -->
+    <div v-if="warnings.length" class="form-warnings">
+      <div v-for="w in warnings" :key="w.text" class="form-warning">
+        <span class="form-warning-text">⚠ {{ w.text }}</span>
+        <u-button v-if="w.jump === 'tls'" text type="primary" @click="jumpToTls">去配置 TLS</u-button>
+      </div>
+    </div>
+
     <template #footer="{ close }">
       <DialogFooter :loading="saving" @cancel="close" @confirm="handleSave" />
     </template>
@@ -348,7 +361,7 @@ defineExpose({ openCreate, openEdit })
 .form-warnings {
   display: grid;
   gap: 6px;
-  margin-bottom: 14px;
+  margin-top: 12px;
   padding: 10px 12px;
   border: 1px solid var(--u-color-warning);
   border-radius: var(--u-radius-small);
