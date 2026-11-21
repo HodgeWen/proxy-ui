@@ -187,14 +187,22 @@ func (s *Service) assemble(record db.SubscriptionToken, requestHost string) (Dat
 		getSetting(s.db, db.SettingRouteFinal), dns)
 }
 
-// noNodeReason 无可用节点的原因：要么没勾过入站，要么勾选的入站已全部停用、
-// 或该用户在入站下的节点已全部被停用/暂停。
+// noNodeReason 无可用节点的原因：要么没勾过入站，要么勾选的入站已全部停用，
+// 或该用户在入站下的节点已全部被停用/暂停（入站全停时节点状态已无关紧要，优先报入站）。
 func (s *Service) noNodeReason(tokenID uint) string {
-	var bound int64
-	if err := s.db.Model(&db.SubscriptionNode{}).Where("token_id = ?", tokenID).Count(&bound).Error; err != nil || bound == 0 {
+	var bindings []db.SubscriptionNode
+	if err := s.db.Where("token_id = ?", tokenID).Find(&bindings).Error; err != nil || len(bindings) == 0 {
 		return "该用户未勾选任何入站"
 	}
-	return "勾选的入站已全部停用，或该用户的节点已全部停用/暂停"
+	inboundIDs := make([]uint, 0, len(bindings))
+	for _, b := range bindings {
+		inboundIDs = append(inboundIDs, b.InboundID)
+	}
+	var enabledInbounds int64
+	if err := s.db.Model(&db.Inbound{}).Where("id IN ? AND enabled = ?", inboundIDs, true).Count(&enabledInbounds).Error; err != nil || enabledInbounds == 0 {
+		return "勾选的入站已全部停用"
+	}
+	return "该用户的节点已全部停用/暂停"
 }
 
 // usedBytes 统计订阅用户的已用流量（唯一依据是 TokenTraffic，与当前用户身份无关）。

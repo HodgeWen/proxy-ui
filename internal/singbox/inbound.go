@@ -273,6 +273,27 @@ func NewTemplateConfig(protocol string) (any, error) {
 	return nil, fmt.Errorf("不支持的入站协议: %s", protocol)
 }
 
+// CompleteRealityKeys 补齐启用中的 Reality 缺失密钥材料（VLESS 专用）：私钥为空时生成
+// 新密钥对（公钥随私钥一并替换，两者必须配对），短 ID 为空时随机补上。语义与 Shadowsocks
+// 的 PSK 补齐一致：密钥缺失会让内核以 invalid private key 拒绝启动，部分配置
+// （如 AI 建站工具只给出 Reality 开关与握手地址）不该把面板带进内核起不来的状态。
+func CompleteRealityKeys(cfg any) error {
+	vc, ok := cfg.(*VLESSConfig)
+	if !ok || !vc.Reality.Enabled || vc.Reality.PrivateKey != "" {
+		return nil
+	}
+	priv, pub, err := generateRealityKeypair()
+	if err != nil {
+		return err
+	}
+	vc.Reality.PrivateKey = priv
+	vc.Reality.PublicKey = pub
+	if vc.Reality.ShortID == "" {
+		vc.Reality.ShortID = randHex(4)
+	}
+	return nil
+}
+
 // ParseInboundConfig 按协议解析连接层配置 JSON；空白配置返回协议默认值。
 func ParseInboundConfig(protocol, raw string) (any, error) {
 	dst := newConfigOf(protocol)

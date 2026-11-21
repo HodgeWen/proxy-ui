@@ -112,10 +112,7 @@ func (a *API) HandleRuleTemplateApply(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "应用模板失败: "+err.Error())
 		return
 	}
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, gin.H{"template": tpl.ID, "rules": len(rules), "groups": len(groups), "final": final})
+	a.applyThenOK(c, gin.H{"template": tpl.ID, "rules": len(rules), "groups": len(groups), "final": final})
 }
 
 // ruleSetIDsByName 按名称批量查规则集 ID。

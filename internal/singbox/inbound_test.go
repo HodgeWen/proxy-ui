@@ -957,3 +957,68 @@ func TestVLESSRealityECH(t *testing.T) {
 		t.Errorf("Reality + ECH 应给出警示: %v", list)
 	}
 }
+
+// TestCompleteRealityKeys 补齐启用中的 Reality 缺失密钥材料；已有密钥与其余情形不受影响。
+func TestCompleteRealityKeys(t *testing.T) {
+	tests := []struct {
+		name     string
+		protocol string
+		raw      string
+		check    func(t *testing.T, cfg any)
+	}{
+		{
+			name:     "缺私钥时补齐密钥对与短 ID",
+			protocol: ProtoVLESS,
+			raw:      `{"reality":{"enabled":true,"handshakeServer":"www.microsoft.com","handshakePort":443}}`,
+			check: func(t *testing.T, cfg any) {
+				r := cfg.(*VLESSConfig).Reality
+				if r.PrivateKey == "" || r.PublicKey == "" || r.ShortID == "" {
+					t.Errorf("密钥材料未补齐: %+v", r)
+				}
+			},
+		},
+		{
+			name:     "已有密钥保持原值",
+			protocol: ProtoVLESS,
+			raw:      `{"reality":{"enabled":true,"privateKey":"priv-keep","publicKey":"pub-keep","shortId":"a1b2"}}`,
+			check: func(t *testing.T, cfg any) {
+				r := cfg.(*VLESSConfig).Reality
+				if r.PrivateKey != "priv-keep" || r.PublicKey != "pub-keep" || r.ShortID != "a1b2" {
+					t.Errorf("已有密钥不应被改动: %+v", r)
+				}
+			},
+		},
+		{
+			name:     "Reality 关闭时不补",
+			protocol: ProtoVLESS,
+			raw:      `{"reality":{"enabled":false}}`,
+			check: func(t *testing.T, cfg any) {
+				if r := cfg.(*VLESSConfig).Reality; r.PrivateKey != "" {
+					t.Errorf("Reality 关闭不应生成密钥: %+v", r)
+				}
+			},
+		},
+		{
+			name:     "非 VLESS 协议无操作",
+			protocol: ProtoTrojan,
+			raw:      `{"tls":{"enabled":false}}`,
+			check: func(t *testing.T, cfg any) {
+				if _, ok := cfg.(*VLESSConfig); ok {
+					t.Error("trojan 配置不应被当作 VLESS 处理")
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := ParseInboundConfig(tt.protocol, tt.raw)
+			if err != nil {
+				t.Fatalf("解析配置失败: %v", err)
+			}
+			if err := CompleteRealityKeys(cfg); err != nil {
+				t.Fatalf("补齐 Reality 密钥失败: %v", err)
+			}
+			tt.check(t, cfg)
+		})
+	}
+}

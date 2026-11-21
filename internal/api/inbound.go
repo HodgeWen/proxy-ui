@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -12,23 +13,25 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"proxy-ui/internal/ai"
 	"proxy-ui/internal/db"
 	"proxy-ui/internal/singbox"
 )
 
-// inboundView 入站响应视图：连接层配置 + 其下用户列表 + 弱配置警示。
+// inboundView 入站响应视图：连接层配置 + 用户数 + 弱配置警示。
+// 用户统一在「订阅用户」页管理，入站视图只给出其下用户数量。
 type inboundView struct {
-	ID         uint              `json:"id"`         // 主键
-	Name       string            `json:"name"`       // 名称（内核入站 tag）
-	Protocol   string            `json:"protocol"`   // 协议
-	Listen     string            `json:"listen"`     // 监听地址
-	ListenPort int               `json:"listenPort"` // 监听端口
-	Enabled    bool              `json:"enabled"`    // 是否启用
-	Config     json.RawMessage   `json:"config"`     // 连接层配置（对象，不含用户凭据）
-	Warnings   []string          `json:"warnings"`   // 弱配置警示
-	Users      []inboundUserView `json:"users"`      // 该入站下的用户
-	CreatedAt  time.Time         `json:"createdAt"`  // 创建时间
-	UpdatedAt  time.Time         `json:"updatedAt"`  // 更新时间
+	ID         uint            `json:"id"`         // 主键
+	Name       string          `json:"name"`       // 名称（内核入站 tag）
+	Protocol   string          `json:"protocol"`   // 协议
+	Listen     string          `json:"listen"`     // 监听地址
+	ListenPort int             `json:"listenPort"` // 监听端口
+	Enabled    bool            `json:"enabled"`    // 是否启用
+	Config     json.RawMessage `json:"config"`     // 连接层配置（对象，不含用户凭据）
+	Warnings   []string        `json:"warnings"`   // 弱配置警示
+	UserCount  int64           `json:"userCount"`  // 该入站下的用户数
+	CreatedAt  time.Time       `json:"createdAt"`  // 创建时间
+	UpdatedAt  time.Time       `json:"updatedAt"`  // 更新时间
 }
 
 // inboundReq 创建/更新入站请求；Config 为空时按协议填默认值，ListenPort 为空时取随机空闲端口。
@@ -57,37 +60,41 @@ func (a *API) inboundViews() ([]inboundView, error) {
 	if err := a.db.Order("id").Find(&records).Error; err != nil {
 		return nil, err
 	}
-	users, err := a.usersByInbound()
+	counts, err := a.inboundUserCounts()
 	if err != nil {
 		return nil, err
 	}
 	views := make([]inboundView, 0, len(records))
 	for _, in := range records {
-		views = append(views, a.inboundToView(in, users[in.ID]))
+		views = append(views, a.inboundToView(in, counts[in.ID]))
 	}
 	return views, nil
 }
 
-// usersByInbound 按入站分组查询用户（附带订阅归属备注）。
-func (a *API) usersByInbound() (map[uint][]inboundUserView, error) {
-	var users []db.InboundUser
-	if err := a.db.Order("id").Find(&users).Error; err != nil {
+// inboundUserCounts 一轮分组统计各入站下的用户数（键为入站 ID）。
+func (a *API) inboundUserCounts() (map[uint]int64, error) {
+	var rows []struct {
+		InboundID uint
+		Count     int64
+	}
+	if err := a.db.Model(&db.InboundUser{}).
+		Select("inbound_id, COUNT(*) AS count").Group("inbound_id").Scan(&rows).Error; err != nil {
 		return nil, err
 	}
-	bindings, names, err := a.bindingMap()
-	if err != nil {
-		return nil, err
+	counts := make(map[uint]int64, len(rows))
+	for _, r := range rows {
+		counts[r.InboundID] = r.Count
 	}
-	grouped := make(map[uint][]inboundUserView, len(users))
-	for _, u := range users {
-		view := userToView(u)
-		if b, ok := bindings[u.ID]; ok {
-			view.TokenID = b.TokenID
-			view.TokenName = names[b.TokenID]
-		}
-		grouped[u.InboundID] = append(grouped[u.InboundID], view)
+	return counts, nil
+}
+
+// inboundUserCount 统计单个入站下的用户数。
+func (a *API) inboundUserCount(inboundID uint) (int64, error) {
+	var count int64
+	if err := a.db.Model(&db.InboundUser{}).Where("inbound_id = ?", inboundID).Count(&count).Error; err != nil {
+		return 0, err
 	}
-	return grouped, nil
+	return count, nil
 }
 
 // HandleInboundCreate POST /api/inbounds 创建入站（空配置填默认值，端口默认随机空闲端口）。
@@ -102,10 +109,24 @@ func (a *API) HandleInboundCreate(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !a.applyOrFail(c) {
+	a.applyThenOK(c, view)
+}
+
+// HandleInboundTemplate GET /api/inbounds/template/:protocol 按协议返回默认连接层配置模板
+// （VLESS 含预生成的 Reality 密钥材料、Shadowsocks 含随机 PSK）。新建弹框的默认值以此端点
+// 为单一来源，前端不再自带一份默认配置。
+func (a *API) HandleInboundTemplate(c *gin.Context) {
+	protocol := c.Param("protocol")
+	if !supportedProtocol(protocol) {
+		Fail(c, http.StatusBadRequest, "不支持的入站协议: "+protocol)
 		return
 	}
-	OK(c, view)
+	cfg, err := singbox.NewTemplateConfig(protocol)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "生成默认配置失败: "+err.Error())
+		return
+	}
+	OK(c, gin.H{"config": cfg})
 }
 
 // HandleInboundGet GET /api/inbounds/:id 入站详情。
@@ -119,12 +140,12 @@ func (a *API) HandleInboundGet(c *gin.Context) {
 		Fail(c, http.StatusNotFound, "入站不存在")
 		return
 	}
-	users, err := a.usersByInbound()
+	count, err := a.inboundUserCount(in.ID)
 	if err != nil {
-		Fail(c, http.StatusInternalServerError, "查询用户失败: "+err.Error())
+		Fail(c, http.StatusInternalServerError, "查询用户数失败: "+err.Error())
 		return
 	}
-	OK(c, a.inboundToView(in, users[in.ID]))
+	OK(c, a.inboundToView(in, count))
 }
 
 // HandleInboundUpdate PUT /api/inbounds/:id 更新入站（全量替换请求给出的字段）。
@@ -143,10 +164,7 @@ func (a *API) HandleInboundUpdate(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, view)
+	a.applyThenOK(c, view)
 }
 
 // HandleInboundSetEnabled PATCH /api/inbounds/:id/enabled 启停入站。
@@ -170,11 +188,8 @@ func (a *API) HandleInboundSetEnabled(c *gin.Context) {
 		return
 	}
 	in.Enabled = req.Enabled
-	if !a.applyOrFail(c) {
-		return
-	}
-	users, _ := a.usersByInbound()
-	OK(c, a.inboundToView(in, users[in.ID]))
+	count, _ := a.inboundUserCount(in.ID)
+	a.applyThenOK(c, a.inboundToView(in, count))
 }
 
 // HandleInboundDelete DELETE /api/inbounds/:id 删除入站（连同其用户与订阅绑定）。
@@ -187,10 +202,7 @@ func (a *API) HandleInboundDelete(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, gin.H{"deleted": id})
+	a.applyThenOK(c, gin.H{"deleted": id})
 }
 
 // applyInboundReq 把请求字段应用到入站：归一化连接层配置、校验协议/端口/名称唯一性与证书引用。
@@ -246,6 +258,10 @@ func (a *API) applyInboundReq(in *db.Inbound, req inboundReq, id uint, origProto
 	}
 	cfg, err := singbox.ParseInboundConfig(in.Protocol, rawCfg)
 	if err != nil {
+		return false, err
+	}
+	// Reality 缺私钥会让内核拒绝启动：保存时补齐（经归一化落库，后续重建复用同一密钥）
+	if err := singbox.CompleteRealityKeys(cfg); err != nil {
 		return false, err
 	}
 	// Shadowsocks-2022 的入站 PSK 与各用户密钥长度都取决于方法：方法变更或首次配置时
@@ -432,16 +448,13 @@ func portFree(port int, quic bool) bool {
 }
 
 // inboundToView 把入站转为响应视图（解析配置计算弱配置警示）。
-func (a *API) inboundToView(in db.Inbound, users []inboundUserView) inboundView {
+func (a *API) inboundToView(in db.Inbound, userCount int64) inboundView {
 	cfg, err := singbox.ParseInboundConfig(in.Protocol, in.Config)
 	view := inboundView{
 		ID: in.ID, Name: in.Name, Protocol: in.Protocol, Listen: in.Listen,
 		ListenPort: in.ListenPort, Enabled: in.Enabled,
 		CreatedAt: in.CreatedAt, UpdatedAt: in.UpdatedAt,
-		Users: users,
-	}
-	if view.Users == nil {
-		view.Users = []inboundUserView{}
+		UserCount: userCount,
 	}
 	if err != nil { // 库内数据异常时原样返回配置，不阻断列表
 		view.Config = json.RawMessage(in.Config)
@@ -478,7 +491,7 @@ func (a *API) createInbound(req inboundReq) (inboundView, error) {
 	if err := a.db.Create(&in).Error; err != nil {
 		return inboundView{}, fmt.Errorf("创建入站失败: %w", err)
 	}
-	return a.inboundToView(in, nil), nil
+	return a.inboundToView(in, 0), nil
 }
 
 // updateInbound 更新入站。
@@ -502,8 +515,11 @@ func (a *API) updateInbound(id uint, req inboundReq) (inboundView, error) {
 			}
 		}
 	}
-	users, _ := a.usersByInbound()
-	return a.inboundToView(in, users[in.ID]), nil
+	count, err := a.inboundUserCount(in.ID)
+	if err != nil {
+		return inboundView{}, fmt.Errorf("查询用户数失败: %w", err)
+	}
+	return a.inboundToView(in, count), nil
 }
 
 // deleteInbound 删除入站及其用户与订阅绑定。
@@ -542,4 +558,120 @@ func contains(list []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// ---------- 入站 AI 工具 ----------
+
+// inboundUserView 入站用户视图：与 db.InboundUser 字段一致但**不含 Credential**，
+// 凭据明文（uuid/password）不得进入 AI 对话上下文。
+type inboundUserView struct {
+	ID        uint      `json:"id"`        // 主键
+	InboundID uint      `json:"inboundId"` // 所属入站
+	Name      string    `json:"name"`      // 用户名（客户端节点名）
+	Disabled  bool      `json:"disabled"`  // 管理员手动停用
+	Suspended bool      `json:"suspended"` // 被系统暂停
+	Enabled   bool      `json:"enabled"`   // 生效状态
+	CreatedAt time.Time `json:"createdAt"` // 创建时间
+	UpdatedAt time.Time `json:"updatedAt"` // 更新时间
+}
+
+// inboundUserViews 查询全部入站用户并转为脱敏视图（不含凭据）。
+func (a *API) inboundUserViews() ([]inboundUserView, error) {
+	var users []db.InboundUser
+	if err := a.db.Order("inbound_id, id").Find(&users).Error; err != nil {
+		return nil, err
+	}
+	views := make([]inboundUserView, 0, len(users))
+	for _, u := range users {
+		views = append(views, inboundUserView{
+			ID: u.ID, InboundID: u.InboundID, Name: u.Name,
+			Disabled: u.Disabled, Suspended: u.Suspended, Enabled: u.Enabled,
+			CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
+		})
+	}
+	return views, nil
+}
+
+// registerInboundAITools 注册入站相关的查询与写操作 AI 工具（写操作委托 createInbound 等共用方法）。
+func (a *API) registerInboundAITools() {
+	a.ai.Register(ai.Tool{
+		Name:        "list_inbounds",
+		Description: "列出面板全部入站（含协议、监听地址与端口、启用状态、连接层配置、用户数与弱配置警示）",
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
+			return a.inboundViews()
+		},
+	})
+	a.ai.Register(ai.Tool{
+		Name:        "list_inbound_users",
+		Description: "列出全部入站用户（订阅用户勾选入站生成的认证身份，含所属入站、用户名、启用/暂停状态）",
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
+			return a.inboundUserViews()
+		},
+	})
+	a.registerModify(ai.Tool{
+		Name: "create_inbound",
+		Description: "创建入站（真实监听）。入站只配连接层参数（TLS/证书/Reality/ECH/混淆/masquerade/带宽/拥塞算法），" +
+			"用户凭据在入站内单独创建；listenPort 省略时自动分配随机空闲端口；保存后内核立即按新配置重建",
+		Parameters: toolParams(map[string]any{
+			"protocol": toolProp("string", "入站协议", singbox.SupportedProtocols...),
+			"name":     toolProp("string", "入站名称，缺省按 协议-序号 生成"),
+			"listen":   toolProp("string", "监听地址：:: 双栈 / 0.0.0.0 仅 IPv4 / 127.0.0.1 走反代，缺省 ::"),
+			"config": map[string]any{"type": "object", "description": "协议连接层配置对象，缺省按协议填默认值。" +
+				"通用：tls{enabled,serverName,alpn,minVersion,maxVersion,ech{enabled,key,keyPath},certMode,certId,certPath,keyPath}、" +
+				"tcpFastOpen、multiplex{enabled,padding}（VLESS/Trojan/VMess/Shadowsocks）；" +
+				"VLESS Reality：reality{enabled,handshakeServer,handshakePort}，密钥材料留空由面板自动生成、不要编造；" +
+				"Hysteria2：obfsEnabled/obfsPassword、upMbps/downMbps、bbrProfile、masquerade{type,directory,proxyUrl,statusCode,content}；" +
+				"TUIC：congestionControl（默认 bbr）、zeroRttHandshake、heartbeat；Shadowsocks：network（空为 TCP+UDP）"},
+			"enabled": toolProp("boolean", "是否启用，缺省 true"),
+		}, "protocol"),
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var req inboundReq
+			if err := decodeToolArgs(args, &req); err != nil {
+				return nil, err
+			}
+			dropEmptyConfig(&req)
+			return a.createInbound(req)
+		},
+	})
+	a.registerModify(ai.Tool{
+		Name:        "update_inbound",
+		Description: "按 ID 更新入站；仅更新给出的字段，config 为完整协议配置对象（变更协议时必须提供）",
+		Parameters: toolParams(map[string]any{
+			"id":      toolProp("integer", "入站 ID"),
+			"name":    toolProp("string", "名称"),
+			"listen":  toolProp("string", "监听地址"),
+			"config":  map[string]any{"type": "object", "description": "完整协议配置对象"},
+			"enabled": toolProp("boolean", "是否启用"),
+		}, "id"),
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var req inboundReq
+			if err := decodeToolArgs(args, &req); err != nil {
+				return nil, err
+			}
+			var arg idArg
+			if err := decodeToolArgs(args, &arg); err != nil {
+				return nil, err
+			}
+			dropEmptyConfig(&req)
+			return a.updateInbound(arg.ID, req)
+		},
+	})
+	a.registerModify(ai.Tool{
+		Name:         "delete_inbound",
+		Description:  "按 ID 删除入站（连同其下全部用户与累计流量）",
+		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "入站 ID")}, "id"),
+		NeedsConfirm: true,
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var arg idArg
+			if err := decodeToolArgs(args, &arg); err != nil {
+				return nil, err
+			}
+			if err := a.deleteInbound(arg.ID); err != nil {
+				return nil, err
+			}
+			return gin.H{"deleted": arg.ID}, nil
+		},
+	})
 }

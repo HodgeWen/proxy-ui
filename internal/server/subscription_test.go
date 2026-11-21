@@ -138,11 +138,8 @@ func TestSubscriptionNodeCreation(t *testing.T) {
 	}
 	var list []inboundResp
 	decodeData(t, env, &list)
-	if len(list) != 1 || len(list[0].Users) != 1 {
+	if len(list) != 1 || list[0].UserCount != 1 {
 		t.Fatalf("入站下应有 1 个用户: %+v", list)
-	}
-	if got := list[0].Users[0]; got.Name != wantName || got.TokenID != view.ID || got.TokenName != "alice" {
-		t.Errorf("入站用户视图不符: %+v", got)
 	}
 
 	// GET /api/subscription 里节点带该入站端口
@@ -190,14 +187,16 @@ func TestSubscriptionNodeCreation(t *testing.T) {
 	if len(updated.Nodes) != 0 {
 		t.Errorf("取消勾选后应无节点: %+v", updated.Nodes)
 	}
-	code, env = doJSON(t, client, http.MethodGet, srv.URL+"/api/inbounds/"+itoa(in.ID)+"/users", nil)
+	code, env = doJSON(t, client, http.MethodGet, srv.URL+"/api/inbounds/"+itoa(in.ID), nil)
 	if code != http.StatusOK {
-		t.Fatalf("查询入站用户失败: %s", env.Msg)
+		t.Fatalf("查询入站失败: %s", env.Msg)
 	}
-	var users []map[string]any
-	decodeData(t, env, &users)
-	if len(users) != 0 {
-		t.Errorf("取消勾选后入站用户应被删除: %v", users)
+	var detail struct {
+		UserCount int64 `json:"userCount"`
+	}
+	decodeData(t, env, &detail)
+	if detail.UserCount != 0 {
+		t.Errorf("取消勾选后入站用户应被删除: %d", detail.UserCount)
 	}
 }
 
@@ -266,16 +265,16 @@ func TestSubscriptionSharedInbound(t *testing.T) {
 	})
 
 	// 入站下应有两条用户
-	code, env := doJSON(t, client, http.MethodGet, srv.URL+"/api/inbounds/"+itoa(in.ID)+"/users", nil)
+	code, env := doJSON(t, client, http.MethodGet, srv.URL+"/api/inbounds/"+itoa(in.ID), nil)
 	if code != http.StatusOK {
-		t.Fatalf("查询入站用户失败: %s", env.Msg)
+		t.Fatalf("查询入站失败: %s", env.Msg)
 	}
-	var users []struct {
-		Name string `json:"name"`
+	var detail struct {
+		UserCount int64 `json:"userCount"`
 	}
-	decodeData(t, env, &users)
-	if len(users) != 2 {
-		t.Fatalf("同一入站下应有 2 个用户: %+v", users)
+	decodeData(t, env, &detail)
+	if detail.UserCount != 2 {
+		t.Fatalf("同一入站下应有 2 个用户: %d", detail.UserCount)
 	}
 
 	// 两个订阅的节点端口相同、密码不同
@@ -483,13 +482,15 @@ func TestSubscriptionTokenLifecycle(t *testing.T) {
 	if code, _, _ := getSub(t, srv.URL+"/sub/"+reset.Token, "SFM"); code != http.StatusNotFound {
 		t.Errorf("删除后订阅状态码 = %d, want 404", code)
 	}
-	code, env = doJSON(t, client, http.MethodGet, srv.URL+"/api/inbounds/"+itoa(in.ID)+"/users", nil)
+	code, env = doJSON(t, client, http.MethodGet, srv.URL+"/api/inbounds/"+itoa(in.ID), nil)
 	if code != http.StatusOK {
-		t.Fatalf("查询入站用户失败: %s", env.Msg)
+		t.Fatalf("查询入站失败: %s", env.Msg)
 	}
-	var users []map[string]any
-	decodeData(t, env, &users)
-	if len(users) != 0 {
-		t.Errorf("删除订阅用户后其入站用户应清除: %v", users)
+	var detail struct {
+		UserCount int64 `json:"userCount"`
+	}
+	decodeData(t, env, &detail)
+	if detail.UserCount != 0 {
+		t.Errorf("删除订阅用户后其入站用户应清除: %d", detail.UserCount)
 	}
 }

@@ -166,7 +166,19 @@ func TestPreviewNoNodes(t *testing.T) {
 	if !errors.Is(err, ErrNoNodes) {
 		t.Fatalf("入站停用且用户被暂停应返回 ErrNoNodes, got %v", err)
 	}
-	if msg := err.Error(); !strings.Contains(msg, "停用") || !strings.Contains(msg, "暂停") {
-		t.Errorf("无节点错误应说明停用/暂停原因: %s", msg)
+	if msg := err.Error(); !strings.Contains(msg, "入站已全部停用") {
+		t.Errorf("入站全停时应优先报入站原因: %s", msg)
+	}
+
+	// 入站启用但用户被暂停：应报节点停用/暂停原因
+	if err := database.Model(&inbound).Update("enabled", true).Error; err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Preview(stopped.ID, "example.com", FormatSingBox)
+	if !errors.Is(err, ErrNoNodes) {
+		t.Fatalf("用户被暂停应返回 ErrNoNodes, got %v", err)
+	}
+	if msg := err.Error(); !strings.Contains(msg, "节点已全部停用/暂停") {
+		t.Errorf("入站启用时应报节点停用/暂停原因: %s", msg)
 	}
 }

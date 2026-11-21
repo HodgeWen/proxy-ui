@@ -7,13 +7,18 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
 	"proxy-ui/internal/db"
+	"proxy-ui/internal/singbox"
 )
 
 // testCertModel 构造证书记录（视图测试用）。
@@ -87,7 +92,7 @@ func parseGenerated(t *testing.T, certPEM, keyPEM string) (*x509.Certificate, an
 func TestGenerateSelfSigned(t *testing.T) {
 	const domain = "example.com"
 	const days = 90
-	sans := []string{"www.example.com", "10.0.0.8", " example.com "} // 含 IP、需去空白与主域名重复项
+	sans := []string{"www.example.com", "10.0.0.8", " example.com ", "10.0.0.8"} // 含 IP、需去空白、主域名与 IP 重复项
 	genLower := time.Now().Add(-2 * time.Hour)
 	certPEM, keyPEM, err := generateSelfSigned(domain, sans, days, KeyTypeP256)
 	if err != nil {
@@ -256,5 +261,60 @@ func TestCertViewOf(t *testing.T) {
 	view = a.certViewOf(testCertModel("managed", "missing.pem", "missing.pem"))
 	if view.CertError == "" || view.NotAfter != nil || view.DaysLeft != nil {
 		t.Errorf("不可读证书应有 CertError 且无到期字段: %+v", view)
+	}
+}
+
+// TestHandleCertDelete 删除证书：先删库记录、成功后再删文件，两处都生效；
+// 证书文件已缺失时删除仍成功（孤儿文件场景可接受）。
+func TestHandleCertDelete(t *testing.T) {
+	a := newInboundTestAPI(t)
+
+	certPEM, keyPEM, err := generateSelfSigned("example.com", nil, 30, KeyTypeP256)
+	if err != nil {
+		t.Fatalf("生成证书失败: %v", err)
+	}
+	certName, keyName, err := a.writeCertFiles(certPEM, keyPEM)
+	if err != nil {
+		t.Fatalf("写入证书文件失败: %v", err)
+	}
+	cert := db.Certificate{Name: "del", Mode: singbox.CertModeManaged, CertPath: certName, KeyPath: keyName}
+	if err := a.db.Create(&cert).Error; err != nil {
+		t.Fatalf("创建证书记录失败: %v", err)
+	}
+	id := strconv.FormatUint(uint64(cert.ID), 10)
+	c, w := ginCtx(http.MethodDelete, "/api/certs/"+id, "", gin.Params{{Key: "id", Value: id}})
+	a.HandleCertDelete(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("删除证书应成功, got %d: %s", w.Code, w.Body.String())
+	}
+	var count int64
+	if err := a.db.Model(&db.Certificate{}).Where("id = ?", cert.ID).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Error("证书记录应已删除")
+	}
+	for _, name := range []string{certName, keyName} {
+		if _, err := os.Stat(filepath.Join(a.certDir(), name)); !os.IsNotExist(err) {
+			t.Errorf("证书文件应已删除: %s (%v)", name, err)
+		}
+	}
+
+	// 文件已缺失（如被手动清掉）时只剩记录也能删干净，不应报错
+	missing := db.Certificate{Name: "no-files", Mode: singbox.CertModeManaged, CertPath: "gone-cert.pem", KeyPath: "gone-key.pem"}
+	if err := a.db.Create(&missing).Error; err != nil {
+		t.Fatalf("创建证书记录失败: %v", err)
+	}
+	id = strconv.FormatUint(uint64(missing.ID), 10)
+	c, w = ginCtx(http.MethodDelete, "/api/certs/"+id, "", gin.Params{{Key: "id", Value: id}})
+	a.HandleCertDelete(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("文件缺失时删除证书仍应成功, got %d: %s", w.Code, w.Body.String())
+	}
+	if err := a.db.Model(&db.Certificate{}).Where("id = ?", missing.ID).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Error("文件缺失时证书记录也应删除")
 	}
 }

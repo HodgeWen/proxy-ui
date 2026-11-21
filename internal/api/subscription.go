@@ -1,9 +1,12 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -11,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"proxy-ui/internal/ai"
 	"proxy-ui/internal/db"
 	"proxy-ui/internal/subscription"
 )
@@ -137,36 +141,12 @@ func (a *API) HandleTokenCreate(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
 		return
 	}
-	record := db.SubscriptionToken{Token: randToken()}
-	if req.Name != nil {
-		record.Name = strings.TrimSpace(*req.Name)
-	}
-	if req.TrafficLimitBytes != nil && *req.TrafficLimitBytes > 0 {
-		record.TrafficLimitBytes = *req.TrafficLimitBytes
-	}
-	if req.ExpiresAt != nil {
-		record.ExpiresAt = req.ExpiresAt
-	}
-	if err := a.db.Create(&record).Error; err != nil {
-		Fail(c, http.StatusInternalServerError, "创建订阅用户失败: "+err.Error())
-		return
-	}
-	if req.NodeInbounds != nil {
-		if err := a.syncTokenNodes(&record, dedupeIDs(*req.NodeInbounds)); err != nil {
-			_ = a.deleteToken(record.ID)
-			Fail(c, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-	if err := a.syncQuota(c); err != nil {
-		return
-	}
-	view, err := a.tokenView(record.ID)
+	view, err := a.createToken(req)
 	if err != nil {
-		Fail(c, http.StatusInternalServerError, err.Error())
+		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	OK(c, view)
+	a.applyThenOK(c, view)
 }
 
 // HandleTokenUpdate PUT /api/subscription/tokens/:id 更新订阅用户。
@@ -180,51 +160,12 @@ func (a *API) HandleTokenUpdate(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
 		return
 	}
-	var record db.SubscriptionToken
-	if err := a.db.First(&record, id).Error; err != nil {
-		Fail(c, http.StatusNotFound, "订阅用户不存在")
-		return
-	}
-	updates := map[string]any{}
-	if req.Name != nil {
-		updates["name"] = strings.TrimSpace(*req.Name)
-	}
-	if req.TrafficLimitBytes != nil {
-		limit := *req.TrafficLimitBytes
-		if limit < 0 {
-			limit = 0
-		}
-		updates["traffic_limit_bytes"] = limit
-	}
-	switch {
-	case req.ClearExpiry:
-		updates["expires_at"] = nil
-	case req.ExpiresAt != nil:
-		updates["expires_at"] = *req.ExpiresAt
-	}
-	if len(updates) > 0 {
-		if err := a.db.Model(&record).Updates(updates).Error; err != nil {
-			Fail(c, http.StatusInternalServerError, "保存订阅用户失败: "+err.Error())
-			return
-		}
-		// 同步内存中的名称，否则新增节点会沿用改名前的旧前缀
-		record = mustReloadToken(a, record.ID)
-	}
-	if req.NodeInbounds != nil {
-		if err := a.syncTokenNodes(&record, dedupeIDs(*req.NodeInbounds)); err != nil {
-			Fail(c, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-	if err := a.syncQuota(c); err != nil {
-		return
-	}
-	view, err := a.tokenView(id)
+	view, err := a.updateToken(id, req)
 	if err != nil {
-		Fail(c, http.StatusInternalServerError, err.Error())
+		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	OK(c, view)
+	a.applyThenOK(c, view)
 }
 
 // HandleTokenDelete DELETE /api/subscription/tokens/:id 删除订阅用户及其全部节点用户。
@@ -237,10 +178,7 @@ func (a *API) HandleTokenDelete(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, gin.H{"deleted": id})
+	a.applyThenOK(c, gin.H{"deleted": id})
 }
 
 // HandleTokenRevoke PATCH /api/subscription/tokens/:id/revoked 停用/启用订阅用户。
@@ -263,15 +201,12 @@ func (a *API) HandleTokenRevoke(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "更新订阅用户失败: "+err.Error())
 		return
 	}
-	if err := a.syncQuota(c); err != nil {
-		return
-	}
-	view, err := a.tokenView(id)
+	view, err := a.tokenReconciledView(id)
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	OK(c, view)
+	a.applyThenOK(c, view)
 }
 
 // HandleTokenReset POST /api/subscription/tokens/:id/reset 重置订阅链接（换新令牌并恢复可用）。
@@ -280,24 +215,12 @@ func (a *API) HandleTokenReset(c *gin.Context) {
 	if !ok {
 		return
 	}
-	var record db.SubscriptionToken
-	if err := a.db.First(&record, id).Error; err != nil {
-		Fail(c, http.StatusNotFound, "订阅用户不存在")
-		return
-	}
-	if err := a.db.Model(&record).Updates(map[string]any{"token": randToken(), "revoked": false}).Error; err != nil {
-		Fail(c, http.StatusInternalServerError, "重置订阅链接失败: "+err.Error())
-		return
-	}
-	if err := a.syncQuota(c); err != nil {
-		return
-	}
-	view, err := a.tokenView(id)
+	view, err := a.resetTokenLink(id)
 	if err != nil {
-		Fail(c, http.StatusInternalServerError, err.Error())
+		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	OK(c, view)
+	a.applyThenOK(c, view)
 }
 
 // HandleTokenResetTraffic POST /api/subscription/tokens/:id/reset-traffic 清零该用户全部节点累计流量。
@@ -306,10 +229,104 @@ func (a *API) HandleTokenResetTraffic(c *gin.Context) {
 	if !ok {
 		return
 	}
+	view, err := a.resetTokenTraffic(id)
+	if err != nil {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	a.applyThenOK(c, view)
+}
+
+// ---------- 供 REST handler 与 AI 工具共用的写操作 ----------
+
+// createToken 创建订阅用户（可同时勾选入站）：记录创建与节点同步同处一个事务，
+// 同步失败整体回滚（无需补偿删除），成功后按配额对账并返回最新视图。
+func (a *API) createToken(req tokenReq) (tokenView, error) {
+	record := db.SubscriptionToken{Token: randToken()}
+	if req.Name != nil {
+		record.Name = strings.TrimSpace(*req.Name)
+	}
+	if req.TrafficLimitBytes != nil && *req.TrafficLimitBytes > 0 {
+		record.TrafficLimitBytes = *req.TrafficLimitBytes
+	}
+	if req.ExpiresAt != nil {
+		record.ExpiresAt = req.ExpiresAt
+	}
+	err := a.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&record).Error; err != nil {
+			return fmt.Errorf("创建订阅用户失败: %w", err)
+		}
+		if req.NodeInbounds != nil {
+			return a.syncTokenNodes(tx, &record, dedupeIDs(*req.NodeInbounds))
+		}
+		return nil
+	})
+	if err != nil {
+		return tokenView{}, err
+	}
+	return a.tokenReconciledView(record.ID)
+}
+
+// updateToken 更新订阅用户（名称、配额、到期与勾选入站）。字段更新与节点同步同处一个事务：
+// 失败整体回滚，不留半应用状态（如改了名但节点同步到一半失败）。
+func (a *API) updateToken(id uint, req tokenReq) (tokenView, error) {
+	var record db.SubscriptionToken
+	err := a.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.First(&record, id).Error; err != nil {
+			return fmt.Errorf("订阅用户不存在: %d", id)
+		}
+		updates := map[string]any{}
+		if req.Name != nil {
+			updates["name"] = strings.TrimSpace(*req.Name)
+		}
+		if req.TrafficLimitBytes != nil {
+			limit := *req.TrafficLimitBytes
+			if limit < 0 {
+				limit = 0
+			}
+			updates["traffic_limit_bytes"] = limit
+		}
+		switch {
+		case req.ClearExpiry:
+			updates["expires_at"] = nil
+		case req.ExpiresAt != nil:
+			updates["expires_at"] = *req.ExpiresAt
+		}
+		if len(updates) > 0 {
+			if err := tx.Model(&record).Updates(updates).Error; err != nil {
+				return fmt.Errorf("保存订阅用户失败: %w", err)
+			}
+			// 同步内存中的名称，否则新增节点会沿用改名前的旧前缀
+			record = mustReloadToken(tx, record.ID)
+		}
+		if req.NodeInbounds != nil {
+			return a.syncTokenNodes(tx, &record, dedupeIDs(*req.NodeInbounds))
+		}
+		return nil
+	})
+	if err != nil {
+		return tokenView{}, err
+	}
+	return a.tokenReconciledView(id)
+}
+
+// resetTokenLink 重置订阅链接（换新随机值并恢复可用，旧链接立即失效）。
+func (a *API) resetTokenLink(id uint) (tokenView, error) {
 	var record db.SubscriptionToken
 	if err := a.db.First(&record, id).Error; err != nil {
-		Fail(c, http.StatusNotFound, "订阅用户不存在")
-		return
+		return tokenView{}, fmt.Errorf("订阅用户不存在: %d", id)
+	}
+	if err := a.db.Model(&record).Updates(map[string]any{"token": randToken(), "revoked": false}).Error; err != nil {
+		return tokenView{}, fmt.Errorf("重置订阅链接失败: %w", err)
+	}
+	return a.tokenReconciledView(id)
+}
+
+// resetTokenTraffic 清零某订阅用户全部节点的累计流量（配额已用尽的用户会随之恢复）。
+func (a *API) resetTokenTraffic(id uint) (tokenView, error) {
+	var record db.SubscriptionToken
+	if err := a.db.First(&record, id).Error; err != nil {
+		return tokenView{}, fmt.Errorf("订阅用户不存在: %d", id)
 	}
 	// 配额计数在 TokenTraffic 上，与用户的入站身份无关：
 	// 先清零再对账，被暂停的用户就能立刻恢复。
@@ -331,41 +348,27 @@ func (a *API) HandleTokenResetTraffic(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
-		Fail(c, http.StatusInternalServerError, "清零流量失败: "+err.Error())
-		return
+		return tokenView{}, fmt.Errorf("清零流量失败: %w", err)
 	}
-	if err := a.syncQuota(c); err != nil {
-		return
-	}
-	view, err := a.tokenView(id)
-	if err != nil {
-		Fail(c, http.StatusInternalServerError, err.Error())
-		return
-	}
-	OK(c, view)
+	return a.tokenReconciledView(id)
 }
 
 // mustReloadToken 重新读取订阅用户记录（改名后需要新名称给节点命名）。
-func mustReloadToken(a *API, id uint) db.SubscriptionToken {
+func mustReloadToken(tx *gorm.DB, id uint) db.SubscriptionToken {
 	var record db.SubscriptionToken
-	if err := a.db.First(&record, id).Error; err != nil {
+	if err := tx.First(&record, id).Error; err != nil {
 		return db.SubscriptionToken{ID: id}
 	}
 	return record
 }
 
-// syncQuota 写操作落库后统一处理：先按配额/到期刷新用户生效状态，再热应用内核。
-// 失败时已写出响应并返回错误（数据库改动保留，便于用户修正后重试）。
-func (a *API) syncQuota(c *gin.Context) error {
+// tokenReconciledView 按配额/到期刷新用户生效状态后组装订阅用户视图（订阅写操作统一收尾；
+// 内核热应用由调用方负责）。
+func (a *API) tokenReconciledView(id uint) (tokenView, error) {
 	if _, err := a.ReconcileQuota(); err != nil {
-		Fail(c, http.StatusInternalServerError, "刷新配额状态失败: "+err.Error())
-		return err
+		return tokenView{}, fmt.Errorf("刷新配额状态失败: %w", err)
 	}
-	if err := a.applyKernelConfig(c.Request.Context()); err != nil {
-		Fail(c, http.StatusBadRequest, "已保存，但内核按新配置重建失败: "+err.Error())
-		return err
-	}
-	return nil
+	return a.tokenView(id)
 }
 
 // tokenView 查询单个订阅用户视图。
@@ -526,4 +529,135 @@ func randToken() string {
 		panic(err) // 系统随机源不可用属致命错误
 	}
 	return base64.RawURLEncoding.EncodeToString(buf)
+}
+
+// ---------- 订阅用户 AI 工具 ----------
+
+// registerTokenAITools 注册订阅用户相关的查询与写操作 AI 工具。
+func (a *API) registerTokenAITools() {
+	a.ai.Register(ai.Tool{
+		Name:        "list_subscription_tokens",
+		Description: "列出全部订阅用户（含匿名 token、名称、配额、已用流量、到期时间、停用状态与各自节点）",
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
+			return a.tokenViews()
+		},
+	})
+	a.ai.Register(ai.Tool{
+		Name: "preview_subscription",
+		Description: "按订阅用户 ID 预览其订阅配置的真实渲染内容（与页面预览一致）；" +
+			"忽略停用、配额与到期状态，只要有启用中的节点就返回完整配置，无节点时报明确原因",
+		Parameters: toolParams(map[string]any{
+			"id":     toolProp("integer", "订阅用户 ID（可用 list_subscription_tokens 查询）"),
+			"format": toolProp("string", "输出格式，缺省 sing-box", "sing-box", "mihomo"),
+		}, "id"),
+		Exec: func(ctx context.Context, args json.RawMessage) (any, error) {
+			var arg struct {
+				ID     uint   `json:"id"`
+				Format string `json:"format"`
+			}
+			if err := decodeToolArgs(args, &arg); err != nil {
+				return nil, err
+			}
+			if arg.ID == 0 {
+				return nil, errors.New("缺少订阅用户 ID")
+			}
+			format := subscription.FormatSingBox
+			if strings.TrimSpace(arg.Format) != "" {
+				parsed, valid := subscription.ParseFormat(arg.Format)
+				if !valid {
+					return nil, errors.New("不支持的格式：仅支持 sing-box 或 mihomo")
+				}
+				format = parsed
+			}
+			content, err := a.subs.Preview(arg.ID, requestHostFrom(ctx), format)
+			if err != nil {
+				return nil, err
+			}
+			return gin.H{"format": previewFormatLabel(format), "content": string(content)}, nil
+		},
+	})
+	a.registerModify(ai.Tool{
+		Name: "create_subscription_token",
+		Description: "创建订阅用户（客户端免登录拉取订阅链接）。nodeInbounds 给出要勾选的入站 ID，" +
+			"每个入站内会为该用户创建一个独立凭据的用户身份（共享入站端口），即该用户的一个节点",
+		Parameters: toolParams(map[string]any{
+			"name":              toolProp("string", "备注名"),
+			"trafficLimitBytes": toolProp("integer", "流量配额字节（上+下行），0 或不填为不限"),
+			"expiresAt":         toolProp("string", "到期时间（RFC3339），不填为永久"),
+			"nodeInbounds":      map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "要勾选的入站 ID 列表"},
+		}),
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var req tokenReq
+			if err := decodeToolArgs(args, &req); err != nil {
+				return nil, err
+			}
+			return a.createToken(req)
+		},
+	})
+	a.registerModify(ai.Tool{
+		Name:        "update_subscription_token",
+		Description: "更新订阅用户：名称、流量配额、到期时间、勾选的入站（会在入站内创建/移除该用户的身份）。保存后内核立即按新配置重建",
+		Parameters: toolParams(map[string]any{
+			"id":                toolProp("integer", "订阅用户 ID"),
+			"name":              toolProp("string", "备注名"),
+			"trafficLimitBytes": toolProp("integer", "流量配额字节，0 不限"),
+			"expiresAt":         toolProp("string", "到期时间（RFC3339）"),
+			"clearExpiry":       toolProp("boolean", "true 表示清除到期时间（永久）"),
+			"nodeInbounds":      map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "勾选的入站 ID 列表（整体替换）"},
+		}, "id"),
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var req tokenReq
+			var arg idArg
+			if err := decodeToolArgs(args, &req); err != nil {
+				return nil, err
+			}
+			if err := decodeToolArgs(args, &arg); err != nil {
+				return nil, err
+			}
+			return a.updateToken(arg.ID, req)
+		},
+	})
+	a.registerModify(ai.Tool{
+		Name:         "delete_subscription_token",
+		Description:  "按 ID 删除订阅用户（连同其全部节点与累计流量）",
+		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "订阅用户 ID")}, "id"),
+		NeedsConfirm: true,
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var arg idArg
+			if err := decodeToolArgs(args, &arg); err != nil {
+				return nil, err
+			}
+			if err := a.deleteToken(arg.ID); err != nil {
+				return nil, err
+			}
+			return gin.H{"deleted": arg.ID}, nil
+		},
+	})
+	a.registerModify(ai.Tool{
+		Name:         "reset_subscription_token",
+		Description:  "按 ID 重置订阅链接（换新随机值并恢复可用，旧链接立即失效）",
+		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "订阅用户 ID")}, "id"),
+		NeedsConfirm: true,
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var arg idArg
+			if err := decodeToolArgs(args, &arg); err != nil {
+				return nil, err
+			}
+			return a.resetTokenLink(arg.ID)
+		},
+	})
+	a.registerModify(ai.Tool{
+		Name:         "reset_user_traffic",
+		Description:  "按 ID 清零某订阅用户全部节点的累计流量（配额已用尽的用户会随之恢复）",
+		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "订阅用户 ID")}, "id"),
+		NeedsConfirm: true,
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var arg idArg
+			if err := decodeToolArgs(args, &arg); err != nil {
+				return nil, err
+			}
+			return a.resetTokenTraffic(arg.ID)
+		},
+	})
 }

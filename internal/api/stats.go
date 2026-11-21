@@ -1,10 +1,13 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
+	"proxy-ui/internal/ai"
 	"proxy-ui/internal/db"
 )
 
@@ -71,4 +74,54 @@ func (a *API) trafficRows() ([]trafficRow, error) {
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+// ---------- 统计 AI 工具 ----------
+
+// registerStatsAITools 注册内核状态与流量统计相关的查询 AI 工具。
+func (a *API) registerStatsAITools() {
+	a.ai.Register(ai.Tool{
+		Name:        "get_kernel_status",
+		Description: "查询 sing-box 内核运行状态（内置内核、是否运行、版本、运行时长）",
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+		Exec: func(ctx context.Context, _ json.RawMessage) (any, error) {
+			return a.kernelStatusOf(ctx), nil
+		},
+	})
+	a.ai.Register(ai.Tool{
+		Name:        "get_kernel_logs",
+		Description: "查询内核最近日志",
+		Parameters: toolParams(map[string]any{
+			"limit": map[string]any{"type": "integer", "description": "返回的最近行数，缺省 100"},
+		}),
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var arg struct {
+				Limit int `json:"limit"`
+			}
+			if err := decodeToolArgs(args, &arg); err != nil {
+				return nil, err
+			}
+			if arg.Limit <= 0 {
+				arg.Limit = 100
+			}
+			return a.core.Logs(arg.Limit), nil
+		},
+	})
+	a.ai.Register(ai.Tool{
+		Name:        "get_realtime_stats",
+		Description: "查询实时统计：当前上传/下载速率、内存占用、连接总数与累计流量",
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
+			rates, at := a.stats.Rates()
+			return gin.H{"up": rates.Up, "down": rates.Down, "at": at}, nil
+		},
+	})
+	a.ai.Register(ai.Tool{
+		Name:        "get_user_traffic",
+		Description: "查询按用户名/入站持久化累计的上下行流量（面板重启不丢失）",
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
+			return a.trafficByTag()
+		},
+	})
 }

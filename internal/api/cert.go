@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -10,18 +11,22 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"proxy-ui/internal/ai"
 	"proxy-ui/internal/db"
 	"proxy-ui/internal/singbox"
 )
@@ -102,10 +107,7 @@ func (a *API) HandleCertSelfSigned(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, view)
+	a.applyThenOK(c, view)
 }
 
 // createSelfSigned 生成自签证书并落库（内核热应用由调用方负责）。
@@ -154,10 +156,7 @@ func (a *API) HandleCertCreate(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "创建证书失败: "+err.Error())
 		return
 	}
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, a.certViewOf(cert))
+	a.applyThenOK(c, a.certViewOf(cert))
 }
 
 // HandleCertUpdate PUT /api/certs/:id 更新证书（managed 模式可整体替换 PEM，path 模式可更换路径）。
@@ -184,10 +183,7 @@ func (a *API) HandleCertUpdate(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "保存证书失败: "+err.Error())
 		return
 	}
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, a.certViewOf(cert))
+	a.applyThenOK(c, a.certViewOf(cert))
 }
 
 // HandleCertDelete DELETE /api/certs/:id 删除证书（被入站 TLS 或 ECH 密钥引用时拒绝）。
@@ -206,18 +202,20 @@ func (a *API) HandleCertDelete(c *gin.Context) {
 			"证书已被入站 %s 引用（TLS 证书或 ECH 密钥），请先在对应入站中解除引用", strings.Join(refs, "、")))
 		return
 	}
-	if cert.Mode == singbox.CertModeManaged {
-		_ = os.Remove(filepath.Join(a.certDir(), cert.CertPath))
-		_ = os.Remove(filepath.Join(a.certDir(), cert.KeyPath))
-	}
+	// 先删库记录再删文件：DB 删除失败时文件仍在，重试可走通；反之文件已失、记录残留，
+	// 列表会永久 CertError。文件删除失败只记警告，孤儿文件可接受。
 	if err := a.db.Delete(&db.Certificate{}, id).Error; err != nil {
 		Fail(c, http.StatusInternalServerError, "删除证书失败: "+err.Error())
 		return
 	}
-	if !a.applyOrFail(c) {
-		return
+	if cert.Mode == singbox.CertModeManaged {
+		for _, name := range []string{cert.CertPath, cert.KeyPath} {
+			if err := os.Remove(filepath.Join(a.certDir(), name)); err != nil && !os.IsNotExist(err) {
+				slog.Warn("删除证书文件失败，保留为孤儿文件", "file", name, "err", err)
+			}
+		}
 	}
-	OK(c, gin.H{"deleted": id})
+	a.applyThenOK(c, gin.H{"deleted": id})
 }
 
 // certReferencedBy 返回引用该证书的入站名称，覆盖全部引用点：
@@ -422,7 +420,9 @@ func generateSelfSigned(domain string, sans []string, days int, keyType string) 
 			continue
 		}
 		if ip := net.ParseIP(san); ip != nil {
-			tpl.IPAddresses = append(tpl.IPAddresses, ip)
+			if !slices.ContainsFunc(tpl.IPAddresses, ip.Equal) {
+				tpl.IPAddresses = append(tpl.IPAddresses, ip)
+			}
 		} else {
 			tpl.DNSNames = append(tpl.DNSNames, san)
 		}
@@ -520,4 +520,47 @@ func randFileName() string {
 		panic(err) // 系统随机源不可用属致命错误
 	}
 	return hex.EncodeToString(buf)
+}
+
+// ---------- 证书 AI 工具 ----------
+
+// registerCertAITools 注册证书相关的查询与写操作 AI 工具（自签委托 createSelfSigned 共用方法）。
+func (a *API) registerCertAITools() {
+	a.ai.Register(ai.Tool{
+		Name: "list_certs",
+		Description: "列出面板全部 TLS 证书（含引用方式 managed/path、域名、到期时间与剩余天数、" +
+			"解析失败原因，以及各证书被哪些入站引用）",
+		Parameters: map[string]any{"type": "object", "properties": map[string]any{}},
+		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
+			views, err := a.certViews()
+			if err != nil {
+				return nil, err
+			}
+			for i := range views {
+				if refs := a.certReferencedBy(views[i].Certificate); len(refs) > 0 {
+					views[i].ReferencedBy = refs
+				}
+			}
+			return views, nil
+		},
+	})
+	a.registerModify(ai.Tool{
+		Name: "create_self_signed_cert",
+		Description: "一键生成自签 TLS 证书（域名作 CN 并入 SAN，面板存储 managed 口径），" +
+			"生成后可在入站 TLS 中按证书 ID 引用；保存后内核立即按新配置重建",
+		Parameters: toolParams(map[string]any{
+			"domain":  toolProp("string", "主域名（作 CN 与 SAN，不能是 IP；IP 请填入 sans）"),
+			"sans":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "附加 SAN（域名或 IP）"},
+			"days":    toolProp("integer", "有效期天数（1-36500）"),
+			"name":    toolProp("string", "名称备注，缺省取主域名"),
+			"keyType": toolProp("string", "密钥类型：p256（默认）/ rsa2048 / ed25519", SupportedCertKeyTypes...),
+		}, "domain", "days"),
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var req selfSignReq
+			if err := decodeToolArgs(args, &req); err != nil {
+				return nil, err
+			}
+			return a.createSelfSigned(req)
+		},
+	})
 }

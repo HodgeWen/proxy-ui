@@ -24,6 +24,12 @@ func OK(c *gin.Context, data any) {
 	c.JSON(http.StatusOK, envelope{Success: true, Msg: "ok", Data: data})
 }
 
+// OKWarn 输出成功响应并附带警告：操作本身已生效（数据已落库），但有附带事项需要用户知晓，
+// 如内核热应用失败已回滚（msg 携带原因），前端据 msg 弹警告提示。
+func OKWarn(c *gin.Context, data any, msg string) {
+	c.JSON(http.StatusOK, envelope{Success: true, Msg: msg, Data: data})
+}
+
 // Fail 输出统一失败响应（HTTP 状态码 + envelope msg）。
 func Fail(c *gin.Context, status int, msg string) {
 	c.JSON(status, envelope{Success: false, Msg: msg})

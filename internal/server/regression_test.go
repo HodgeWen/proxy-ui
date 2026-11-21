@@ -9,6 +9,7 @@ import (
 )
 
 // TestUserNameGloballyUnique 用户名是流量统计的键：必须全局唯一，且不得等于任何入站 tag。
+// 入站用户统一由订阅勾选生成，同名订阅在同一入站下必须得到自动加序号的不同用户名。
 func TestUserNameGloballyUnique(t *testing.T) {
 	srv, _ := newTestServer(t)
 	client := setupAdmin(t, srv.URL)
@@ -16,26 +17,22 @@ func TestUserNameGloballyUnique(t *testing.T) {
 	in1 := createInbound(t, client, srv.URL, map[string]any{"name": "in-a", "protocol": "shadowsocks"})
 	in2 := createInbound(t, client, srv.URL, map[string]any{"name": "in-b", "protocol": "shadowsocks"})
 
-	// 同一入站内重复
-	if code, env := doJSON(t, client, http.MethodPost,
-		srv.URL+"/api/inbounds/"+itoa(in1.ID)+"/users", map[string]any{"name": "dup"}); code != http.StatusOK {
-		t.Fatalf("首个用户应创建成功: %s", env.Msg)
+	// 同名订阅用户勾选同一入站：用户名按「备注-入站名」生成，冲突时自动追加序号
+	first := createToken(t, client, srv.URL, map[string]any{"name": "dup", "nodeInbounds": []uint{in1.ID}})
+	second := createToken(t, client, srv.URL, map[string]any{"name": "dup", "nodeInbounds": []uint{in1.ID}})
+	if len(first.Nodes) != 1 || len(second.Nodes) != 1 {
+		t.Fatalf("两个订阅应各有 1 个节点: %+v %+v", first.Nodes, second.Nodes)
 	}
-	// 跨入站重复（关键：早先只在单入站内查重，两个入站的同名用户会让用量混在一起）
-	code, env := doJSON(t, client, http.MethodPost,
-		srv.URL+"/api/inbounds/"+itoa(in2.ID)+"/users", map[string]any{"name": "dup"})
-	if code != http.StatusBadRequest {
-		t.Fatalf("跨入站同名用户应被拒绝, code=%d msg=%s", code, env.Msg)
+	if first.Nodes[0].Name == second.Nodes[0].Name {
+		t.Fatalf("同名订阅的用户名必须不同（否则用量互相覆盖）: %q", first.Nodes[0].Name)
 	}
-	// 用户名不得等于入站 tag
-	code, env = doJSON(t, client, http.MethodPost,
-		srv.URL+"/api/inbounds/"+itoa(in2.ID)+"/users", map[string]any{"name": "in-a"})
-	if code != http.StatusBadRequest {
-		t.Fatalf("用户名等于入站名应被拒绝, code=%d msg=%s", code, env.Msg)
+	if want := "dup-in-a"; first.Nodes[0].Name != want {
+		t.Errorf("首个用户名 = %q, want %q", first.Nodes[0].Name, want)
 	}
-	// 入站改名为已有用户名同样要拒绝
-	code, env = doJSON(t, client, http.MethodPut,
-		srv.URL+"/api/inbounds/"+itoa(in2.ID), map[string]any{"name": "dup"})
+
+	// 入站改名为已有用户名同样要拒绝（入站名与用户名共用流量表的键）
+	code, env := doJSON(t, client, http.MethodPut,
+		srv.URL+"/api/inbounds/"+itoa(in2.ID), map[string]any{"name": first.Nodes[0].Name})
 	if code != http.StatusBadRequest {
 		t.Fatalf("入站改名为已有用户名应被拒绝, code=%d msg=%s", code, env.Msg)
 	}
@@ -101,39 +98,6 @@ func TestQuotaUsesTokenTraffic(t *testing.T) {
 	}
 	if len(after.Nodes) != 1 || after.Nodes[0].Suspended || !after.Nodes[0].Enabled {
 		t.Fatalf("清零后用户应恢复: %+v", after.Nodes)
-	}
-}
-
-// TestSuspendedUserCannotBeReEnabled 被系统暂停的用户不能通过「启用」绕过配额。
-func TestSuspendedUserCannotBeReEnabled(t *testing.T) {
-	srv, dbPath := newTestServer(t)
-	client := setupAdmin(t, srv.URL)
-
-	in := createInbound(t, client, srv.URL, map[string]any{"name": "s-in", "protocol": "shadowsocks"})
-	view := createToken(t, client, srv.URL, map[string]any{
-		"name": "su", "nodeInbounds": []uint{in.ID}, "trafficLimitBytes": 100,
-	})
-	database, err := db.Open(dbPath)
-	if err != nil {
-		t.Fatalf("打开数据库失败: %v", err)
-	}
-	if err := database.Create(&db.TokenTraffic{TokenID: view.ID, UploadBytes: 1000}).Error; err != nil {
-		t.Fatal(err)
-	}
-	// 触发对账
-	if code, env := doJSON(t, client, http.MethodPut,
-		srv.URL+"/api/subscription/tokens/"+itoa(view.ID), map[string]any{}); code != http.StatusOK {
-		t.Fatalf("对账失败: %s", env.Msg)
-	}
-
-	userID := view.Nodes[0].UserID
-	code, env := doJSON(t, client, http.MethodPatch,
-		srv.URL+"/api/users/"+itoa(userID)+"/enabled", map[string]any{"enabled": true})
-	if code != http.StatusBadRequest {
-		t.Fatalf("被暂停用户不应可重新启用, code=%d msg=%s", code, env.Msg)
-	}
-	if !strings.Contains(env.Msg, "暂停") {
-		t.Errorf("错误信息应说明暂停原因: %s", env.Msg)
 	}
 }
 

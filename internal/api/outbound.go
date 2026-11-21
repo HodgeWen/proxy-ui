@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"proxy-ui/internal/ai"
 	"proxy-ui/internal/db"
 )
 
@@ -60,19 +62,12 @@ func (a *API) HandleOutboundCreate(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
 		return
 	}
-	ob := db.Outbound{Enabled: true}
-	if err := a.applyOutboundReq(&ob, req, 0); err != nil {
+	view, err := a.createOutbound(req)
+	if err != nil {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := a.db.Create(&ob).Error; err != nil {
-		Fail(c, http.StatusInternalServerError, "创建出站失败: "+err.Error())
-		return
-	}
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, outboundToView(ob))
+	a.applyThenOK(c, view)
 }
 
 // HandleOutboundGet GET /api/outbounds/:id 出站详情。
@@ -100,23 +95,12 @@ func (a *API) HandleOutboundUpdate(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
 		return
 	}
-	var ob db.Outbound
-	if err := a.db.First(&ob, id).Error; err != nil {
-		Fail(c, http.StatusNotFound, "出站不存在")
-		return
-	}
-	if err := a.applyOutboundReq(&ob, req, id); err != nil {
+	view, err := a.updateOutbound(id, req)
+	if err != nil {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := a.db.Save(&ob).Error; err != nil {
-		Fail(c, http.StatusInternalServerError, "保存出站失败: "+err.Error())
-		return
-	}
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, outboundToView(ob))
+	a.applyThenOK(c, view)
 }
 
 // HandleOutboundSetEnabled PATCH /api/outbounds/:id/enabled 启停出站。
@@ -140,10 +124,7 @@ func (a *API) HandleOutboundSetEnabled(c *gin.Context) {
 		return
 	}
 	ob.Enabled = req.Enabled
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, outboundToView(ob))
+	a.applyThenOK(c, outboundToView(ob))
 }
 
 // HandleOutboundDelete DELETE /api/outbounds/:id 删除出站。
@@ -152,14 +133,48 @@ func (a *API) HandleOutboundDelete(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if err := a.deleteOutbound(id); err != nil {
+		Fail(c, http.StatusInternalServerError, err.Error())
+		return
+	}
+	a.applyThenOK(c, gin.H{"deleted": id})
+}
+
+// ---------- 供 REST handler 与 AI 工具共用的写操作 ----------
+
+// createOutbound 创建出站（direct 或自定义）。
+func (a *API) createOutbound(req outboundReq) (outboundView, error) {
+	ob := db.Outbound{Enabled: true}
+	if err := a.applyOutboundReq(&ob, req, 0); err != nil {
+		return outboundView{}, err
+	}
+	if err := a.db.Create(&ob).Error; err != nil {
+		return outboundView{}, fmt.Errorf("创建出站失败: %w", err)
+	}
+	return outboundToView(ob), nil
+}
+
+// updateOutbound 按 ID 更新出站；仅更新给出的字段。
+func (a *API) updateOutbound(id uint, req outboundReq) (outboundView, error) {
+	var ob db.Outbound
+	if err := a.db.First(&ob, id).Error; err != nil {
+		return outboundView{}, fmt.Errorf("出站不存在: %d", id)
+	}
+	if err := a.applyOutboundReq(&ob, req, id); err != nil {
+		return outboundView{}, err
+	}
+	if err := a.db.Save(&ob).Error; err != nil {
+		return outboundView{}, fmt.Errorf("保存出站失败: %w", err)
+	}
+	return outboundToView(ob), nil
+}
+
+// deleteOutbound 按 ID 删除出站。
+func (a *API) deleteOutbound(id uint) error {
 	if err := a.db.Delete(&db.Outbound{}, id).Error; err != nil {
-		Fail(c, http.StatusInternalServerError, "删除出站失败: "+err.Error())
-		return
+		return fmt.Errorf("删除出站失败: %w", err)
 	}
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, gin.H{"deleted": id})
+	return nil
 }
 
 // applyOutboundReq 把请求字段应用到出站记录并校验（direct 出站无附加配置）。
@@ -212,4 +227,75 @@ func outboundToView(ob db.Outbound) outboundView {
 		ID: ob.ID, Name: ob.Name, Type: ob.Type, Enabled: ob.Enabled,
 		Config: json.RawMessage(ob.Config), CreatedAt: ob.CreatedAt, UpdatedAt: ob.UpdatedAt,
 	}
+}
+
+// ---------- 出站 AI 工具 ----------
+
+// registerOutboundAITools 注册出站相关的查询与写操作 AI 工具。
+func (a *API) registerOutboundAITools() {
+	a.ai.Register(ai.Tool{
+		Name:        "list_outbounds",
+		Description: "列出面板全部出站（direct 与自定义出站，含类型与配置）",
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
+			return a.outboundViews()
+		},
+	})
+	a.registerModify(ai.Tool{
+		Name: "create_outbound",
+		Description: "创建出站（type 为 sing-box 出站类型，如 direct、socks、http、shadowsocks、vmess、trojan、vless、hysteria2、wireguard 等）；" +
+			"config 为该类型出站的字段对象（如 server、server_port、密码等）",
+		Parameters: toolParams(map[string]any{
+			"type": toolProp("string", "出站类型"),
+			"name": toolProp("string", "出站 tag，direct 类型缺省 direct"),
+			"config": map[string]any{
+				"type": "object", "description": "出站字段对象（server/server_port/密码等），direct 无需提供",
+			},
+		}, "type"),
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var req outboundReq
+			if err := decodeToolArgs(args, &req); err != nil {
+				return nil, err
+			}
+			return a.createOutbound(req)
+		},
+	})
+	a.registerModify(ai.Tool{
+		Name:        "update_outbound",
+		Description: "按 ID 更新出站；仅更新给出的字段",
+		Parameters: toolParams(map[string]any{
+			"id":      toolProp("integer", "出站 ID"),
+			"name":    toolProp("string", "出站 tag"),
+			"type":    toolProp("string", "出站类型"),
+			"config":  map[string]any{"type": "object", "description": "出站字段对象"},
+			"enabled": toolProp("boolean", "是否启用"),
+		}, "id"),
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var req outboundReq
+			var arg idArg
+			if err := decodeToolArgs(args, &req); err != nil {
+				return nil, err
+			}
+			if err := decodeToolArgs(args, &arg); err != nil {
+				return nil, err
+			}
+			return a.updateOutbound(arg.ID, req)
+		},
+	})
+	a.registerModify(ai.Tool{
+		Name:         "delete_outbound",
+		Description:  "按 ID 删除出站",
+		Parameters:   toolParams(map[string]any{"id": toolProp("integer", "出站 ID")}, "id"),
+		NeedsConfirm: true,
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var arg idArg
+			if err := decodeToolArgs(args, &arg); err != nil {
+				return nil, err
+			}
+			if err := a.deleteOutbound(arg.ID); err != nil {
+				return nil, err
+			}
+			return gin.H{"deleted": arg.ID}, nil
+		},
+	})
 }

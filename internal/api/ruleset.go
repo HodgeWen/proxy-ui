@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -9,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"proxy-ui/internal/ai"
 	"proxy-ui/internal/db"
 	"proxy-ui/internal/singbox"
 )
@@ -160,9 +163,6 @@ func (a *API) HandleRuleSetCreate(c *gin.Context) {
 		return
 	}
 	// 新建规则集本身还没有规则引用，热应用会比对出配置未变而直接返回，不重建内核
-	if !a.applyOrFail(c) {
-		return
-	}
 	views, err := a.ruleSetViews()
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, err.Error())
@@ -170,7 +170,7 @@ func (a *API) HandleRuleSetCreate(c *gin.Context) {
 	}
 	for _, v := range views {
 		if v.ID == set.ID {
-			OK(c, v)
+			a.applyThenOK(c, v)
 			return
 		}
 	}
@@ -234,6 +234,11 @@ func (a *API) HandleRuleSetUpdate(c *gin.Context) {
 			Fail(c, http.StatusBadRequest, "名称只能包含字母、数字、下划线、点与短横线: "+name)
 			return
 		}
+		// 与创建同口径挡住内置名：内置默认源按名字补齐，被冒名后该内置规则集永远补不回来
+		if isBuiltinRuleSetName(name) {
+			Fail(c, http.StatusBadRequest, "规则集 "+name+" 为内置名称，不可使用")
+			return
+		}
 		var dup int64
 		a.db.Model(&db.RuleSet{}).Where("name = ? AND id <> ?", name, id).Count(&dup)
 		if dup > 0 {
@@ -247,10 +252,7 @@ func (a *API) HandleRuleSetUpdate(c *gin.Context) {
 		return
 	}
 	// 规则集名称是内核规则集 tag，被规则引用时必须重建
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, gin.H{"updated": id})
+	a.applyThenOK(c, gin.H{"updated": id})
 }
 
 // HandleRuleSetDelete DELETE /api/rule-sets/:id 删除规则集（内置或有规则引用时拒绝）。
@@ -286,10 +288,7 @@ func (a *API) HandleRuleSetDelete(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "删除规则集失败: "+err.Error())
 		return
 	}
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, gin.H{"deleted": id})
+	a.applyThenOK(c, gin.H{"deleted": id})
 }
 
 // HandleRuleSetItemsList GET /api/rule-sets/:id/items 规则集内容项列表。
@@ -356,10 +355,7 @@ func (a *API) HandleRuleSetItemCreate(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "创建内容项失败: "+err.Error())
 		return
 	}
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, ruleSetItemViewOf(item))
+	a.applyThenOK(c, ruleSetItemViewOf(item))
 }
 
 // HandleRuleSetItemUpdate PUT /api/rule-sets/items/:itemId 更新内容项（含切换启用）。
@@ -396,10 +392,7 @@ func (a *API) HandleRuleSetItemUpdate(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "保存内容项失败: "+err.Error())
 		return
 	}
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, ruleSetItemViewOf(item))
+	a.applyThenOK(c, ruleSetItemViewOf(item))
 }
 
 // HandleRuleSetItemDelete DELETE /api/rule-sets/items/:itemId 删除内容项（至少保留一条）。
@@ -440,10 +433,7 @@ func (a *API) HandleRuleSetItemDelete(c *gin.Context) {
 			}
 		}
 	}
-	if !a.applyOrFail(c) {
-		return
-	}
-	OK(c, gin.H{"deleted": itemID})
+	a.applyThenOK(c, gin.H{"deleted": itemID})
 }
 
 // applyRuleSetItem 把请求字段应用到内容项并校验地址与行为。
@@ -496,4 +486,18 @@ func (a *API) ruleSetSourceOf(setID uint) (*singbox.RuleSetSource, error) {
 		Tag: set.Name, URL: item.SingBoxURL,
 		MihomoURL: item.MihomoURL, MihomoBehavior: item.MihomoBehavior,
 	}, nil
+}
+
+// ---------- 规则集 AI 工具 ----------
+
+// registerRuleSetAITools 注册规则集相关的查询 AI 工具。
+func (a *API) registerRuleSetAITools() {
+	a.ai.Register(ai.Tool{
+		Name:        "list_rule_sets",
+		Description: "列出全部规则集（含 sing-box 与 mihomo 源地址内容项、启用项与是否被规则引用）",
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
+			return a.ruleSetViews()
+		},
+	})
 }

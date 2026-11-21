@@ -33,6 +33,11 @@ func New(opt Options) *gin.Engine {
 	if gin.Mode() == gin.DebugMode {
 		gin.SetMode(gin.ReleaseMode)
 	}
+	// 数据目录统一转为绝对路径：内核 filemanager 以内核目录为 basePath，相对 basePath 会让
+	// cache.db 等相对路径被双重拼接（<dir>/<dir>/cache.db）导致内核无法启动
+	if absDir, err := filepath.Abs(opt.DataDir); err == nil {
+		opt.DataDir = absDir
+	}
 	store := NewSessionStore()
 	coreDir := filepath.Join(opt.DataDir, "core")
 	core := singbox.New(coreDir)
@@ -70,15 +75,11 @@ func New(opt Options) *gin.Engine {
 	g.GET("/stats/user-traffic", a.HandleStatsUserTraffic)
 	g.GET("/inbounds", a.HandleInboundsList)
 	g.POST("/inbounds", a.HandleInboundCreate)
+	g.GET("/inbounds/template/:protocol", a.HandleInboundTemplate)
 	g.GET("/inbounds/:id", a.HandleInboundGet)
 	g.PUT("/inbounds/:id", a.HandleInboundUpdate)
 	g.PATCH("/inbounds/:id/enabled", a.HandleInboundSetEnabled)
 	g.DELETE("/inbounds/:id", a.HandleInboundDelete)
-	g.GET("/inbounds/:id/users", a.HandleInboundUsersList)
-	g.POST("/inbounds/:id/users", a.HandleInboundUserCreate)
-	g.GET("/users", a.HandleUsersList)
-	g.PATCH("/users/:id/enabled", a.HandleInboundUserSetEnabled)
-	g.DELETE("/users/:id", a.HandleInboundUserDelete)
 	g.GET("/outbounds", a.HandleOutboundsList)
 	g.POST("/outbounds", a.HandleOutboundCreate)
 	g.GET("/outbounds/:id", a.HandleOutboundGet)
@@ -115,8 +116,6 @@ func New(opt Options) *gin.Engine {
 	g.DELETE("/policy-groups/:id", a.HandleGroupDelete)
 	g.GET("/dns", a.HandleDNSGet)
 	g.PUT("/dns", a.HandleDNSSet)
-	g.GET("/system/status", a.HandleSystemStatus)
-	g.POST("/system/bbr", a.HandleBBREnable)
 	g.GET("/subscription", a.HandleSubscriptionGet)
 	g.POST("/subscription/tokens", a.HandleTokenCreate)
 	g.GET("/subscription/tokens/:id/preview", a.HandleTokenPreview)
