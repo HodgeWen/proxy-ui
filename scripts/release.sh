@@ -67,12 +67,12 @@ done
 
 case "$VERSION" in
   v*)
-    fail "版本号不得带 v 前缀（收到：$VERSION）" "去掉 v 前缀后重跑，例如：$0 ${VERSION#v}"
+    fail "版本号不得带 v 前缀（收到：${VERSION}）" "去掉 v 前缀后重跑，例如：$0 ${VERSION#v}"
     ;;
 esac
 
 printf '%s\n' "$VERSION" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc|next)\.(0|[1-9][0-9]*))?$' \
-  || fail "版本号格式非法：$VERSION（仅支持 x.y.z 或 x.y.z-<alpha|beta|rc|next>.<n>，禁止前导零与构建元数据）" "修正版本号后重跑"
+  || fail "版本号格式非法：${VERSION}（仅支持 x.y.z 或 x.y.z-<alpha|beta|rc|next>.<n>，禁止前导零与构建元数据）" "修正版本号后重跑"
 
 TAG="v$VERSION"
 
@@ -254,22 +254,25 @@ mark_done "6.创建并推送tag"
 # 8. 应用 + 公开发版收尾（CI 负责构建与创建 GitHub Release）
 if [ "$RESUME" -eq 1 ] && [ "$TAG_ALREADY_REMOTE" -eq 1 ]; then
   command -v gh >/dev/null 2>&1 || fail "续发且远端 tag 已存在，需要 gh CLI 查询/重跑 release.yml" "安装并登录 gh 后重跑"
-  RUNS_JSON=$(gh run list --workflow release.yml --commit "$HEAD_SHA" --json databaseId,status,conclusion) \
+  RUNS_OUT=$(gh run list --workflow release.yml --commit "$HEAD_SHA" --json databaseId,status,conclusion --jq '.[] | "\(.databaseId) \(.status) \(.conclusion)"') \
     || fail "查询 release.yml 运行记录失败" "检查 gh 登录状态后重跑"
-  if [ "$RUNS_JSON" = "[]" ] || [ -z "$RUNS_JSON" ]; then
+  if [ -z "$RUNS_OUT" ]; then
     echo "未检测到 commit ${HEAD_SHA} 的 release.yml 运行记录，手动派发（--ref ${TAG}）..."
     gh workflow run release.yml --ref "$TAG" || fail "触发 release.yml 失败" "检查 GitHub Actions 权限后重试"
   else
-    FAILED_RUN_ID=$(printf '%s\n' "$RUNS_JSON" | awk '
-      /"databaseId"/ { gsub(/[^0-9]/, "", $0); id = $0 }
-      /"conclusion":[[:space:]]*"(failure|cancelled|timed_out|startup_failure)"/ { if (id != "") { print id; exit } }
-    ')
-    if [ -n "$FAILED_RUN_ID" ]; then
-      echo "检测到失败的 release.yml run (${FAILED_RUN_ID})，执行 --failed 重跑..."
-      gh run rerun "$FAILED_RUN_ID" --failed || fail "重跑 run ${FAILED_RUN_ID} 失败" "到 GitHub Actions 页面排查原因"
-    else
-      echo "已存在正在运行或已成功的 release.yml 记录，跳过触发。"
-    fi
+    LATEST_LINE=$(printf '%s\n' "$RUNS_OUT" | sed -n '1p')
+    LATEST_ID=$(printf '%s\n' "$LATEST_LINE" | awk '{ print $1 }')
+    LATEST_STATUS=$(printf '%s\n' "$LATEST_LINE" | awk '{ print $2 }')
+    LATEST_CONCLUSION=$(printf '%s\n' "$LATEST_LINE" | awk '{ print $3 }')
+    case "${LATEST_STATUS}:${LATEST_CONCLUSION}" in
+      completed:failure|completed:cancelled|completed:timed_out|completed:startup_failure)
+        echo "检测到失败的 release.yml run (${LATEST_ID}，${LATEST_CONCLUSION})，执行 --failed 重跑..."
+        gh run rerun "$LATEST_ID" --failed || fail "重跑 run ${LATEST_ID} 失败" "到 GitHub Actions 页面排查原因"
+        ;;
+      *)
+        echo "已存在最新 release.yml 记录（run ${LATEST_ID}，status=${LATEST_STATUS}，conclusion=${LATEST_CONCLUSION:-无}），跳过触发。"
+        ;;
+    esac
   fi
 fi
 
