@@ -1,0 +1,139 @@
+# 公开发版流水线：推送 v* tag 或对着 tag 手动派发时运行全量检查、双平台交叉编译、生成 SHA256SUMS 并创建 GitHub Release
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  BUILD_TAGS: with_v2ray_api,with_quic,with_utls,with_acme,with_clash_api,with_gvisor
+
+jobs:
+  test:
+    name: 测试与前端构建校验
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('web/bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+      - name: Go 测试（含内置内核标签）
+        run: go test -tags "$BUILD_TAGS" ./...
+      - name: 前端类型检查与构建
+        working-directory: web
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+
+  binaries:
+    name: 编译二进制（${{ matrix.suffix }}）
+    needs: test
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64, suffix: linux-amd64 }
+          - { goos: darwin, goarch: arm64, suffix: darwin-arm64 }
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('web/bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: 构建前端（嵌入 go:embed）
+        working-directory: web
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+      - name: 编译单二进制
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -trimpath -tags "$BUILD_TAGS" \
+            -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" \
+            -o "proxy-ui-${{ matrix.suffix }}" .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: proxy-ui-${{ matrix.suffix }}
+          path: proxy-ui-${{ matrix.suffix }}
+
+  publish:
+    name: 创建 GitHub Release
+    needs: binaries
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: proxy-ui-*
+          merge-multiple: true
+          path: release-assets
+      - name: 生成校验和与发行说明
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          echo "$TAG" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc|next)\.(0|[1-9][0-9]*))?$' \
+            || { echo "tag 不是合法的 vX.Y.Z 或 vX.Y.Z-<标识>.<n>"; exit 1; }
+          (cd release-assets && sha256sum proxy-ui-linux-amd64 proxy-ui-darwin-arm64 > SHA256SUMS)
+          ver="${TAG#v}"
+          awk -v v="$ver" '$0 == "## " v || index($0, "## " v " ") == 1 || index($0, "## [" v "]") == 1 {p=1; next} p && /^## / {exit} p' CHANGELOG.md > notes.md
+          grep -q '[^[:space:]]' notes.md || { echo "CHANGELOG.md 缺少 $ver 一节或正文为空"; exit 1; }
+      - name: 发布 GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          flags=""
+          case "$TAG" in *-*) flags="--prerelease" ;; esac
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" --clobber \
+              release-assets/proxy-ui-linux-amd64 \
+              release-assets/proxy-ui-darwin-arm64 \
+              release-assets/SHA256SUMS
+            exit 0
+          fi
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes-file notes.md \
+            $flags \
+            release-assets/proxy-ui-linux-amd64 \
+            release-assets/proxy-ui-darwin-arm64 \
+            release-assets/SHA256SUMS

@@ -1,4 +1,7 @@
 {
   // 内部文档服务地址（非敏感配置，提交入 git）
-  "docs_server_url": "https://agent-docs.dev.szyzh.cc/"
+  "docs_server_url": "https://agent-docs.dev.szyzh.cc/",
+  // 发版标准配置（参见 release 技能）
+  "release_mode": "public",
+  "release_kind": "app"
 }

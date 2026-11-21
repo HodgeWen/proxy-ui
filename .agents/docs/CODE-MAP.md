@@ -17,11 +17,15 @@ proxy-ui/
 │   ├── update/           # 面板自身更新：GitHub Releases 版本查询、下载校验、二进制替换与同 PID 重启（内核不再走此模块）
 │   └── ai/               # AI 多供应商/多模型配置存取、上游 /models 拉取、@veltra/ai transport 元数据、按供应商 SSE 对话代理、面板工具注册表
 ├── README.md             # 运行说明：下载、systemd、反代 TLS、首次向导（一次性设置码）、订阅模型、DNS、BBR 手动开启、内核说明、面板更新
+├── CHANGELOG.md          # 发行变更日志（按版本记录面向使用者的变更）
 ├── Makefile              # dev/dev-api/dev-web/run/build/test/clean（已内置内核构建标签）
-├── .github/workflows/ci.yml # CI：前端构建 + make test + 双平台编译（push/PR 触发）
+├── .github/workflows/
+│   ├── ci.yml            # CI：前端构建 + make test + 双平台编译（push/PR 触发）
+│   └── release.yml       # 公开发版流水线：v* tag 触发测试、双平台编译（注入 main.Version）、SHA256SUMS 与 GitHub Release
 ├── scripts/
 │   ├── build.sh          # 一键构建：前端 + linux/amd64、darwin/arm64 交叉编译（禁 CGO，含内置内核标签）；产出 bin/checksums.txt，dirty 树默认拒绝（ALLOW_DIRTY=1 放行）
-│   └── install.sh        # linux systemd 安装脚本
+│   ├── install.sh        # linux systemd 安装脚本
+│   └── release.sh        # Go 应用公开发版入口脚本（检查、门禁、--dry-run、提交 CHANGELOG 并推送分支与附注 tag）
 └── web/                  # Vue3 SPA（独立 npm 包，bun + Vite）
     ├── dist/             # 前端构建产物（go:embed 嵌入）
     └── src/

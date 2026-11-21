@@ -48,4 +48,4 @@
 
 ## 未决
 
-- CI 已接入（`.github/workflows/ci.yml`：前端构建 + `make test` + 双平台编译；`scripts/build.sh` 产出 checksums.txt、dirty 树默认拒绝构建）；发版 job 与变更日志仍交由 `release` 技能接入时定
+- CI 与公开发版流水线均已接入（`.github/workflows/ci.yml`：前端构建 + `make test` + 双平台编译；`.pe.jsonc`、`scripts/release.sh`、`.github/workflows/release.yml`、`CHANGELOG.md`：`app` + `public` 标准，触发 `v*` tag 后产出双平台二进制与 `SHA256SUMS` 并建 GitHub Release）
