@@ -10,13 +10,13 @@ import {
   USelect,
   UTag,
   message,
-  messageConfirm,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
 import { computed, reactive, shallowRef, watch } from 'vue'
 
 import { createRuleSetItem, deleteRuleSetItem, updateRuleSetItem } from '../api/rule'
 import type { RuleSet, RuleSetItem, RuleSetItemPayload } from '../api/rule'
+import { confirmAction } from '../confirm-action'
 import { dialogStyle } from '../dialog-style'
 
 const props = defineProps<{
@@ -194,16 +194,15 @@ async function handleEnable(item: RuleSetItem): Promise<void> {
 
 /** 删除内容项：仅剩一条时按钮已禁用，这里只做一次弹窗确认 */
 async function handleDelete(item: RuleSetItem): Promise<void> {
-  const action = await messageConfirm({
-    title: '删除内容项',
-    message: item.enabled
+  const ok = await confirmAction(
+    '删除内容项',
+    item.enabled
       ? `「${item.remark || '未命名来源'}」是当前启用中的下载来源，删除后会自动启用最早的一条，确认删除吗？`
       : `确认删除内容项「${item.remark || '未命名来源'}」吗？`,
-    confirmButtonText: '删除',
-    confirmButtonType: 'danger',
-    cancelButtonText: '取消',
-  }).onClosed
-  if (action !== 'confirm') return
+    true,
+    '删除',
+  )
+  if (!ok) return
   try {
     await deleteRuleSetItem(item.id)
     message.success('内容项已删除')
@@ -287,13 +286,13 @@ watch(visible, (open) => {
             <!-- 编辑态：表单就地展开在该行内，不另开编辑区 -->
             <div v-if="editingId === item.id" class="item-editor">
               <div class="item-editor-title">{{ editorTitle }}</div>
-                <!-- 单列：行内编辑区宽度随弹框收窄，固定 2 列会挤压 132px label 与控件 -->
-                <u-form
-                  :ref="(el: unknown) => bindEditor(item.id, el)"
-                  :model="editor"
-                  :cols="1"
-                  label-width="132px"
-                >
+              <!-- 单列：行内编辑区宽度随弹框收窄，固定 2 列会挤压 132px label 与控件 -->
+              <u-form
+                :ref="(el: unknown) => bindEditor(item.id, el)"
+                :model="editor"
+                :cols="1"
+                label-width="132px"
+              >
                 <u-form-item
                   label="备注"
                   field="remark"

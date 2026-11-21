@@ -20,14 +20,16 @@ import {
   UTag,
   defineTableColumns,
   message,
-  messageConfirm,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
-import { computed, reactive, ref, shallowRef, watch } from 'vue'
+import { computed, reactive, ref, shallowRef } from 'vue'
 
-import EmptyState from './EmptyState.vue'
-import FormGroupCard from './FormGroupCard.vue'
+import { useEnabledOverride } from '../composables/useEnabledOverride'
+import { confirmAction } from '../confirm-action'
 import { dialogStyle } from '../dialog-style'
+import EmptyState from './EmptyState.vue'
+import DialogFooter from './DialogFooter.vue'
+import FormGroupCard from './FormGroupCard.vue'
 
 const props = defineProps<{
   groups: PolicyGroup[]
@@ -36,8 +38,6 @@ const props = defineProps<{
   loading?: boolean
 }>()
 const emit = defineEmits<{ changed: [] }>()
-
-const togglingId = shallowRef(0)
 
 /** 策略组模式选项 */
 const modeOptions = [
@@ -61,47 +61,23 @@ function modeLabel(mode: string): string {
   return modeLabels[mode] ?? mode
 }
 
-/**
- * 启停：USwitch 是原生 checkbox 实现的受控组件，请求失败后父级数据不变、
- * `:checked` 不会重新下刷，会和 DOM 错位（下次点击发出的还是旧值）。
- * 用本地覆写表驱动，失败写回相反值触发真实下刷，回读后清空覆写。
- */
-const enabledOverride = shallowRef<Record<number, boolean>>({})
-
-function rowEnabled(row: PolicyGroup): boolean {
-  return enabledOverride.value[row.id] ?? row.enabled
-}
-
-watch(
+/** 启停走本地覆写表驱动开关（USwitch 失败不下刷的 workaround，详见 useEnabledOverride） */
+const { rowEnabled, togglingId, toggle: handleToggle } = useEnabledOverride(
   () => props.groups,
-  () => {
-    enabledOverride.value = {}
+  async (row, enabled) => {
+    await setPolicyGroupEnabled(row.id, enabled)
+    emit('changed')
   },
 )
 
-async function handleToggle(row: PolicyGroup, enabled: boolean): Promise<void> {
-  togglingId.value = row.id
-  enabledOverride.value = { ...enabledOverride.value, [row.id]: enabled }
-  try {
-    await setPolicyGroupEnabled(row.id, enabled)
-    emit('changed')
-  } catch {
-    // 失败回滚：写回相反值让开关立即恢复
-    enabledOverride.value = { ...enabledOverride.value, [row.id]: !enabled }
-  } finally {
-    togglingId.value = 0
-  }
-}
-
 async function handleDelete(row: PolicyGroup): Promise<void> {
-  const action = await messageConfirm({
-    title: '删除策略组',
-    message: `确认删除策略组「${row.name}」吗？被规则引用时内核将无法重建，你会看到具体原因。`,
-    confirmButtonText: '删除',
-    confirmButtonType: 'danger',
-    cancelButtonText: '取消',
-  }).onClosed
-  if (action !== 'confirm') return
+  const ok = await confirmAction(
+    '删除策略组',
+    `确认删除策略组「${row.name}」吗？被规则引用时内核将无法重建，你会看到具体原因。`,
+    true,
+    '删除',
+  )
+  if (!ok) return
   try {
     await deletePolicyGroup(row.id)
     message.success('策略组已删除')
@@ -244,18 +220,8 @@ async function handleSave(): Promise<void> {
       </FormGroupCard>
     </u-form>
     <template #footer="{ close }">
-      <u-button text @click="close()">取消</u-button>
-      <u-button type="primary" :loading="saving" @click="handleSave">保存</u-button>
+      <DialogFooter :loading="saving" @cancel="close" @confirm="handleSave" />
     </template>
   </u-dialog>
 </template>
-
-<style scoped>
-/* 卡片头工具栏：仅剩主操作，靠右与表格操作列对齐 */
-.card-ops {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  flex: 1;
-}
-</style>
+<!-- card-ops 为 App.vue 全局类（卡片头工具栏，靠右与表格操作列对齐），本组件无其它局部样式 -->

@@ -11,6 +11,10 @@ export interface KernelStatus {
   uptimeSeconds?: number
   /** 恒为 true：内核已内置 */
   embedded: boolean
+  /** 上次启动失败原因（仅未运行时给出） */
+  error?: string
+  /** 有已保存配置未生效：上次热应用失败，内核在回滚配置上运行，重新保存相关配置可重试 */
+  pendingChanges: boolean
 }
 
 /** 内核日志行 */

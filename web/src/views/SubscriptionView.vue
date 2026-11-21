@@ -9,45 +9,30 @@ import {
   UCard,
   UCardContent,
   UCardHeader,
-  UDatePicker,
-  UDialog,
-  UForm,
-  UFormItem,
-  UInput,
-  UMultiSelect,
-  UNumberInput,
-  USelect,
-  USwitch,
   UTable,
   UTag,
-  UTimePicker,
   defineTableColumns,
   message,
-  messageConfirm,
   vLoading,
 } from '@veltra/desktop'
-import type { FormExposed } from '@veltra/desktop'
 import { UserGroup } from '@veltra/icons/normal'
-import { computed, onMounted, reactive, shallowRef, useTemplateRef } from 'vue'
+import { onMounted, shallowRef } from 'vue'
 
 import EmptyState from '../components/EmptyState.vue'
+import SubscriptionEditorDialog from '../components/SubscriptionEditorDialog.vue'
 import SubscriptionLinksDialog from '../components/SubscriptionLinksDialog.vue'
 import SubscriptionPreviewDialog from '../components/SubscriptionPreviewDialog.vue'
-import { dialogStyle } from '../dialog-style'
-import { listInbounds } from '../api/inbound'
-import type { Inbound } from '../api/inbound'
 import {
-  createSubscriptionToken,
   deleteSubscriptionToken,
-  formatBytes,
   getSubscription,
   resetSubscriptionToken,
   resetSubscriptionTraffic,
   revokeSubscriptionToken,
-  updateSubscriptionToken,
 } from '../api/subscription'
-import type { SubscriptionPayload, SubscriptionToken } from '../api/subscription'
+import type { SubscriptionToken } from '../api/subscription'
+import { confirmAction } from '../confirm-action'
 import { protocolDef } from '../inbound-schema'
+import { formatBytes } from '../utils/format'
 
 // ---------- 列表 ----------
 
@@ -62,8 +47,8 @@ const columns = defineTableColumns([
   { key: 'nodes', name: '节点', minWidth: 200 },
   { key: 'expiresAt', name: '到期时间', minWidth: 150 },
   { key: 'lastUsedAt', name: '最近使用', minWidth: 150 },
-  // 订阅链接与配置预览是订阅用户专属动作，单独成列；通用操作列固定在右侧
-  { key: 'links', name: '订阅', width: 100, align: 'center' },
+  // 订阅链接与配置预览是订阅用户专属动作，单独成列（单行排布）；通用操作列固定在右侧
+  { key: 'links', name: '订阅', width: 124, align: 'center' },
   { key: 'actions', name: '操作', width: 160, align: 'center', fixed: 'right' },
 ])
 
@@ -133,157 +118,23 @@ function openPreview(user: SubscriptionToken): void {
   previewVisible.value = true
 }
 
-// ---------- 新建 / 编辑 ----------
-
-/** 配额单位；'none' 表示不限 */
-type QuotaUnit = 'none' | 'MB' | 'GB' | 'TB'
-
-const QUOTA_UNITS: { label: string; value: QuotaUnit }[] = [
-  { label: '不限', value: 'none' },
-  { label: 'MB', value: 'MB' },
-  { label: 'GB', value: 'GB' },
-  { label: 'TB', value: 'TB' },
-]
-
-const UNIT_BYTES: Record<Exclude<QuotaUnit, 'none'>, number> = {
-  MB: 1024 ** 2,
-  GB: 1024 ** 3,
-  TB: 1024 ** 4,
-}
+// ---------- 新建 / 编辑弹窗 ----------
 
 const editorVisible = shallowRef(false)
-const saving = shallowRef(false)
-const editingId = shallowRef(0)
-const editorFormRef = useTemplateRef<FormExposed>('editorForm')
-const inbounds = shallowRef<Inbound[]>([])
+const editorUser = shallowRef<SubscriptionToken | null>(null)
 
-const form = reactive({
-  name: '',
-  quotaUnit: 'none' as QuotaUnit,
-  quotaValue: undefined as number | undefined,
-  /** 永久有效（关闭时用 expiry 拼到期时刻） */
-  permanent: true,
-  expiry: { date: undefined as string | undefined, time: undefined as string | undefined },
-  nodeInbounds: [] as number[],
-})
-
-/** 可勾选的入站：UMultiSelect 不支持逐项禁用，停用的入站不进选项；
-     但该用户已勾选的（编辑回显）仍列出并标注「已停用」，否则管理员取消不掉这个节点 */
-const inboundOptions = computed(() =>
-  inbounds.value
-    .filter((t) => t.enabled || form.nodeInbounds.includes(t.id))
-    .map((t) => ({
-      label: `${t.name}（${protocolName(t.protocol)}，端口 ${t.listenPort}）${t.enabled ? '' : ' · 已停用'}`,
-      value: t.id,
-    })),
-)
-/** 未勾选且已停用的入站：不可勾选，列出来让管理员知道为什么没有它 */
-const stoppedInbounds = computed(() =>
-  inbounds.value.filter((t) => !t.enabled && !form.nodeInbounds.includes(t.id)),
-)
-const hasEnabledInbound = computed(() => inbounds.value.some((t) => t.enabled))
-
-/** 切到「不限」时清掉数值，避免残留数字被误读成仍在限制用量 */
-function handleQuotaUnitChange(unit: QuotaUnit): void {
-  if (unit === 'none') form.quotaValue = undefined
-}
-
-const quotaRules = {
-  validator: (value: number | undefined) =>
-    form.quotaUnit !== 'none' && !value ? '请输入配额数值，或把单位切回「不限」' : '',
-}
-
-const expiryRules = {
-  validator: (value: string | undefined) =>
-    form.permanent || value ? '' : '请选择到期日期，或切换为「永久有效」',
-}
-
-/** 字节数拆回「数值 + 单位」，便于编辑回显 */
-function splitQuota(bytes: number): { value: number | undefined; unit: QuotaUnit } {
-  if (!bytes) return { value: undefined, unit: 'none' }
-  if (bytes % UNIT_BYTES.TB === 0) return { value: bytes / UNIT_BYTES.TB, unit: 'TB' }
-  if (bytes % UNIT_BYTES.GB === 0) return { value: bytes / UNIT_BYTES.GB, unit: 'GB' }
-  // 不足 1 GB 的零头按 MB 回显；不足 1 MB 时保留两位小数，避免回显成 0 后校验不过
-  return { value: Math.max(0.01, Math.round((bytes / UNIT_BYTES.MB) * 100) / 100), unit: 'MB' }
-}
-
-/** 表单到期时刻拆成日期 + 时间（本地时区） */
-function splitDateTime(iso: string): { date: string; time: string } {
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return {
-    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    time: `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`,
-  }
-}
-
-function quotaBytes(): number {
-  if (form.quotaUnit === 'none') return 0
-  return Math.round((form.quotaValue ?? 0) * UNIT_BYTES[form.quotaUnit])
-}
-
-/** 到期时刻转 RFC3339；未选日期时为 null */
-function expiryISO(): string | null {
-  const { date, time } = form.expiry
-  return date ? new Date(`${date}T${time || '00:00:00'}`).toISOString() : null
-}
-
-async function openEditor(user: SubscriptionToken | null): Promise<void> {
-  editingId.value = user?.id ?? 0
-  const quota = splitQuota(user?.trafficLimitBytes ?? 0)
-  const expiry = user?.expiresAt ? splitDateTime(user.expiresAt) : undefined
-  form.name = user?.name ?? ''
-  form.quotaUnit = quota.unit
-  form.quotaValue = quota.value
-  form.permanent = !expiry
-  form.expiry = { date: expiry?.date, time: expiry?.time }
-  // 已勾选的入站按节点的 inboundId 回显
-  form.nodeInbounds = user ? user.nodes.map((n) => n.inboundId) : []
+function openEditor(user: SubscriptionToken | null): void {
+  editorUser.value = user
   editorVisible.value = true
-  try {
-    inbounds.value = await listInbounds()
-  } catch {
-    // 错误已由请求封装统一提示，入站列表为空时弹窗内会提示先去创建
-  }
 }
 
-async function handleSave(): Promise<void> {
-  if (!(await editorFormRef.value?.validate())) return
-  saving.value = true
-  const editing = editingId.value > 0
-  try {
-    const payload: SubscriptionPayload = {
-      name: form.name.trim(),
-      trafficLimitBytes: quotaBytes(),
-      expiresAt: form.permanent ? null : expiryISO(),
-      // 永久有效时显式清空到期时间（后端按 clearExpiry 优先处理）
-      clearExpiry: form.permanent,
-      nodeInbounds: form.nodeInbounds,
-    }
-    if (editing) await updateSubscriptionToken(editingId.value, payload)
-    else await createSubscriptionToken(payload)
-    editorVisible.value = false
-    await refresh()
-    message.success(editing ? '订阅用户已更新' : '订阅用户已创建，可在列表中查看其订阅链接')
-  } catch {
-    // 错误已由请求封装统一提示
-  } finally {
-    saving.value = false
-  }
+/** 弹窗内完成保存与关闭；保存成功后这里刷新列表并提示（与原流程同序） */
+async function handleEditorSaved(editing: boolean): Promise<void> {
+  await refresh()
+  message.success(editing ? '订阅用户已更新' : '订阅用户已创建，可在列表中查看其订阅链接')
 }
 
 // ---------- 列表操作 ----------
-
-async function confirmAction(title: string, tip: string, danger = false): Promise<boolean> {
-  const action = await messageConfirm({
-    title,
-    message: tip,
-    confirmButtonText: '确认',
-    confirmButtonType: danger ? 'danger' : 'primary',
-    cancelButtonText: '取消',
-  }).onClosed
-  return action === 'confirm'
-}
 
 async function handleToggle(user: SubscriptionToken): Promise<void> {
   actingID.value = user.id
@@ -441,94 +292,14 @@ onMounted(refresh)
     </u-card-content>
   </u-card>
 
-  <!-- 新建 / 编辑：名称、配额、到期、勾选的入站 -->
-  <u-dialog
-    v-model="editorVisible"
-    :title="editingId ? '编辑订阅用户' : '新建订阅用户'"
-    :style="dialogStyle(620)"
-  >
-    <u-form ref="editorForm" :model="form" :cols="1" label-width="88px">
-      <u-input
-        label="名称"
-        field="name"
-        placeholder="如：我的手机"
-        tips="用于辨识设备或使用者；入站里的用户名由「名称-入站名」生成"
-        :rules="{ required: '请输入名称' }"
-      />
-      <u-form-item
-        label="流量配额"
-        field="quotaValue"
-        :rules="quotaRules"
-        tips="上+下行累计用量达到配额后，该用户全部节点自动暂停；清零流量后恢复"
-      >
-        <div class="field-row">
-          <u-number-input
-            v-model="form.quotaValue"
-            class="field-grow"
-            :min="0"
-            :step="1"
-            :disabled="form.quotaUnit === 'none'"
-            placeholder="不限"
-          />
-          <u-select
-            v-model="form.quotaUnit"
-            class="field-unit"
-            :options="QUOTA_UNITS"
-            @update:model-value="handleQuotaUnitChange"
-          />
-        </div>
-      </u-form-item>
-      <u-form-item
-        label="到期时间"
-        field="expiry.date"
-        :rules="expiryRules"
-        tips="到达该时刻后该用户全部节点自动暂停，续期改这里即可恢复；默认「永久有效」不限制"
-      >
-        <div class="field-row">
-          <u-switch v-model="form.permanent" active-text="永久有效" />
-          <template v-if="!form.permanent">
-            <u-date-picker v-model="form.expiry.date" class="field-grow" placeholder="到期日期" />
-            <u-time-picker v-model="form.expiry.time" class="field-time" placeholder="时刻" />
-          </template>
-        </div>
-      </u-form-item>
-      <u-multi-select
-        label="勾选入站"
-        field="nodeInbounds"
-        :options="inboundOptions"
-        placeholder="选择该用户可用的入站"
-        tips="勾选的每个入站都会为该用户生成一个节点（独立凭据、共用入站端口），订阅里只有这些节点；默认不勾，保存后可随时补勾"
-        filterable
-      />
-      <p class="form-hint">
-        勾选或取消入站，会在对应入站里创建 / 删除该用户的身份，节点随之增减；保存即生效，内核自动按新配置重建，无需任何额外操作。
-        只改配额或到期时间同样保存即生效，只暂停 / 恢复节点，不影响链接与端口。
-      </p>
-      <p v-if="!hasEnabledInbound" class="form-hint is-warning">
-        暂无启用的入站，请先到「入站」页创建并启用入站，再回来为该用户勾选节点。
-      </p>
-      <p v-if="stoppedInbounds.length" class="form-hint">
-        已停用、不可勾选的入站：{{ stoppedInbounds.map((t) => t.name).join('、') }}
-      </p>
-    </u-form>
-
-    <template #footer="{ close }">
-      <u-button text @click="close()">取消</u-button>
-      <u-button type="primary" :loading="saving" @click="handleSave">保存</u-button>
-    </template>
-  </u-dialog>
+  <SubscriptionEditorDialog v-model:visible="editorVisible" :token="editorUser" @saved="handleEditorSaved" />
 
   <SubscriptionLinksDialog v-model:visible="linksVisible" :token="linksUser" />
   <SubscriptionPreviewDialog v-model:visible="previewVisible" :token="previewUser" />
 </template>
 
 <style scoped>
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex: 1;
-}
+/* page-header / cell-dim 为 App.vue 全局类 */
 
 .table-wrap {
   position: relative;
@@ -542,15 +313,12 @@ onMounted(refresh)
   line-height: 1.7;
 }
 
-.cell-dim {
-  color: var(--u-text-color-assist);
-}
-
 .links-cell {
   display: flex;
-  flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 2px;
+  white-space: nowrap;
 }
 
 .usage {
@@ -582,38 +350,5 @@ onMounted(refresh)
 
 .usage-bar-fill.is-over {
   background-color: var(--u-color-danger);
-}
-
-.field-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-}
-
-.field-grow {
-  flex: 1;
-  min-width: 0;
-}
-
-.field-unit {
-  width: 96px;
-  flex-shrink: 0;
-}
-
-.field-time {
-  width: 120px;
-  flex-shrink: 0;
-}
-
-.form-hint {
-  margin: 0 0 8px;
-  color: var(--u-text-color-second);
-  font-size: var(--u-font-size-main-small);
-  line-height: 1.7;
-}
-
-.form-hint.is-warning {
-  color: var(--u-color-warning);
 }
 </style>

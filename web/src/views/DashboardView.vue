@@ -1,6 +1,7 @@
 <!-- 仪表盘：内核只读状态（运行状态 / 版本 / 运行时长）、实时速率概览、按用户累计流量 -->
 <script setup lang="ts">
 import {
+  UAlert,
   UButton,
   UCard,
   UCardContent,
@@ -15,11 +16,11 @@ import { useRouter } from 'vue-router'
 
 import { fetchKernelStatus } from '../api/kernel'
 import type { KernelStatus } from '../api/kernel'
-import { formatBytes } from '../api/subscription'
 import { fetchRealtimeStats, fetchUserTraffic } from '../api/stats'
 import type { RealtimeStats, UserTrafficRow } from '../api/stats'
 import EmptyState from '../components/EmptyState.vue'
 import { protocolDef } from '../inbound-schema'
+import { formatBytes, formatUptime } from '../utils/format'
 
 const router = useRouter()
 
@@ -90,18 +91,15 @@ onBeforeUnmount(() => timers.forEach(clearInterval))
 function formatRate(n: number): string {
   return `${formatBytes(n)}/s`
 }
-
-function formatUptime(seconds?: number): string {
-  if (seconds === undefined) return '-'
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-  return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':')
-}
 </script>
 
 <template>
   <div class="dashboard">
+    <!-- pendingChanges：热应用失败后内核一直跑回滚配置，必须常驻提示（而非只在保存时弹一次） -->
+    <u-alert v-if="status?.pendingChanges" type="warning" class="dash-alert">
+      有配置未生效：内核热应用失败，正在回滚的旧配置上运行，重新保存相关配置可重试。
+    </u-alert>
+
     <u-card class="dash-card">
       <u-card-header>内核状态</u-card-header>
       <u-card-content>
@@ -109,9 +107,12 @@ function formatUptime(seconds?: number): string {
           <u-tag :type="status?.running ? 'success' : 'info'">
             {{ status?.running ? '运行中' : '已停止' }}
           </u-tag>
-          <u-tag type="info">内置内核</u-tag>
-          <span>版本：<strong>{{ status?.version || '内置' }}</strong></span>
+          <span>版本：<strong>{{ status?.version || '-' }}</strong></span>
           <span>运行时长：{{ formatUptime(status?.uptimeSeconds) }}</span>
+        </div>
+        <!-- 内核起不来时给原因与修复路径，而不是只亮一个「已停止」 -->
+        <div v-if="status && !status.running && status.error" class="kernel-error">
+          启动失败：{{ status.error }}。修正配置后重新保存任一配置，内核会自动重建。
         </div>
       </u-card-content>
     </u-card>
@@ -177,11 +178,12 @@ function formatUptime(seconds?: number): string {
   margin-bottom: 16px;
 }
 
+.dash-alert {
+  margin-bottom: 16px;
+}
+
+/* 布局取全局 card-header-row，这里只补本页的宽松间距 */
 .card-header-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex: 1;
   gap: var(--u-gap-large);
 }
 
@@ -191,6 +193,13 @@ function formatUptime(seconds?: number): string {
   gap: 20px;
   flex-wrap: wrap;
   font-size: var(--u-font-size-main-default);
+}
+
+/* 内核停止原因：次级警示色，不抢占指标卡视觉 */
+.kernel-error {
+  margin-top: var(--u-gap-default);
+  font-size: var(--u-font-size-main-default);
+  color: var(--u-color-warning, #e6a23c);
 }
 
 /* 主指标（实时速率）占满一行两列并抬面放大 */
@@ -231,16 +240,5 @@ function formatUptime(seconds?: number): string {
 
 .stat-value.is-down {
   color: var(--u-color-primary);
-}
-
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: var(--u-font-size-main-small);
-}
-
-.hint {
-  margin: 10px 0 0;
-  font-size: var(--u-font-size-main-small);
-  color: var(--u-text-color-second);
 }
 </style>

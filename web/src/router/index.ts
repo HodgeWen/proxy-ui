@@ -54,7 +54,7 @@ export const router = createRouter({
           path: 'subscription',
           name: 'subscription',
           component: () => import('../views/SubscriptionView.vue'),
-          meta: { title: '订阅', subtitle: '为每台设备创建订阅用户，导出客户端订阅链接' },
+          meta: { title: '订阅用户', subtitle: '为每台设备创建订阅用户，导出客户端订阅链接' },
         },
         {
           path: 'settings',

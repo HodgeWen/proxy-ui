@@ -64,5 +64,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     if (resp.status === 401 && !silent) onUnauthorized?.()
     throw new ApiError(resp.status, envelope.msg)
   }
+  // 操作已生效但附带有警告（如数据已保存、内核热应用失败已回滚），透出给用户
+  if (!silent && envelope.msg && envelope.msg !== 'ok') message.warn(envelope.msg)
   return envelope.data
 }

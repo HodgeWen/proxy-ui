@@ -105,12 +105,3 @@ export function previewSubscription(
 ): Promise<SubscriptionPreview> {
   return request(`/api/subscription/tokens/${id}/preview?format=${format}`, { silent: true })
 }
-
-/** 字节数转人类可读 */
-export function formatBytes(bytes: number): string {
-  if (!bytes) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  const value = bytes / 1024 ** i
-  return `${value >= 100 || i === 0 ? Math.round(value) : value.toFixed(value >= 10 ? 1 : 2)} ${units[i]}`
-}

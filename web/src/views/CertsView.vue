@@ -5,6 +5,8 @@
 import { createCert, deleteCert, listCerts, selfSignCert, updateCert } from '../api/cert'
 import type { CertKeyType, CertPayload, Certificate } from '../api/cert'
 import {
+  UAction,
+  UActionGroup,
   UButton,
   UCard,
   UCardContent,
@@ -21,13 +23,14 @@ import {
   UTextarea,
   defineTableColumns,
   message,
-  messageConfirm,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
 import { onMounted, reactive, shallowRef } from 'vue'
 
 import EmptyState from '../components/EmptyState.vue'
+import DialogFooter from '../components/DialogFooter.vue'
 import FormGroupCard from '../components/FormGroupCard.vue'
+import { confirmAction } from '../confirm-action'
 import { dialogStyle } from '../dialog-style'
 
 const certs = shallowRef<Certificate[]>([])
@@ -39,7 +42,7 @@ const columns = defineTableColumns([
   { key: 'domains', name: '域名 / IP', minWidth: 200 },
   { key: 'expiry', name: '到期时间', minWidth: 210 },
   { key: 'status', name: '状态', width: 104, align: 'center' },
-  { key: 'actions', name: '操作', width: 110, align: 'center' },
+  { key: 'actions', name: '操作', width: 130, align: 'center' },
 ])
 
 async function refresh(): Promise<void> {
@@ -54,9 +57,9 @@ async function refresh(): Promise<void> {
 }
 
 /** 到期状态标签：解析失败 / 已过期 / 即将到期（14 天内）/ 有效 */
-function certStatus(row: Certificate): { label: string; type: 'error' | 'warning' | 'success' } {
-  if (row.certError || !row.notAfter) return { label: '解析失败', type: 'error' }
-  if (new Date(row.notAfter).getTime() < Date.now()) return { label: '已过期', type: 'error' }
+function certStatus(row: Certificate): { label: string; type: 'danger' | 'warning' | 'success' } {
+  if (row.certError || !row.notAfter) return { label: '解析失败', type: 'danger' }
+  if (new Date(row.notAfter).getTime() < Date.now()) return { label: '已过期', type: 'danger' }
   if ((row.daysLeft ?? 0) <= 14) return { label: '即将到期', type: 'warning' }
   return { label: '有效', type: 'success' }
 }
@@ -178,13 +181,13 @@ async function handleSave(): Promise<void> {
 }
 
 async function handleDelete(row: Certificate): Promise<void> {
-  const action = await messageConfirm({
-    title: '删除证书',
-    message: `确认删除证书「${row.name}」吗？被入站 TLS 或 ECH 密钥引用时将无法删除。`,
-    confirmButtonText: '删除',
-    cancelButtonText: '取消',
-  }).onClosed
-  if (action !== 'confirm') return
+  const ok = await confirmAction(
+    '删除证书',
+    `确认删除证书「${row.name}」吗？被入站 TLS 或 ECH 密钥引用时将无法删除。`,
+    true,
+    '删除',
+  )
+  if (!ok) return
   try {
     await deleteCert(row.id)
     message.success('证书已删除')
@@ -254,8 +257,10 @@ onMounted(refresh)
           <u-tag :type="certStatus(rowData).type">{{ certStatus(rowData).label }}</u-tag>
         </template>
         <template #column:actions="{ rowData }">
-          <u-button text size="small" type="primary" @click="openEdit(rowData)">编辑</u-button>
-          <u-button text size="small" type="error" @click="handleDelete(rowData)">删除</u-button>
+          <u-action-group>
+            <u-action @run="openEdit(rowData)">编辑</u-action>
+            <u-action type="danger" @run="handleDelete(rowData)">删除</u-action>
+          </u-action-group>
         </template>
       </u-table>
     </u-card-content>
@@ -364,50 +369,26 @@ onMounted(refresh)
     </u-form>
     <p v-if="editing && form.source === 'managed'" class="pem-hint">留空 PEM 内容表示仅改名；填写则需成对替换。</p>
     <template #footer="{ close }">
-      <u-button text @click="close()">取消</u-button>
-      <u-button type="primary" :loading="saving" @click="handleSave">
-        {{ !editing && form.source === 'self' ? '生成' : '保存' }}
-      </u-button>
+      <DialogFooter
+        :loading="saving"
+        :confirm-text="!editing && form.source === 'self' ? '生成' : '保存'"
+        @cancel="close"
+        @confirm="handleSave"
+      />
     </template>
   </u-dialog>
 </template>
 
 <style scoped>
-.intro-card {
-  margin-bottom: 16px;
-}
-
-.intro-list {
-  margin: 8px 0;
-  padding-left: 18px;
-  color: var(--u-text-color-second);
-  font-size: var(--u-font-size-main-small);
-}
-
-.intro-note {
-  color: var(--u-text-color-second);
-  font-size: var(--u-font-size-main-small);
-}
-
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex: 1;
-}
-
-.page-ops {
-  display: flex;
-  gap: 8px;
-}
+/* intro-card / intro-list / intro-note / page-header / page-ops 为 App.vue 全局类 */
 
 .cell-domains {
   font-size: var(--u-font-size-main-small);
   word-break: break-all;
 }
 
+/* 域名 / 路径单元格：颜色取全局 cell-dim，这里补截断与小字号 */
 .cell-dim {
-  color: var(--u-text-color-assist);
   font-size: var(--u-font-size-main-small);
   word-break: break-all;
 }

@@ -4,7 +4,7 @@
 <script setup lang="ts">
 import type { Certificate } from '../api/cert'
 import { listCerts } from '../api/cert'
-import { createInbound, updateInbound } from '../api/inbound'
+import { createInbound, fetchInboundTemplate, updateInbound } from '../api/inbound'
 import type { Inbound, InboundPayload, ListenAddress } from '../api/inbound'
 import {
   UButton,
@@ -21,10 +21,11 @@ import {
   message,
 } from '@veltra/desktop'
 import type { Component, PropType } from 'vue'
-import { o } from '@cat-kit/core'
+import { copy, o } from '@cat-kit/core'
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, reactive, ref, shallowRef, useTemplateRef } from 'vue'
 import { useRouter } from 'vue-router'
 
+import DialogFooter from './DialogFooter.vue'
 import FormGroupCard from './FormGroupCard.vue'
 import { dialogStyle } from '../dialog-style'
 import {
@@ -34,7 +35,6 @@ import {
   TLS_FIELDS,
   certOptions,
   computeInboundWarnings,
-  defaultInboundConfig,
   protocolDef,
   protocolNotes,
 } from '../inbound-schema'
@@ -71,6 +71,12 @@ const SchemaField = defineComponent({
         modelValue: d.type === 'multiselect' ? current ?? [] : current,
         'onUpdate:modelValue': (value: unknown) => {
           o(props.model).set(d.field, value)
+          // 选定面板证书后自动带出服务器名称：SNI 需与证书域名匹配，直接取证书主域名
+          if (d.field === 'tls.certId' && value) {
+            const cert = props.certs.find((c) => c.id === value)
+            const domain = cert?.commonName || cert?.domains?.[0]
+            if (domain) o(props.model).set('tls.serverName', domain)
+          }
         },
       }
       if (d.placeholder) controlProps.placeholder = d.placeholder
@@ -115,6 +121,10 @@ const dialogTitle = computed(() =>
 const warnings = computed(() => computeInboundWarnings(def.value.protocol, form))
 const notes = computed(() => protocolNotes(def.value.protocol))
 const advancedFields = computed(() => [...def.value.advanced, ...(def.value.tls ? TLS_ADVANCED : [])])
+/** 协议要求必须启用 TLS 时不再渲染开关（始终开启），只保留其余 TLS 字段 */
+const tlsFields = computed(() =>
+  def.value.tlsRequired ? TLS_FIELDS.filter((f) => f.field !== 'tls.enabled') : TLS_FIELDS,
+)
 
 function resetForm(): void {
   Object.keys(form).forEach((key) => delete form[key])
@@ -123,14 +133,35 @@ function resetForm(): void {
   formRef.value?.clearValidate()
 }
 
-/** 新建：按协议预填连接层默认值（TLS/Reality 密钥等），端口留空由后端分配随机空闲端口 */
-function openCreate(protocol: string): void {
+/** 后端模板经 omitempty 省略零值字段：补回零值外壳，select/switch 控件才能落在默认档
+    （如 TUIC 心跳的「内核默认」、Shadowsocks 网络的「TCP + UDP」）；默认值本身仍来自后端模板 */
+function templateShells(tpl: Record<string, any>): Record<string, any> {
+  const shells: Record<string, any> = {
+    tcpFastOpen: false,
+    multiplex: { enabled: false, padding: false },
+    heartbeat: '',
+    network: '',
+    ...tpl,
+  }
+  if ('masquerade' in tpl) shells.masquerade = { type: '', ...tpl.masquerade }
+  return shells
+}
+
+/** 新建：拉后端模板端点回填连接层默认值（含预生成的 Reality 密钥），端口留空由后端分配随机空闲端口。
+    模板拉取失败时兜底空配置打开弹框，缺省字段由后端保存时补齐（CompleteRealityKeys / SS PSK） */
+async function openCreate(protocol: string): Promise<void> {
   const target = protocolDef(protocol)
   if (!target) return
   def.value = target
   editing.value = null
   resetForm()
-  Object.assign(form, { name: '', listen: '::', listenPort: undefined }, defaultInboundConfig(protocol))
+  let tpl: Record<string, any> = {}
+  try {
+    tpl = await fetchInboundTemplate(protocol)
+  } catch {
+    // 兜底：模板拉不到也必须能打开弹框
+  }
+  Object.assign(form, { name: '', listen: '::', listenPort: undefined }, templateShells(tpl))
   if (target.tls) void reloadCerts()
   visible.value = true
 }
@@ -142,8 +173,11 @@ function openEdit(row: Inbound): void {
   def.value = target
   editing.value = row
   resetForm()
-  const cfg = structuredClone(row.config ?? {}) as Record<string, any>
+  // row.config 是表格行里的响应式 Proxy，structuredClone 会抛 DataCloneError，用 copy 深拷贝
+  const cfg = copy(row.config ?? {}) as Record<string, any>
   if (target.tls && !cfg.tls) cfg.tls = { enabled: false }
+  // 协议要求必须 TLS 的旧记录（历史数据可能关着）：编辑时直接修正为开启
+  if (target.tlsRequired) cfg.tls.enabled = true
   // 旧记录缺少新字段的嵌套结构：只补「功能关闭」的空壳，不套用新建默认值
   // （Hysteria2 混淆默认开只作用于新建，编辑已有入站必须保持原值）
   if (!cfg.multiplex) cfg.multiplex = { enabled: false, padding: false }
@@ -188,6 +222,8 @@ async function handleSave(): Promise<void> {
   saving.value = true
   try {
     const { name, listen, listenPort, ...config } = JSON.parse(JSON.stringify(form))
+    // 协议要求必须 TLS：开关不可关闭，保存口径也强制为开启（双保险）
+    if (def.value.tlsRequired) config.tls = { ...(config.tls ?? {}), enabled: true }
     const payload: InboundPayload = {
       name: name ?? '',
       protocol: def.value.protocol,
@@ -217,7 +253,7 @@ defineExpose({ openCreate, openEdit })
     <!-- 语义说明：解释这里配的是什么 -->
     <div class="form-intro">
       这里配置一个<b>真实监听</b>：协议、监听地址与端口，以及连接层参数（TLS / Reality / 混淆 / 拥塞算法）。
-      该端口由本入站下的所有用户共享，每个用户的凭据独立生成，用户名即客户端订阅里的节点名。
+      该端口由本入站下的所有用户共享；用户在「订阅用户」页勾选本入站时自动生成独立凭据，用户名即客户端订阅里的节点名。
     </div>
 
     <div v-if="warnings.length" class="form-warnings">
@@ -272,7 +308,15 @@ defineExpose({ openCreate, openEdit })
           <u-button text type="primary" @click="goCerts">前往证书页</u-button>
           生成自签或上传；证书文件已在服务器上时，把「证书引用」切换为服务器本地路径即可。
         </p>
-        <SchemaField v-for="d in TLS_FIELDS" :key="d.field" :def="d" :model="form" :certs="certs" />
+        <!-- 协议要求必须 TLS：开关锁死为开启，不给「能关掉再报错」的错觉 -->
+        <u-form-item
+          v-if="def.tlsRequired"
+          label="启用 TLS"
+          tips="该协议的传输层必须经 TLS 加密（协议要求，不可关闭）；选择面板证书后服务器名称自动带出"
+        >
+          <u-switch :model-value="true" disabled />
+        </u-form-item>
+        <SchemaField v-for="d in tlsFields" :key="d.field" :def="d" :model="form" :certs="certs" />
       </FormGroupCard>
 
       <FormGroupCard v-if="advancedFields.length" v-model:collapsed="advancedCollapsed" title="高级选项">
@@ -285,8 +329,7 @@ defineExpose({ openCreate, openEdit })
     </u-form>
 
     <template #footer="{ close }">
-      <u-button text @click="close()">取消</u-button>
-      <u-button type="primary" :loading="saving" @click="handleSave">保存</u-button>
+      <DialogFooter :loading="saving" @cancel="close" @confirm="handleSave" />
     </template>
   </u-dialog>
 </template>

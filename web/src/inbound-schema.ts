@@ -1,8 +1,9 @@
-// 入站声明式表单定义：七协议元信息、字段 schema、连接层默认值与弱配置警示。
+// 入站声明式表单定义：七协议元信息、字段 schema 与弱配置警示。
 //
 // 口径说明：入站是一个真实监听（协议 + 监听地址/端口 + TLS/Reality/混淆/带宽/拥塞算法），
 // 不含任何用户凭据；用户凭据由后端为入站内每个用户独立生成，多用户共享同一监听端口。
-// 默认值与警示口径和后端 internal/singbox（NewTemplateConfig / InboundWarnings）保持一致。
+// 新建默认配置由后端 /api/inbounds/template/:protocol 下发（NewTemplateConfig 单一来源）；
+// 弱配置警示口径与后端 InboundWarnings 保持一致。
 import type { Certificate } from './api/cert'
 
 /** 表单字段类型 */
@@ -37,6 +38,8 @@ export interface ProtocolDef {
   desc: string
   recommended: boolean
   tls: boolean
+  /** 协议传输层必须启用 TLS（表单不允许关闭，其余协议默认推荐开启但可关） */
+  tlsRequired?: boolean
   basic: FieldDef[]
   advanced: FieldDef[]
 }
@@ -72,7 +75,7 @@ export const TLS_FIELDS: FieldDef[] = [
     label: '服务器名称',
     type: 'input',
     placeholder: 'SNI，如 example.com',
-    description: 'SNI 服务器名称，客户端握手时使用的域名，需与证书域名匹配',
+    description: 'SNI 服务器名称，客户端握手时使用的域名，需与证书域名匹配；选择面板证书时自动带出证书主域名',
   },
   {
     field: 'tls.certMode',
@@ -328,6 +331,7 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     desc: '基于 QUIC 的高速协议',
     recommended: true,
     tls: true,
+    tlsRequired: true,
     basic: [
       {
         field: 'obfsEnabled',
@@ -427,6 +431,7 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     desc: 'QUIC 低延迟协议',
     recommended: true,
     tls: true,
+    tlsRequired: true,
     basic: [],
     advanced: [
       TCP_FAST_OPEN_FIELD,
@@ -459,6 +464,7 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     desc: 'TLS 流量复用协议',
     recommended: true,
     tls: true,
+    tlsRequired: true,
     basic: [],
     advanced: [TCP_FAST_OPEN_FIELD, ...multiplexFields(false)],
   },
@@ -468,6 +474,7 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
     desc: 'TLS 加密，需配置证书',
     recommended: false,
     tls: true,
+    tlsRequired: true,
     basic: [],
     advanced: [TCP_FAST_OPEN_FIELD, ...multiplexFields(true)],
   },
@@ -524,178 +531,16 @@ export function certOptions(certs: Certificate[]): FieldOption[] {
   return certs.map((c) => ({ label: c.name, value: c.id }))
 }
 
-// ---------- 连接层默认值（凭据由后端为入站内每个用户独立生成） ----------
-
-/** n 字节安全随机数的 hex 串 */
-function randHex(n: number): string {
-  return Array.from(crypto.getRandomValues(new Uint8Array(n)), (b) => b.toString(16).padStart(2, '0')).join('')
-}
-
-/** n 字节安全随机数的 base64 串（与后端 randBase64 口径一致，Hysteria2 默认混淆密码用） */
-function randBase64(n: number): string {
-  return btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(n))))
-}
-
-// ---------- X25519（RFC 7748 ladder 实现，纯 BigInt；不依赖 crypto.subtle 的安全上下文） ----------
-
-const P = (1n << 255n) - 19n
-const A24 = 121665n
-
-/** 小端字节 → BigInt */
-function decodeLE(bytes: Uint8Array): bigint {
-  let v = 0n
-  for (let i = bytes.length - 1; i >= 0; i--) v = (v << 8n) | BigInt(bytes[i])
-  return v
-}
-
-/** BigInt → 32 字节小端 */
-function encodeLE(n: bigint): Uint8Array {
-  const out = new Uint8Array(32)
-  for (let i = 0; i < 32; i++) {
-    out[i] = Number(n & 0xffn)
-    n >>= 8n
-  }
-  return out
-}
-
-function mod(n: bigint): bigint {
-  return ((n % P) + P) % P
-}
-
-/** 模幂 base^exp mod P（平方-乘） */
-function modPow(base: bigint, exp: bigint): bigint {
-  let result = 1n
-  let b = mod(base)
-  let e = exp
-  while (e > 0n) {
-    if (e & 1n) result = mod(result * b)
-    b = mod(b * b)
-    e >>= 1n
-  }
-  return result
-}
-
-function cswap(swap: bigint, a2: bigint, a3: bigint): [bigint, bigint] {
-  return swap === 1n ? [a3, a2] : [a2, a3]
-}
-
-/** X25519 标量乘（已通过 RFC 7748 §5.2 测试向量与 WebCrypto 交叉验证） */
-function x25519(k: Uint8Array, u: Uint8Array): Uint8Array {
-  const kk = new Uint8Array(k)
-  kk[0] &= 248
-  kk[31] &= 127
-  kk[31] |= 64
-  const kInt = decodeLE(kk)
-  const uu = new Uint8Array(u)
-  uu[31] &= 127
-  const x1 = decodeLE(uu) % P
-  let x2 = 1n
-  let z2 = 0n
-  let x3 = x1
-  let z3 = 1n
-  let swap = 0n
-  for (let t = 254; t >= 0; t--) {
-    const kt = (kInt >> BigInt(t)) & 1n
-    swap ^= kt
-    ;[x2, x3] = cswap(swap, x2, x3)
-    ;[z2, z3] = cswap(swap, z2, z3)
-    swap = kt
-    const a = mod(x2 + z2)
-    const aa = mod(a * a)
-    const b = mod(x2 - z2)
-    const bb = mod(b * b)
-    const e = mod(aa - bb)
-    const c = mod(x3 + z3)
-    const d = mod(x3 - z3)
-    const da = mod(d * a)
-    const cb = mod(c * b)
-    x3 = mod(mod(da + cb) ** 2n)
-    z3 = mod(x1 * mod(mod(da - cb) ** 2n))
-    x2 = mod(aa * bb)
-    z2 = mod(e * mod(aa + A24 * e))
-  }
-  ;[x2, x3] = cswap(swap, x2, x3)
-  ;[z2, z3] = cswap(swap, z2, z3)
-  return encodeLE(mod(x2 * modPow(z2, P - 2n)))
-}
-
-/** 生成 Reality x25519 密钥对（base64 raw url，与 sing-box 一致） */
-function realityKeypair(): { privateKey: string; publicKey: string } {
-  const privateKey = new Uint8Array(32)
-  crypto.getRandomValues(privateKey)
-  const base9 = new Uint8Array(32)
-  base9[0] = 9
-  const publicKey = x25519(privateKey, base9)
-  const b64url = (bytes: Uint8Array) =>
-    btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-  return { privateKey: b64url(privateKey), publicKey: b64url(publicKey) }
-}
-
-/**
- * 生成协议连接层默认配置，不含任何用户凭据（凭据由后端为入站内每个用户生成）。
- * 口径与后端 NewTemplateConfig 一致：QUIC 类协议默认 ALPN 含 h3、TUIC 拥塞算法默认 bbr、
- * Hysteria2 默认开启混淆并随机生成密码、BBR 档位默认 standard、多路复用默认关闭；
- * Shadowsocks 的服务端 PSK 由后端补齐。
- */
-export function defaultInboundConfig(protocol: string): Record<string, any> {
-  const managedTLS = { enabled: true, certMode: 'managed' }
-  /** 监听层选项默认值：TFO 与多路复用默认关闭，字段先占位，编辑时由已有记录覆盖 */
-  const connect = { tcpFastOpen: false, multiplex: { enabled: false, padding: false } }
-  switch (protocol) {
-    case 'vless': {
-      const keypair = realityKeypair()
-      return {
-        flow: 'xtls-rprx-vision',
-        reality: {
-          enabled: true,
-          privateKey: keypair.privateKey,
-          publicKey: keypair.publicKey,
-          shortId: randHex(4),
-          handshakeServer: 'www.microsoft.com',
-          handshakePort: 443,
-        },
-        tls: { enabled: true, serverName: 'www.microsoft.com', ech: { enabled: false } },
-        ...connect,
-      }
-    }
-    case 'hysteria2':
-      return {
-        obfsEnabled: true,
-        // 新建入站即给随机混淆密码：与后端默认一致，避免「开了混淆却没密码」
-        obfsPassword: randBase64(16),
-        upMbps: 0,
-        downMbps: 0,
-        bbrProfile: 'standard',
-        masquerade: { type: '' },
-        // QUIC 类协议 ALPN 必须含 h3：创建入站即给默认值，避免保存后握手失败
-        tls: { enabled: true, certMode: 'managed', alpn: ['h3'], ech: { enabled: false } },
-        ...connect,
-      }
-    case 'tuic':
-      return {
-        congestionControl: 'bbr',
-        zeroRttHandshake: false,
-        heartbeat: '',
-        tls: { enabled: true, certMode: 'managed', alpn: ['h3'], ech: { enabled: false } },
-        ...connect,
-      }
-    case 'anytls':
-    case 'trojan':
-      return { tls: { ...managedTLS, ech: { enabled: false } }, ...connect }
-    case 'vmess':
-      return { wsPath: '/', tls: { ...managedTLS, ech: { enabled: false } }, ...connect }
-    case 'shadowsocks':
-      return { method: '2022-blake3-aes-128-gcm', network: '', ...connect }
-  }
-  throw new Error(`不支持的入站协议: ${protocol}`)
-}
-
 // ---------- 弱配置警示（保存前在表单内联展示，口径与后端 InboundWarnings 一致） ----------
 
 /** QUIC 类协议（ALPN 必须含 h3） */
 function isQuicProtocol(protocol: string): boolean {
   return protocol === 'hysteria2' || protocol === 'tuic'
 }
+
+/** Go time.ParseDuration 口径（与后端 validDuration 一致）：非负时长，支持复合形式（如 1m30s），
+    「0」单独合法；微秒的 µ（U+00B5）与 μ（U+03BC）内核均接受 */
+const DURATION_RE = /^0$|^([0-9]+(\.[0-9]+)?(ns|us|µs|μs|ms|s|m|h))+$/
 
 /** 计算弱配置警示；jump 指向表单内可修复该问题的区块 */
 export function computeInboundWarnings(protocol: string, cfg: Record<string, any> = {}): InboundWarning[] {
@@ -771,11 +616,9 @@ export function computeInboundWarnings(protocol: string, cfg: Record<string, any
       break
     }
     case 'hysteria2':
-      if (!tls.enabled) warnings.push({ text: 'Hysteria2 必须启用 TLS，当前已关闭', jump: 'tls' })
-      else {
-        certWarning()
-        alpnWarning()
-      }
+      // Hysteria2 / TUIC / AnyTLS / Trojan 的表单强制启用 TLS（tlsRequired），无需再警示「未启用 TLS」
+      certWarning()
+      alpnWarning()
       if (cfg.obfsEnabled && !cfg.obfsPassword) warnings.push({ text: '已启用混淆但混淆密码为空' })
       if ((cfg.upMbps ?? 0) > 0 && (cfg.downMbps ?? 0) > 0) {
         warnings.push({ text: '已设置带宽上限，客户端将无法使用 BBR（如需 BBR 请保持带宽不限）' })
@@ -783,25 +626,18 @@ export function computeInboundWarnings(protocol: string, cfg: Record<string, any
       masqueradeWarning()
       break
     case 'tuic':
-      if (!tls.enabled) warnings.push({ text: 'TUIC 必须启用 TLS，当前已关闭', jump: 'tls' })
-      else {
-        certWarning()
-        alpnWarning()
-      }
-      if (cfg.zeroRttHandshake && tls.enabled) {
+      certWarning()
+      alpnWarning()
+      if (cfg.zeroRttHandshake) {
         warnings.push({ text: '已启用 0-RTT 握手：可省一个 RTT，但会牺牲前向安全性' })
       }
-      if (cfg.heartbeat && !/^\d+(\.\d+)?(ns|us|µs|ms|s|m|h)$/.test(cfg.heartbeat)) {
+      if (cfg.heartbeat && !DURATION_RE.test(cfg.heartbeat)) {
         warnings.push({ text: `心跳间隔 ${cfg.heartbeat} 不是合法时长（如 10s / 30s）` })
       }
       break
     case 'anytls':
-      if (!tls.enabled) warnings.push({ text: 'AnyTLS 必须启用 TLS，当前已关闭', jump: 'tls' })
-      else certWarning()
-      break
     case 'trojan':
-      if (!tls.enabled) warnings.push({ text: 'Trojan 未启用 TLS，密码将明文传输', jump: 'tls' })
-      else certWarning()
+      certWarning()
       break
     case 'vmess':
       if (!tls.enabled) warnings.push({ text: 'VMess 未启用 TLS，流量将明文传输', jump: 'tls' })

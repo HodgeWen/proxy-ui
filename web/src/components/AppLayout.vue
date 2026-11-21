@@ -89,7 +89,7 @@ const menus: NavItem[] = [
   { title: '出站', icon: Upload, path: '/outbounds' },
   { title: '证书', icon: Secured, path: '/certs' },
   { title: '规则', icon: Filter, path: '/rules' },
-  { title: '订阅', icon: Share, path: '/subscription' },
+  { title: '订阅用户', icon: Share, path: '/subscription' },
   { title: '设置', icon: Setting, path: '/settings' },
 ]
 

@@ -17,12 +17,13 @@ import {
   UTag,
   defineTableColumns,
   message,
-  messageConfirm,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
 import { reactive, shallowRef } from 'vue'
 
 import EmptyState from './EmptyState.vue'
+import DialogFooter from './DialogFooter.vue'
+import { confirmAction } from '../confirm-action'
 import { dialogStyle } from '../dialog-style'
 
 defineProps<{
@@ -99,14 +100,8 @@ async function handleSave(): Promise<void> {
 
 /** 删除：按钮已按内置/引用状态禁用，这里只做一次弹窗确认 */
 async function handleDelete(row: RuleSet): Promise<void> {
-  const action = await messageConfirm({
-    title: '删除规则集',
-    message: `确认删除规则集「${row.name}」及其全部内容项吗？`,
-    confirmButtonText: '删除',
-    confirmButtonType: 'danger',
-    cancelButtonText: '取消',
-  }).onClosed
-  if (action !== 'confirm') return
+  const ok = await confirmAction('删除规则集', `确认删除规则集「${row.name}」及其全部内容项吗？`, true, '删除')
+  if (!ok) return
   try {
     await deleteRuleSet(row.id)
     message.success('规则集已删除')
@@ -202,20 +197,13 @@ async function handleDelete(row: RuleSet): Promise<void> {
       </u-form-item>
     </u-form>
     <template #footer="{ close }">
-      <u-button text @click="close()">取消</u-button>
-      <u-button type="primary" :loading="saving" @click="handleSave">保存</u-button>
+      <DialogFooter :loading="saving" @cancel="close" @confirm="handleSave" />
     </template>
   </u-dialog>
 </template>
 
 <style scoped>
-/* 卡片头工具栏：仅剩主操作，靠右与表格操作列对齐 */
-.card-ops {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  flex: 1;
-}
+/* card-ops / dim 为 App.vue 全局类 */
 
 .name-cell {
   display: flex;
@@ -225,10 +213,6 @@ async function handleDelete(row: RuleSet): Promise<void> {
 
 .name-text {
   font-weight: 600;
-}
-
-.dim {
-  color: var(--u-text-color-assist);
 }
 
 /* 说明列可能很长：单元格内单行截断，完整内容看 title */

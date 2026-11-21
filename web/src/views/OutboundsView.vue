@@ -3,6 +3,8 @@
 import { createOutbound, deleteOutbound, listOutbounds, setOutboundEnabled, updateOutbound } from '../api/outbound'
 import type { Outbound, OutboundPayload } from '../api/outbound'
 import {
+  UAction,
+  UActionGroup,
   UAlert,
   UButton,
   UCard,
@@ -20,14 +22,16 @@ import {
   UTextarea,
   defineTableColumns,
   message,
-  messageConfirm,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
 import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
 
 import EmptyState from '../components/EmptyState.vue'
+import DialogFooter from '../components/DialogFooter.vue'
 import FormGroupCard from '../components/FormGroupCard.vue'
+import { confirmAction } from '../confirm-action'
 import { dialogStyle } from '../dialog-style'
+import { DEFAULT_TYPE, TYPE_NOTES, typeOptions } from '../outbound-type-notes'
 
 const outbounds = shallowRef<Outbound[]>([])
 const loading = shallowRef(false)
@@ -72,83 +76,6 @@ const form = reactive({
   extraJson: '',
 })
 
-/** 常见出站类型；可输入创建其它类型 */
-const typeOptions = ['shadowsocks', 'vmess', 'vless', 'trojan', 'hysteria2', 'tuic', 'anytls', 'socks', 'http', 'wireguard', 'hysteria', 'ssh'].map(
-  (t) => ({ label: t, value: t }),
-)
-
-/** 新建出站的默认类型：最常见通用的推荐项（direct 是内置直连，不进自定义表单） */
-const DEFAULT_TYPE = 'shadowsocks'
-
-/**
- * 常见出站类型的适用场景与附加配置要点；字段名与 sing-box 1.14 出站选项一致。
- * required 为「无」表示只填服务器地址与端口即可用。
- */
-const TYPE_NOTES: Record<string, { scene: string; required: string; sample?: Record<string, unknown> }> = {
-  shadowsocks: {
-    scene: '最通用简单的选择，客户端支持最广；用 2022 系列加密时性能与抗探测都不错，拿不准就选它',
-    required: 'method（加密方式）、password',
-    sample: { method: '2022-blake3-aes-128-gcm', password: '<随机生成的密钥>' },
-  },
-  vless: {
-    scene: '轻量现代协议，无额外加密开销；配合 Reality / Vision 抗封锁能力最强，新建节点首选',
-    required: 'uuid',
-    sample: { uuid: '<服务端分配的 UUID>', flow: 'xtls-rprx-vision' },
-  },
-  vmess: {
-    scene: 'V2Ray 经典协议，老牌生态兼容好；新部署更建议 vless',
-    required: 'uuid',
-    sample: { uuid: '<服务端分配的 UUID>' },
-  },
-  trojan: {
-    scene: '伪装成普通 HTTPS 的老牌协议，配置简单，依赖服务端的 TLS 证书',
-    required: 'password',
-    sample: { password: '<服务端密码>' },
-  },
-  hysteria2: {
-    scene: '基于 QUIC 的高速协议，在丢包多、线路差的场景下速度优势明显',
-    required: 'password',
-    sample: { password: '<服务端密码>' },
-  },
-  tuic: {
-    scene: '基于 QUIC 的低延迟协议，握手快，适合手机等弱网设备',
-    required: 'uuid、password',
-    sample: { uuid: '<服务端 UUID>', password: '<服务端密码>', congestion_control: 'bbr', udp_relay_mode: 'native' },
-  },
-  anytls: {
-    scene: '专为代理设计的新协议（2025），流量特征规整、连接复用高效',
-    required: 'password',
-    sample: { password: '<服务端密码>' },
-  },
-  socks: {
-    scene: '通用 SOCKS5 代理，常用于对接本机或内网的其它代理服务',
-    required: '无（账号密码按服务端配置）',
-    sample: { version: '5' },
-  },
-  http: {
-    scene: 'HTTP 明文代理，仅建议在可信内网使用',
-    required: '无',
-  },
-  wireguard: {
-    scene: 'WireGuard 隧道；对端地址与端口写在 peers 里，上方「服务器 / 服务器端口」可留空',
-    required: 'private_key、address、peers（含 public_key）',
-    sample: {
-      private_key: '<本机私钥>',
-      address: ['172.16.0.2/30'],
-      peers: [{ address: '<对端地址>', port: 51820, public_key: '<对端公钥>' }],
-    },
-  },
-  hysteria: {
-    scene: 'hysteria2 的上一代协议，官方已停止演进，新建建议改用 hysteria2',
-    required: 'auth_str、up_mbps、down_mbps',
-  },
-  ssh: {
-    scene: 'SSH 隧道出站，直接复用已有服务器的 SSH 服务转发流量，无需另外部署代理',
-    required: 'user',
-    sample: { user: 'root' },
-  },
-}
-
 /** 当前类型的场景说明（未知类型回落到通用说明） */
 const typeTips = computed(
   () => TYPE_NOTES[form.type]?.scene ?? '出站协议类型；下拉含常见类型，也可输入其它 sing-box 出站类型',
@@ -173,13 +100,8 @@ async function fillSample(): Promise<void> {
   const text = typeSampleText.value
   if (!text) return
   if (form.extraJson.trim() && form.extraJson.trim() !== text) {
-    const action = await messageConfirm({
-      title: '填入样例',
-      message: '附加配置里已有内容，填入样例会覆盖当前内容，确认继续吗？',
-      confirmButtonText: '覆盖填入',
-      cancelButtonText: '取消',
-    }).onClosed
-    if (action !== 'confirm') return
+    const ok = await confirmAction('填入样例', '附加配置里已有内容，填入样例会覆盖当前内容，确认继续吗？', false, '覆盖填入')
+    if (!ok) return
   }
   form.extraJson = text
 }
@@ -265,13 +187,13 @@ async function handleToggle(row: Outbound, enabled: boolean): Promise<void> {
 }
 
 async function handleDelete(row: Outbound): Promise<void> {
-  const action = await messageConfirm({
-    title: '删除出站',
-    message: `确认删除出站「${row.name}」吗？被规则引用时内核将无法重建，你会看到具体原因。`,
-    confirmButtonText: '删除',
-    cancelButtonText: '取消',
-  }).onClosed
-  if (action !== 'confirm') return
+  const ok = await confirmAction(
+    '删除出站',
+    `确认删除出站「${row.name}」吗？被规则引用时内核将无法重建，你会看到具体原因。`,
+    true,
+    '删除',
+  )
+  if (!ok) return
   try {
     await deleteOutbound(row.id)
     message.success('出站已删除')
@@ -349,13 +271,11 @@ onMounted(refresh)
           />
         </template>
         <template #column:actions="{ rowData }">
-          <template v-if="rowData.type !== 'direct'">
-            <u-button text size="small" type="primary" @click="openEdit(rowData)">编辑</u-button>
-            <u-button text size="small" type="error" @click="handleDelete(rowData)">删除</u-button>
-          </template>
-          <template v-else>
-            <u-button text size="small" type="error" @click="handleDelete(rowData)">删除</u-button>
-          </template>
+          <u-action-group>
+            <!-- direct 出站不可编辑，只能删除 -->
+            <u-action v-if="rowData.type !== 'direct'" @run="openEdit(rowData)">编辑</u-action>
+            <u-action type="danger" @run="handleDelete(rowData)">删除</u-action>
+          </u-action-group>
         </template>
       </u-table>
     </u-card-content>
@@ -410,7 +330,7 @@ onMounted(refresh)
             <span>{{ form.type }} 附加字段样例（按实际服务端参数修改占位值）</span>
             <u-button size="small" @click="fillSample">填入样例</u-button>
           </div>
-          <pre class="extra-sample-code">{{ typeSampleText }}</pre>
+          <pre class="code-block">{{ typeSampleText }}</pre>
         </div>
       </FormGroupCard>
 
@@ -425,28 +345,13 @@ onMounted(refresh)
       </FormGroupCard>
     </u-form>
     <template #footer="{ close }">
-      <u-button text @click="close()">取消</u-button>
-      <u-button type="primary" :loading="saving" @click="handleSave">保存</u-button>
+      <DialogFooter :loading="saving" @cancel="close" @confirm="handleSave" />
     </template>
   </u-dialog>
 </template>
 
 <style scoped>
-.intro-card {
-  margin-bottom: 16px;
-}
-
-.intro-list {
-  margin: 8px 0;
-  padding-left: 18px;
-  color: var(--u-text-color-second);
-  font-size: var(--u-font-size-main-small);
-}
-
-.intro-note {
-  color: var(--u-text-color-second);
-  font-size: var(--u-font-size-main-small);
-}
+/* intro-card / intro-list / intro-note / page-header / page-ops / code-block 为 App.vue 全局类 */
 
 .direct-alert {
   margin-bottom: 16px;
@@ -457,18 +362,6 @@ onMounted(refresh)
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-}
-
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex: 1;
-}
-
-.page-ops {
-  display: flex;
-  gap: 8px;
 }
 
 /* 当前类型的必填附加字段提示：与表单 tips 同色态，整行展示 */
@@ -492,18 +385,6 @@ onMounted(refresh)
   margin-bottom: 6px;
   color: var(--u-text-color-second);
   font-size: var(--u-font-size-main-small);
-}
-
-.extra-sample-code {
-  margin: 0;
-  padding: 10px 12px;
-  overflow-x: auto;
-  border: 1px solid var(--u-border-color);
-  border-radius: var(--u-radius-small);
-  background: var(--u-bg-color-middle);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: var(--u-font-size-main-small);
-  line-height: 1.7;
 }
 
 /* 类型速查：dt 固定宽度，dd 与之同行；整组占满栅格行 */

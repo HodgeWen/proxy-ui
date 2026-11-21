@@ -1,5 +1,5 @@
 <!-- 弹框表单分组卡片：加粗标题栏（底部 1px 分隔线）+ chevron 点击折叠，默认展开；
-     主体内置断点栅格（窄屏 1 列、其余 2 列），表单项经 span 占列、'full' 占整行 -->
+     主体固定 2 列栅格（弹框宽度恒定，无需断点响应），表单项经 span 占列、'full' 占整行 -->
 <script setup lang="ts">
 import { UGrid } from '@veltra/desktop'
 import { Down } from '@veltra/icons/normal'
@@ -21,9 +21,9 @@ const collapsed = defineModel<boolean>('collapsed', { default: false })
       <Down class="form-group-card__chevron" :class="{ 'is-collapsed': collapsed }" />
     </button>
     <div v-show="!collapsed" class="form-group-card__body">
-      <!-- cols 必须显式写全每个断点：UGrid 断点对象对未指定的高位断点（含 default）回落 24 列，
-           漏写 lg/xl 会让宽容器（弹框最大化 / 大屏）下的表单项被挤进 24 列而堆叠错乱 -->
-      <u-grid :cols="{ xs: 1, sm: 2, md: 2, lg: 2, xl: 2 }" gap="0 12px">
+      <!-- cols 固定 2 列：弹框宽度恒定（dialogStyle），无需断点；纯数字 cols 也不挂
+           ResizeObserver，避免对象断点在弹框打开动画期间触发 ResizeObserver loop 告警 -->
+      <u-grid :cols="2" gap="0 12px">
         <slot />
       </u-grid>
     </div>

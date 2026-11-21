@@ -79,7 +79,7 @@ async function handleCopy(): Promise<void> {
           :description="error"
           show-icon
         />
-        <pre v-else v-loading="loading" class="code">{{ content }}</pre>
+        <pre v-else v-loading="loading" class="code-block code">{{ content }}</pre>
       </div>
     </template>
   </u-dialog>
@@ -111,19 +111,13 @@ async function handleCopy(): Promise<void> {
   margin: 0;
 }
 
-/* 等宽只读代码区：占满剩余高度，长文本在内部滚动 */
+/* 等宽只读代码区：chrome 取全局 code-block，这里补占满剩余高度与更宽的内距行距 */
 .code {
   flex: 1;
   min-height: 0;
-  margin: 0;
   padding: 12px 14px;
-  border: 1px solid var(--u-border-color);
-  border-radius: var(--u-radius-small);
-  background-color: var(--u-bg-color-middle);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   line-height: 1.6;
-  overflow: auto;
   white-space: pre;
 }
 </style>

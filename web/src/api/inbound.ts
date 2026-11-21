@@ -1,28 +1,9 @@
-// 入站接口：真实监听的入站（协议 + 端口 + TLS 等），入站内可挂多个用户。
+// 入站接口：真实监听的入站（协议 + 端口 + TLS 等）。
+// 入站用户统一在「订阅用户」页管理（勾选入站即生成、取消勾选即删除），入站只带用户数。
 import { request } from './http'
 
 /** 监听地址语义 */
 export type ListenAddress = '::' | '0.0.0.0' | '127.0.0.1'
-
-/** 入站内的用户（内核认证身份，用户名即客户端节点名与统计维度） */
-export interface InboundUser {
-  id: number
-  inboundId: number
-  name: string
-  /** 生效状态（= 未手动停用且未被暂停） */
-  enabled: boolean
-  /** 管理员手动停用 */
-  disabled: boolean
-  /** 是否被系统暂停（配额用尽 / 到期 / 订阅停用） */
-  suspended: boolean
-  uploadBytes: number
-  downloadBytes: number
-  /** 归属订阅用户 ID（0 表示未绑定，为手动创建的用户） */
-  tokenId: number
-  /** 归属订阅用户备注 */
-  tokenName: string
-  createdAt: string
-}
 
 /** 入站（后端视图：config 为连接层嵌套对象，warnings 为弱配置警示） */
 export interface Inbound {
@@ -34,7 +15,8 @@ export interface Inbound {
   enabled: boolean
   config: Record<string, unknown>
   warnings: string[]
-  users: InboundUser[]
+  /** 该入站下的用户数（来自订阅用户勾选） */
+  userCount: number
   createdAt: string
   updatedAt: string
 }
@@ -51,6 +33,16 @@ export interface InboundPayload {
 /** 查询入站列表 */
 export function listInbounds(): Promise<Inbound[]> {
   return request<Inbound[]>('/api/inbounds')
+}
+
+/** 按协议取新建默认配置模板（后端 NewTemplateConfig 单一来源，含预生成的 Reality 密钥与 SS PSK）；
+    silent：拉取失败由调用方兜底空配置，不弹统一错误提示 */
+export async function fetchInboundTemplate(protocol: string): Promise<Record<string, any>> {
+  const { config } = await request<{ config: Record<string, any> }>(
+    `/api/inbounds/template/${protocol}`,
+    { silent: true },
+  )
+  return config
 }
 
 /** 创建入站 */
@@ -71,24 +63,4 @@ export function setInboundEnabled(id: number, enabled: boolean): Promise<Inbound
 /** 删除入站（连同其用户与订阅绑定） */
 export function deleteInbound(id: number): Promise<void> {
   return request<void>(`/api/inbounds/${id}`, { method: 'DELETE' })
-}
-
-/** 查询全部入站用户（跨入站汇总） */
-export function listUsers(): Promise<InboundUser[]> {
-  return request<InboundUser[]>('/api/users')
-}
-
-/** 在某入站下新建手动用户（自动生成凭据） */
-export function createUser(inboundId: number, name: string): Promise<InboundUser> {
-  return request<InboundUser>(`/api/inbounds/${inboundId}/users`, { method: 'POST', body: { name } })
-}
-
-/** 启停入站用户 */
-export function setUserEnabled(id: number, enabled: boolean): Promise<InboundUser> {
-  return request<InboundUser>(`/api/users/${id}/enabled`, { method: 'PATCH', body: { enabled } })
-}
-
-/** 删除入站用户 */
-export function deleteUser(id: number): Promise<void> {
-  return request<void>(`/api/users/${id}`, { method: 'DELETE' })
 }
