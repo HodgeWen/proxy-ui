@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -97,6 +98,12 @@ func TestManagerStartInvalid(t *testing.T) {
 	if st := m.Status(); st.Running {
 		t.Errorf("启动失败后不应处于运行中: %+v", st)
 	}
+	// 未运行时应带回失败原因（面板据此提示修复方向）
+	if st := m.Status(); st.Error == "" {
+		t.Error("启动失败后状态应携带失败原因")
+	} else if !strings.Contains(st.Error, "not-a-protocol") && !strings.Contains(st.Error, "内核") {
+		t.Errorf("失败原因缺少上下文: %s", st.Error)
+	}
 	// 错误信息应可定位到原因
 	if !strings.Contains(err.Error(), "配置") && !strings.Contains(err.Error(), "内核") {
 		t.Errorf("错误信息缺少上下文: %v", err)
@@ -171,6 +178,43 @@ func TestLogBuffer(t *testing.T) {
 	if all[0].Stream != "core" || all[0].Line != "line" {
 		t.Errorf("日志行内容不符: %+v", all[0])
 	}
+}
+
+// TestManagerStartWithConcurrentStatus 重建内核期间并发读状态不应产生数据竞争
+// （-race 下回归：修复前 Start 调 stopLocked 未持 m.mu，与 Status() 的 m.box 读竞争）。
+func TestManagerStartWithConcurrentStatus(t *testing.T) {
+	m := New(t.TempDir())
+	if err := m.Start(MinConfig()); err != nil {
+		t.Skipf("本机统计端口不可用，跳过并发重建用例: %v", err)
+	}
+	defer func() { _ = m.Stop() }()
+
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					_ = m.Status()
+				}
+			}
+		}()
+	}
+	changed := MinConfig()
+	changed.Log = &LogConfig{Level: "debug", Timestamp: true}
+	for i := 0; i < 3; i++ {
+		if err := m.Start(changed); err != nil {
+			t.Errorf("并发读状态下重建内核失败: %v", err)
+			break
+		}
+	}
+	close(done)
+	wg.Wait()
 }
 
 // TestManagerDirIsolation 内核落盘文件（cache.db）必须写在管理器工作目录，而非进程工作目录。

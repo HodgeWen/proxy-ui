@@ -86,9 +86,9 @@ func TestVersionCompare(t *testing.T) {
 // TestVerifyDigestHex 安装包摘要校验。
 func TestVerifyDigestHex(t *testing.T) {
 	const digest = "sha256:ABCDEF0123"
-	// digest 为空跳过校验
-	if err := verifyDigestHex("anything", ""); err != nil {
-		t.Errorf("空 digest 应跳过校验: %v", err)
+	// digest 为空拒绝安装（GitHub 新资产均携带 digest）
+	if err := verifyDigestHex("anything", ""); err == nil {
+		t.Error("空 digest 应拒绝安装")
 	}
 	// 大小写不敏感
 	if err := verifyDigestHex("abcdef0123", digest); err != nil {

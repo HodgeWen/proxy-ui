@@ -29,7 +29,9 @@ func Open(path string) (*gorm.DB, error) {
 			return nil, fmt.Errorf("创建数据目录失败: %w", err)
 		}
 	}
-	g, err := gorm.Open(sqlite.Open(path), &gorm.Config{
+	// busy_timeout 缓解并发写锁冲突直接报错；WAL 让面板读写与内核统计写互不阻塞
+	dsn := path + "?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)"
+	g, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Error),
 	})
 	if err != nil {
@@ -65,8 +67,13 @@ func ensureSchema(g *gorm.DB, path string) error {
 		// 新库（或空文件）：直接打上当前版本，随后由 AutoMigrate 建表
 		return setSchemaVersion(g)
 	}
+	// 重建前先把库文件备份到同目录（best effort）：失败只记警告，不能因备份失败阻断启动
+	backup := fmt.Sprintf("%s.bak-%d", path, version)
+	if err := copyFile(path, backup); err != nil {
+		slog.Warn("备份旧库失败，继续按空库重建", "db", path, "backup", backup, "err", err)
+	}
 	slog.Warn("检测到旧版数据库结构，已删除并重建为空库（旧数据不做迁移，请重新配置面板）",
-		"db", path, "oldVersion", version, "newVersion", schemaVersion)
+		"db", path, "oldVersion", version, "newVersion", schemaVersion, "backup", backup)
 	if err := dropUserTables(g); err != nil {
 		return fmt.Errorf("重建数据库失败: %w", err)
 	}
@@ -119,4 +126,17 @@ func setSchemaVersion(g *gorm.DB) error {
 		return fmt.Errorf("写入数据库结构版本失败: %w", err)
 	}
 	return nil
+}
+
+// copyFile 复制文件内容并保留权限位（重建前备份旧库用）。
+func copyFile(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, raw, info.Mode().Perm())
 }

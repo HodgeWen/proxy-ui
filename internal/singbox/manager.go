@@ -42,6 +42,7 @@ type Status struct {
 	Version   string `json:"version,omitempty"`       // 内核版本号
 	Uptime    int64  `json:"uptimeSeconds,omitempty"` // 运行时长（秒）
 	Embedded  bool   `json:"embedded"`                // 是否内置内核（恒真）
+	Error     string `json:"error,omitempty"`         // 上次启动失败原因（未运行时给出，便于面板提示修复方向）
 }
 
 // Manager sing-box 内核实例管理：进程内构建、启动、停止与重建。
@@ -55,6 +56,7 @@ type Manager struct {
 	started    time.Time
 	generation uint64  // 实例代号：每次成功重建递增，统计采集据此重置基线
 	lastGood   *Config // 上一个成功启动的配置（新配置启动失败时回滚）
+	lastErr    string  // 最近一次启动失败原因（成功启动后清空）
 	logs       logBuffer
 }
 
@@ -102,6 +104,8 @@ func (m *Manager) Status() Status {
 	if m.box != nil {
 		st.Running = true
 		st.Uptime = int64(time.Since(m.started).Seconds())
+	} else {
+		st.Error = m.lastErr
 	}
 	return st
 }
@@ -120,11 +124,15 @@ func (m *Manager) Start(cfg Config) error {
 	defer m.startMu.Unlock()
 	m.mu.Lock()
 	last := m.lastGood
+	err := m.stopLocked()
 	m.mu.Unlock()
-	if err := m.stopLocked(); err != nil {
+	if err != nil {
 		return err
 	}
 	if err := m.start(cfg); err != nil {
+		m.mu.Lock()
+		m.lastErr = err.Error()
+		m.mu.Unlock()
 		if last != nil {
 			if rollbackErr := m.start(*last); rollbackErr == nil {
 				return fmt.Errorf("%w（已回滚到上一个可用配置，代理未中断）", err)
@@ -182,7 +190,7 @@ func (m *Manager) start(cfg Config) error {
 		return fmt.Errorf("内核启动失败: %w", err)
 	}
 	m.mu.Lock()
-	m.box, m.started, m.generation = instance, time.Now(), m.generation+1
+	m.box, m.started, m.generation, m.lastErr = instance, time.Now(), m.generation+1, ""
 	m.lastGood = &cfg
 	m.mu.Unlock()
 	m.log("panel", "内核已启动")

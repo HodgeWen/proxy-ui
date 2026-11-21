@@ -131,10 +131,10 @@ func parseNonNegative(s string) (int, error) {
 }
 
 // verifyDigestHex 比对 sha256 十六进制摘要与 GitHub 资产 digest（"sha256:<hex>"）；
-// digest 为空时跳过校验。
+// digest 为空视为资产异常，直接拒绝安装（GitHub 新资产均携带 digest）。
 func verifyDigestHex(got, digest string) error {
 	if digest == "" {
-		return nil
+		return fmt.Errorf("资产缺少校验摘要，拒绝安装")
 	}
 	algo, want, ok := strings.Cut(digest, ":")
 	if !ok || algo != "sha256" {
