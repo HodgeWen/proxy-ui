@@ -13,9 +13,9 @@ import (
 // 入站用户没有独立的管理接口：统一在「订阅用户」页创建与删除（勾选入站即生成、取消勾选即删除），
 // 这里只保留订阅绑定所需的用户创建与查询辅助。
 
-// createUser 在入站下新建用户并生成该协议凭据；name 为空按「u-协议-序号」兜底。
+// createUser 在入站下新建用户并生成该协议凭据。
 // 落库与查重走调用方给出的事务 tx（订阅节点同步要求整体提交或回滚）。
-func (a *API) createUser(tx *gorm.DB, in *db.Inbound, name string, enabled *bool) (db.InboundUser, error) {
+func (a *API) createUser(tx *gorm.DB, in *db.Inbound, name string) (db.InboundUser, error) {
 	cfg, err := singbox.ParseInboundConfig(in.Protocol, in.Config)
 	if err != nil {
 		return db.InboundUser{}, err
@@ -28,17 +28,11 @@ func (a *API) createUser(tx *gorm.DB, in *db.Inbound, name string, enabled *bool
 	if err != nil {
 		return db.InboundUser{}, fmt.Errorf("序列化凭据失败: %w", err)
 	}
-	if name == "" {
-		name = a.uniqueUserName(tx, in.Protocol)
-	}
 	if err := a.checkUserName(tx, name, 0); err != nil {
 		return db.InboundUser{}, err
 	}
 	user := db.InboundUser{
 		InboundID: in.ID, Name: name, Credential: string(rawCred), Enabled: true,
-	}
-	if enabled != nil {
-		user.Enabled = *enabled
 	}
 	if err := tx.Create(&user).Error; err != nil {
 		return db.InboundUser{}, fmt.Errorf("创建用户失败: %w", err)
@@ -60,19 +54,6 @@ func (a *API) newCredential(protocol string, cfg any) (singbox.Credential, error
 		return singbox.Credential{Password: key}, nil
 	}
 	return singbox.NewCredential(protocol)
-}
-
-// uniqueUserName 生成未占用的用户名（u-协议-序号）。
-//
-// 前缀 u- 是为了与入站 tag（协议-序号）区分：入站名与用户名共用流量表的 tag 键，
-// 撞名会让两者的用量互相覆盖。
-func (a *API) uniqueUserName(tx *gorm.DB, protocol string) string {
-	for i := 1; ; i++ {
-		name := fmt.Sprintf("u-%s-%d", protocol, i)
-		if a.checkUserName(tx, name, 0) == nil {
-			return name
-		}
-	}
 }
 
 // checkUserName 校验用户名合法且**全局**唯一（同时不得等于任何入站 tag）。
@@ -98,8 +79,17 @@ func (a *API) checkUserName(tx *gorm.DB, name string, excludeID uint) error {
 
 // trafficByTag 查询全部累计流量（键为用户名/入站 tag）。
 func (a *API) trafficByTag() (map[string]db.UserTraffic, error) {
+	return a.trafficByTags(nil)
+}
+
+// trafficByTags 按给定 tag 查询累计流量（键为用户名/入站 tag）；tags 为空表示全部。
+func (a *API) trafficByTags(tags []string) (map[string]db.UserTraffic, error) {
+	query := a.db
+	if len(tags) > 0 {
+		query = query.Where("tag IN ?", tags)
+	}
 	var rows []db.UserTraffic
-	if err := a.db.Find(&rows).Error; err != nil {
+	if err := query.Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	byTag := make(map[string]db.UserTraffic, len(rows))
@@ -107,6 +97,18 @@ func (a *API) trafficByTag() (map[string]db.UserTraffic, error) {
 		byTag[r.Tag] = r
 	}
 	return byTag, nil
+}
+
+// deleteUsersTraffic 批量删除指定入站用户的累计流量展示行（单条 IN 删除）。
+func deleteUsersTraffic(tx *gorm.DB, users []db.InboundUser) error {
+	tags := make([]string, 0, len(users))
+	for _, u := range users {
+		tags = append(tags, u.Name)
+	}
+	if len(tags) == 0 {
+		return nil
+	}
+	return tx.Where("tag IN ?", tags).Delete(&db.UserTraffic{}).Error
 }
 
 // bindingMap 用户 ID -> 订阅绑定，以及订阅 ID -> 备注。

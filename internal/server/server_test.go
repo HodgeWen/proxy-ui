@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -42,7 +43,7 @@ func newServerWithCode(t *testing.T) (*httptest.Server, string, string) {
 	requireKernel(t)
 	dbPath := filepath.Join(t.TempDir(), "panel.db")
 	dataDir := t.TempDir()
-	handler, code := mustNewEngineWithCode(dbPath, dataDir)
+	handler, code := mustNewEngineWithCode(t.Context(), dbPath, dataDir)
 	srv := httptest.NewServer(handler)
 	setupCodes.Store(srv.URL, code)
 	t.Cleanup(srv.Close)
@@ -55,14 +56,14 @@ func newTestServer(t *testing.T) (*httptest.Server, string) {
 	return srv, dbPath
 }
 
-// mustNewEngine 在指定库文件与数据目录上装配引擎（重启场景复用同一文件）。
-func mustNewEngine(dbPath, dataDir string) http.Handler {
+// mustNewEngine 在指定生命周期上下文、库文件与数据目录上装配引擎（重启场景复用同一文件）。
+func mustNewEngine(ctx context.Context, dbPath, dataDir string) http.Handler {
 	database, err := db.Open(dbPath)
 	if err != nil {
 		panic(err)
 	}
 	dist := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html>proxy-ui</html>")}}
-	return New(Options{DB: database, Dist: dist, Version: "test", DataDir: dataDir})
+	return New(Options{Context: ctx, DB: database, Dist: dist, Version: "test", DataDir: dataDir})
 }
 
 // kernelBuildable 探测当前测试二进制里的内嵌内核能否真正启动。

@@ -106,7 +106,7 @@ func (v parsedVersion) compare(o parsedVersion) int {
 // comparePrerelease 逐段比较预发布号：数字段按数值、其余按字典序。
 func comparePrerelease(a, b string) int {
 	as, bs := strings.Split(a, "."), strings.Split(b, ".")
-	for i := 0; i < len(as) && i < len(bs); i++ {
+	for i := range min(len(as), len(bs)) {
 		an, aerr := parseNonNegative(as[i])
 		bn, berr := parseNonNegative(bs[i])
 		var c int
@@ -128,6 +128,24 @@ func parseNonNegative(s string) (int, error) {
 		return 0, fmt.Errorf("非非负整数: %q", s)
 	}
 	return strconv.Atoi(s)
+}
+
+// validateDigestFormat 校验安装包 digest 格式：非空且为 "sha256:<64位有效hex>"。
+func validateDigestFormat(digest string) error {
+	if digest == "" {
+		return fmt.Errorf("资产缺少校验摘要，拒绝安装")
+	}
+	algo, want, ok := strings.Cut(digest, ":")
+	if !ok || algo != "sha256" {
+		return fmt.Errorf("不支持的校验摘要格式: %s", digest)
+	}
+	if len(want) != 64 {
+		return fmt.Errorf("校验摘要长度非法: %s", digest)
+	}
+	if _, err := hex.DecodeString(want); err != nil {
+		return fmt.Errorf("校验摘要格式非法: %s", digest)
+	}
+	return nil
 }
 
 // verifyDigestHex 比对 sha256 十六进制摘要与 GitHub 资产 digest（"sha256:<hex>"）；
@@ -166,7 +184,7 @@ func pickRelease(rels []ghRelease, version string) (ghRelease, bool) {
 			continue
 		}
 		v, ok := parseVersionTag(r.TagName)
-		if !ok || found && v.compare(bestV) <= 0 {
+		if !ok || v.pre != "" || (found && v.compare(bestV) <= 0) {
 			continue
 		}
 		best, bestV, found = r, v, true
@@ -200,24 +218,25 @@ func curateVersions(rels []ghRelease, installedTag string) []Version {
 		if !ok {
 			continue
 		}
-		if v.pre == "" {
-			stable = append(stable, entry{rel: r, v: v})
-		} else {
+		if isPre := r.Prerelease || v.pre != ""; isPre {
 			pre = append(pre, entry{rel: r, v: v})
+		} else {
+			stable = append(stable, entry{rel: r, v: v})
 		}
 	}
 	desc := func(a, b entry) int { return -a.v.compare(b.v) }
 	slices.SortFunc(stable, desc)
 	slices.SortFunc(pre, desc)
-	entries := stable
+	var entries []entry
 	if len(pre) > 0 {
-		entries = append(entries, pre[0]) // 最新预发布作「尝鲜」项
+		// 有预发布版本时为它预留 1 个槽位，避免稳定版达到上限后把最新尝鲜版挤掉
+		entries = append(entries, stable[:min(len(stable), maxCuratedVersions-1)]...)
+		entries = append(entries, pre[0])
+	} else {
+		entries = append(entries, stable[:min(len(stable), maxCuratedVersions)]...)
 	}
-	out := make([]Version, 0, min(len(entries), maxCuratedVersions))
+	out := make([]Version, 0, len(entries))
 	for _, e := range entries {
-		if len(out) >= maxCuratedVersions {
-			break
-		}
 		out = append(out, Version{
 			Tag:         e.rel.TagName,
 			Version:     e.v.String(),
@@ -288,6 +307,9 @@ func (g *ghClient) listVersions(ctx context.Context, repo, installedTag string) 
 
 // downloadFile 下载 url 到 tmpDir 下临时文件并按 digest 校验完整性，返回临时文件路径（调用方负责删除）。
 func (g *ghClient) downloadFile(ctx context.Context, url, digest, tmpDir string) (string, error) {
+	if err := validateDigestFormat(digest); err != nil {
+		return "", err
+	}
 	resp, err := g.get(ctx, url)
 	if err != nil {
 		return "", err
@@ -302,11 +324,14 @@ func (g *ghClient) downloadFile(ctx context.Context, url, digest, tmpDir string)
 	}
 	hash := sha256.New()
 	if _, err := io.Copy(io.MultiWriter(tmp, hash), resp.Body); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		_ = os.Remove(tmp.Name())
 		return "", fmt.Errorf("下载安装包失败: %w", err)
 	}
-	tmp.Close()
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return "", fmt.Errorf("关闭临时文件失败: %w", err)
+	}
 	if err := verifyDigestHex(hex.EncodeToString(hash.Sum(nil)), digest); err != nil {
 		_ = os.Remove(tmp.Name())
 		return "", err

@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -28,14 +28,9 @@ type ruleSetItemView struct {
 
 // ruleSetView 规则集视图：附带全部内容项与是否被规则引用。
 type ruleSetView struct {
-	ID          uint              `json:"id"`          // 主键
-	Name        string            `json:"name"`        // 规则集 tag
-	Description string            `json:"description"` // 说明
-	Builtin     bool              `json:"builtin"`     // 是否内置
+	db.RuleSet
 	UsedByRules int               `json:"usedByRules"` // 被多少条规则引用
 	Items       []ruleSetItemView `json:"items"`       // 内容项列表
-	CreatedAt   time.Time         `json:"createdAt"`   // 创建时间
-	UpdatedAt   time.Time         `json:"updatedAt"`   // 更新时间
 }
 
 // ruleSetReq 创建/更新规则集请求（名称与说明）。
@@ -90,15 +85,12 @@ func (a *API) ruleSetViews() ([]ruleSetView, error) {
 	views := make([]ruleSetView, 0, len(sets))
 	for _, s := range sets {
 		view := ruleSetView{
-			ID: s.ID, Name: s.Name, Description: s.Description, Builtin: s.Builtin,
-			UsedByRules: used[s.ID], CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
-			Items: make([]ruleSetItemView, 0, len(bySet[s.ID])),
+			RuleSet:     s,
+			UsedByRules: used[s.ID],
+			Items:       make([]ruleSetItemView, 0, len(bySet[s.ID])),
 		}
 		for _, it := range bySet[s.ID] {
-			view.Items = append(view.Items, ruleSetItemView{
-				ID: it.ID, Remark: it.Remark, SingBoxURL: it.SingBoxURL,
-				MihomoURL: it.MihomoURL, MihomoBehavior: it.MihomoBehavior, Enabled: it.Enabled,
-			})
+			view.Items = append(view.Items, ruleSetItemViewOf(it))
 		}
 		views = append(views, view)
 	}
@@ -163,18 +155,7 @@ func (a *API) HandleRuleSetCreate(c *gin.Context) {
 		return
 	}
 	// 新建规则集本身还没有规则引用，热应用会比对出配置未变而直接返回，不重建内核
-	views, err := a.ruleSetViews()
-	if err != nil {
-		Fail(c, http.StatusInternalServerError, err.Error())
-		return
-	}
-	for _, v := range views {
-		if v.ID == set.ID {
-			a.applyThenOK(c, v)
-			return
-		}
-	}
-	Fail(c, http.StatusInternalServerError, "规则集创建后查询失败")
+	a.applyThenOK(c, ruleSetView{RuleSet: set, Items: []ruleSetItemView{}})
 }
 
 // isBuiltinRuleSetName 判断名称是否与内置规则集冲突（内置规则集可能尚未落库）。
@@ -288,7 +269,7 @@ func (a *API) HandleRuleSetDelete(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "删除规则集失败: "+err.Error())
 		return
 	}
-	a.applyThenOK(c, gin.H{"deleted": id})
+	a.applyThenOK(c, deletedResp{Deleted: id})
 }
 
 // HandleRuleSetItemsList GET /api/rule-sets/:id/items 规则集内容项列表。
@@ -313,10 +294,7 @@ func (a *API) ruleSetItemViews(setID uint) ([]ruleSetItemView, error) {
 	}
 	views := make([]ruleSetItemView, 0, len(items))
 	for _, it := range items {
-		views = append(views, ruleSetItemView{
-			ID: it.ID, Remark: it.Remark, SingBoxURL: it.SingBoxURL,
-			MihomoURL: it.MihomoURL, MihomoBehavior: it.MihomoBehavior, Enabled: it.Enabled,
-		})
+		views = append(views, ruleSetItemViewOf(it))
 	}
 	return views, nil
 }
@@ -433,7 +411,7 @@ func (a *API) HandleRuleSetItemDelete(c *gin.Context) {
 			}
 		}
 	}
-	a.applyThenOK(c, gin.H{"deleted": itemID})
+	a.applyThenOK(c, deletedResp{Deleted: itemID})
 }
 
 // applyRuleSetItem 把请求字段应用到内容项并校验地址与行为。
@@ -458,7 +436,7 @@ func (a *API) applyRuleSetItem(item *db.RuleSetItem, req ruleSetItemReq) error {
 	if item.MihomoBehavior == "" {
 		item.MihomoBehavior = "domain"
 	}
-	if !contains(mihomoBehaviors, item.MihomoBehavior) {
+	if !slices.Contains(mihomoBehaviors, item.MihomoBehavior) {
 		return fmt.Errorf("mihomo 行为不支持: %s（可选 domain/ipcidr/classical）", item.MihomoBehavior)
 	}
 	return nil

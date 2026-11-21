@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"proxy-ui/internal/db"
 )
@@ -450,5 +451,53 @@ func TestToolRegistry(t *testing.T) {
 	infos := s.ToolInfos()
 	if len(infos) != 1 || infos[0].Name != "echo" || infos[0].Description != "回显参数" {
 		t.Fatalf("工具描述不符合预期: %+v", infos)
+	}
+	infoJSON, err := json.Marshal(infos)
+	if err != nil {
+		t.Fatalf("序列化工具描述失败: %v", err)
+	}
+	if !strings.Contains(string(infoJSON), `"needsConfirm":false`) || strings.Contains(string(infoJSON), `"Exec"`) {
+		t.Fatalf("工具描述 JSON 标签不符: %s", infoJSON)
+	}
+}
+
+// TestOrderProvidersPartial 部分 ID 重排时，缺失 ID 自动追加到末尾且保留原相对顺序，无效/重复 ID 被忽略。
+func TestOrderProvidersPartial(t *testing.T) {
+	s := newService(t)
+	id1 := mustProvider(t, s, "p1")
+	id2 := mustProvider(t, s, "p2")
+	id3 := mustProvider(t, s, "p3")
+	id4 := mustProvider(t, s, "p4")
+
+	if err := s.OrderProviders([]uint{id3, 9999, id3, id1}); err != nil {
+		t.Fatalf("部分重排失败: %v", err)
+	}
+	list, err := s.ListProviders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantIDs := []uint{id3, id1, id2, id4}
+	if len(list) != len(wantIDs) {
+		t.Fatalf("供应商数量 = %d, want %d", len(list), len(wantIDs))
+	}
+	for i, wantID := range wantIDs {
+		if list[i].ID != wantID || list[i].Sort != i+1 {
+			t.Errorf("位置 %d: id=%d sort=%d, want id=%d sort=%d", i, list[i].ID, list[i].Sort, wantID, i+1)
+		}
+	}
+}
+
+// TestSummarizeBodyUTF8 超 200 个中文字符截断结果为合法 UTF-8，不出现半个字符乱码。
+func TestSummarizeBodyUTF8(t *testing.T) {
+	in := strings.Repeat("中", 250)
+	got := summarizeBody([]byte(in))
+	if !utf8.ValidString(got) {
+		t.Fatalf("截断结果不是合法 UTF-8: %q", got)
+	}
+	if !strings.HasSuffix(got, "...") {
+		t.Errorf("超长文本应带省略号: %q", got)
+	}
+	if n := utf8.RuneCountInString(got); n != 203 {
+		t.Errorf("截断后字符数 = %d, want 203", n)
 	}
 }

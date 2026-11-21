@@ -156,7 +156,7 @@ func (a *API) HandleAIProviderDelete(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	OK(c, gin.H{"deleted": id})
+	OK(c, deletedResp{Deleted: id})
 }
 
 // HandleAIProvidersOrder PUT /api/ai/providers/order 按给定 ID 顺序重排供应商。
@@ -286,7 +286,7 @@ func (a *API) HandleAIModelDelete(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	OK(c, gin.H{"deleted": id})
+	OK(c, deletedResp{Deleted: id})
 }
 
 // HandleAITransport GET /api/ai/transport 前端 createOpenAITransport 元数据。

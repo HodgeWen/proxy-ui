@@ -240,7 +240,7 @@ func TestAssembleFinalMapping(t *testing.T) {
 	}
 }
 
-// TestAssembleNoNodes 无节点时兜底为 direct，且不合成空组。
+// TestAssembleNoNodes 无节点时兜底为 direct，不合成空组，且已丢弃策略组不会残留为规则/Final 目标。
 func TestAssembleNoNodes(t *testing.T) {
 	d, err := Assemble("example.com", nil, nil, nil, "", nil)
 	if err != nil {
@@ -254,6 +254,50 @@ func TestAssembleNoNodes(t *testing.T) {
 	}
 	if d.Final != "direct" {
 		t.Errorf("无节点时兜底应为 direct, got %q", d.Final)
+	}
+
+	// 存在依赖节点/级联依赖的自定义策略组与规则时：空组整链丢弃，规则与 Final 回退到 direct
+	groups := []singbox.GroupEntry{
+		{Name: "proxy", Mode: singbox.GroupModeAuto, Members: []string{"n1"}},
+		{Name: "outer", Mode: singbox.GroupModeFixed, Members: []string{"proxy"}},
+	}
+	rules := []singbox.RuleEntry{
+		{MatchType: singbox.MatchDomain, MatchMethod: singbox.MethodSuffix, Value: "example.com", Outbound: "proxy"},
+		{MatchType: singbox.MatchDomain, MatchMethod: singbox.MethodSuffix, Value: "sub.example.com", Outbound: "outer"},
+		{MatchType: singbox.MatchDomain, MatchMethod: singbox.MethodSuffix, Value: "cn", Outbound: "direct"},
+		{MatchType: singbox.MatchDomain, MatchMethod: singbox.MethodSuffix, Value: "ad.com", Outbound: singbox.OutboundBlock},
+	}
+	d, err = Assemble("example.com", nil, groups, rules, "outer", nil)
+	if err != nil {
+		t.Fatalf("无节点含自定义组/规则组装失败: %v", err)
+	}
+	if len(d.Groups) != 0 {
+		t.Errorf("空策略组及其上层依赖组应全部丢弃: %+v", d.Groups)
+	}
+	if d.Final != "direct" {
+		t.Errorf("无节点时 Final 应回退到 direct, got %q", d.Final)
+	}
+	if d.Rules[0].Outbound != "direct" || d.Rules[1].Outbound != "direct" {
+		t.Errorf("指向已丢弃策略组的规则应回退到 direct: %+v", d.Rules)
+	}
+	if d.Rules[2].Outbound != "direct" || d.Rules[3].Outbound != singbox.OutboundBlock {
+		t.Errorf("direct 与 block 规则不应被改写: %+v", d.Rules)
+	}
+
+	// 部分组含 direct 保留、空组丢弃时：规则与 Final 回退到保留组
+	mixedGroups := []singbox.GroupEntry{
+		{Name: "kept", Mode: singbox.GroupModeFixed, Members: []string{"direct"}},
+		{Name: "dropped", Mode: singbox.GroupModeAuto, Members: []string{"n1"}},
+	}
+	d, err = Assemble("example.com", nil, mixedGroups, rules[:1], "dropped", nil)
+	if err != nil {
+		t.Fatalf("无节点含部分有效组组装失败: %v", err)
+	}
+	if len(d.Groups) != 1 || d.Groups[0].Name != "kept" {
+		t.Errorf("应只保留含 direct 的策略组: %+v", d.Groups)
+	}
+	if d.Final != "kept" || d.Rules[0].Outbound != "kept" {
+		t.Errorf("指向已丢弃组的规则与 Final 应回退到保留组 kept: final=%q rules=%+v", d.Final, d.Rules)
 	}
 }
 

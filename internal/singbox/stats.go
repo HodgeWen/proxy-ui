@@ -182,6 +182,7 @@ func (s *StatsMonitor) reset() {
 	s.gen = 0
 	s.last = map[string]CounterSet{}
 	s.lastRtc = TrafficSample{}
+	s.lastAt = time.Time{}
 }
 
 // queryCounters 一次查询取回全部按用户计数器的当前值（键为用户名）。
@@ -230,9 +231,18 @@ func (s *StatsMonitor) accumulate(values map[string]CounterSet) {
 			s.pending[user] = d
 		}
 	}
+	now := time.Now()
+	// 跨周期采样（如 RPC 超时）按实际经过秒数归一化，避免下轮出现多倍速率尖峰
+	if !s.lastAt.IsZero() {
+		if dt := now.Sub(s.lastAt); dt > statsInterval+500*time.Millisecond {
+			sec := dt.Seconds()
+			totalUp = int64(float64(totalUp) / sec)
+			totalDown = int64(float64(totalDown) / sec)
+		}
+	}
 	s.last = next
 	s.lastRtc = TrafficSample{Up: totalUp, Down: totalDown}
-	s.lastAt = time.Now()
+	s.lastAt = now
 }
 
 // flushPending 落库窗口到期：取出窗口内累计的增量，单事务批量落库。

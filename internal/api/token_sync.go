@@ -59,7 +59,7 @@ func (a *API) addTokenNode(tx *gorm.DB, token *db.SubscriptionToken, inboundID u
 		return fmt.Errorf("入站不存在: %d", inboundID)
 	}
 	name := a.tokenUserName(tx, token, in)
-	user, err := a.createUser(tx, &in, name, nil)
+	user, err := a.createUser(tx, &in, name)
 	if err != nil {
 		return fmt.Errorf("为入站 %s 创建用户失败: %w", in.Name, err)
 	}
@@ -189,7 +189,7 @@ func (a *API) usedBytes(tokenID uint) (int64, error) {
 }
 
 // ReconcileQuota 按配额、到期与停用刷新各入站用户的暂停状态与生效开关，
-// 返回是否有变化（调用方据此重建内核配置）。管理员的「手动停用」不会被覆盖。
+// 返回是否有变化（调用方据此重建内核配置）。
 func (a *API) ReconcileQuota() (bool, error) {
 	var tokens []db.SubscriptionToken
 	if err := a.db.Find(&tokens).Error; err != nil {
@@ -203,7 +203,11 @@ func (a *API) ReconcileQuota() (bool, error) {
 // 从周期核对的一个间隔缩短到一个落库窗口；失败只告警，兜底交给周期 QuotaLoop。
 // 线程安全：跑在统计采集 goroutine 上，与写路径经 applyMu 串行。
 func (a *API) ReconcileQuotaTokens(tokenIDs []uint) {
-	if len(tokenIDs) == 0 {
+	a.reconcileQuotaTokens(context.Background(), tokenIDs)
+}
+
+func (a *API) reconcileQuotaTokens(ctx context.Context, tokenIDs []uint) {
+	if len(tokenIDs) == 0 || ctx.Err() != nil {
 		return
 	}
 	var tokens []db.SubscriptionToken
@@ -217,7 +221,10 @@ func (a *API) ReconcileQuotaTokens(tokenIDs []uint) {
 		return
 	}
 	if changed {
-		if err := a.applyKernelConfig(context.Background()); err != nil {
+		if err := a.applyKernelConfig(ctx); err != nil {
+			if ctx.Err() != nil || errors.Is(err, errKernelStopped) {
+				return
+			}
 			slog.Warn("即时配额核对后热应用内核配置失败", "err", err)
 		}
 	}
@@ -270,12 +277,12 @@ func (a *API) reconcileTokens(tokens []db.SubscriptionToken) (bool, error) {
 			if !ok {
 				continue
 			}
-			// 生效状态 = 未被管理员手动停用 且 未被系统暂停
-			if u.Suspended == shouldSuspend && u.Enabled == (!u.Disabled && !shouldSuspend) {
+			// 生效状态 = 未被系统暂停
+			if u.Suspended == shouldSuspend && u.Enabled == !shouldSuspend {
 				continue
 			}
 			if err := a.db.Model(&db.InboundUser{}).Where("id = ?", u.ID).
-				Updates(map[string]any{"suspended": shouldSuspend, "enabled": !u.Disabled && !shouldSuspend}).Error; err != nil {
+				Updates(map[string]any{"suspended": shouldSuspend, "enabled": !shouldSuspend}).Error; err != nil {
 				return changed, err
 			}
 			changed = true

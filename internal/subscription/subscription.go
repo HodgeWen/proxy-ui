@@ -50,7 +50,7 @@ func ParseFormat(param string) (Format, bool) {
 }
 
 // DetectFormat 选择订阅输出格式：查询参数 format 优先于 UA；
-// UA 含 clash/mihomo/stash 判为 clash，含 sing-box/singbox/SFI/SFM 判为 sing-box。
+// UA 含 clash/mihomo/stash 判为 clash，其余默认 sing-box。
 func DetectFormat(param, ua string) Format {
 	if f, ok := ParseFormat(param); ok {
 		return f
@@ -58,11 +58,6 @@ func DetectFormat(param, ua string) Format {
 	lower := strings.ToLower(ua)
 	if strings.Contains(lower, "clash") || strings.Contains(lower, "mihomo") || strings.Contains(lower, "stash") {
 		return FormatClash
-	}
-	for _, kw := range []string{"sing-box", "singbox", "sfi", "sfm"} {
-		if strings.Contains(lower, kw) {
-			return FormatSingBox
-		}
 	}
 	return FormatSingBox
 }

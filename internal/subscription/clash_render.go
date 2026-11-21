@@ -2,6 +2,8 @@ package subscription
 
 import (
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 
 	"github.com/goccy/go-yaml"
@@ -99,12 +101,8 @@ type clashRuleProvider struct {
 // clashDNS mihomo dns 配置。
 type clashDNS struct {
 	Enable         bool             `yaml:"enable"`
-	IPv6           bool             `yaml:"ipv6,omitempty"`
-	EnhancedMode   string           `yaml:"enhanced-mode,omitempty"`
 	DefaultNameser []string         `yaml:"default-nameserver"`
 	Nameserver     []string         `yaml:"nameserver"`
-	ProxyServerNS  []string         `yaml:"proxy-server-nameserver,omitempty"`
-	Fallback       []string         `yaml:"fallback,omitempty"`
 	NameserverPol  []clashDNSPolicy `yaml:"nameserver-policy,omitempty"`
 }
 
@@ -155,6 +153,7 @@ func clashDNSOf(d *singbox.DNSConfig) *clashDNS {
 // clashDNSServer 把单个 DNS 服务器映射为 mihomo 的服务器地址串。
 func clashDNSServer(s singbox.DNSServer) string {
 	port := s.ServerPort
+	host := strings.Trim(s.Server, "[]")
 	switch s.Type {
 	case singbox.DNSTypeLocal:
 		return "system"
@@ -162,32 +161,30 @@ func clashDNSServer(s singbox.DNSServer) string {
 		if port == 0 || port == 53 {
 			return s.Server
 		}
-		return fmt.Sprintf("%s:%d", s.Server, port)
+		return net.JoinHostPort(host, strconv.Itoa(port))
 	case singbox.DNSTypeTCP:
 		if port == 0 {
 			port = 53
 		}
-		return fmt.Sprintf("tcp://%s:%d", s.Server, port)
+		return "tcp://" + net.JoinHostPort(host, strconv.Itoa(port))
 	case singbox.DNSTypeTLS:
 		if port == 0 {
 			port = 853
 		}
-		return fmt.Sprintf("tls://%s:%d", s.Server, port)
-	case singbox.DNSTypeHTTPS:
+		return "tls://" + net.JoinHostPort(host, strconv.Itoa(port))
+	case singbox.DNSTypeHTTPS, singbox.DNSTypeH3:
 		path := s.Path
 		if path == "" {
 			path = "/dns-query"
 		}
 		if port == 0 || port == 443 {
-			return fmt.Sprintf("https://%s%s", s.Server, path)
+			addr := s.Server
+			if strings.Contains(s.Server, ":") {
+				addr = "[" + host + "]"
+			}
+			return fmt.Sprintf("%s://%s%s", s.Type, addr, path)
 		}
-		return fmt.Sprintf("https://%s:%d%s", s.Server, port, path)
-	case singbox.DNSTypeH3:
-		path := s.Path
-		if path == "" {
-			path = "/dns-query"
-		}
-		return fmt.Sprintf("h3://%s%s", s.Server, path)
+		return fmt.Sprintf("%s://%s%s", s.Type, net.JoinHostPort(host, strconv.Itoa(port)), path)
 	}
 	return s.Server
 }
@@ -195,17 +192,17 @@ func clashDNSServer(s singbox.DNSServer) string {
 // clashDomainPatterns 把单条 DNS 规则展开为 mihomo 域名匹配串。
 func clashDomainPatterns(r singbox.DNSRule) []string {
 	var out []string
-	for _, v := range strings.Split(r.Domain, ",") {
+	for v := range strings.SplitSeq(r.Domain, ",") {
 		if v = strings.TrimSpace(v); v != "" {
 			out = append(out, v)
 		}
 	}
-	for _, v := range strings.Split(r.DomainSuffix, ",") {
+	for v := range strings.SplitSeq(r.DomainSuffix, ",") {
 		if v = strings.TrimSpace(v); v != "" {
 			out = append(out, "."+strings.TrimPrefix(v, "."))
 		}
 	}
-	for _, v := range strings.Split(r.DomainKeyword, ",") {
+	for v := range strings.SplitSeq(r.DomainKeyword, ",") {
 		if v = strings.TrimSpace(v); v != "" {
 			out = append(out, "+."+v)
 		}
@@ -394,7 +391,7 @@ func clashRulesOf(r singbox.RuleEntry) ([]string, *singbox.RuleSetSource) {
 		return []string{"RULE-SET," + r.RuleSet.Tag + "," + outbound}, r.RuleSet
 	}
 	var lines []string
-	for _, v := range splitRuleValues(r.Value) {
+	for _, v := range singbox.SplitRuleValue(r.Value) {
 		line := ""
 		switch r.MatchType {
 		case singbox.MatchDomain:
@@ -428,16 +425,4 @@ func clashOutbound(tag string) string {
 	default:
 		return tag
 	}
-}
-
-// splitRuleValues 拆分逗号分隔的规则值并去空白。
-func splitRuleValues(value string) []string {
-	parts := strings.Split(value, ",")
-	items := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if v := strings.TrimSpace(p); v != "" {
-			items = append(items, v)
-		}
-	}
-	return items
 }

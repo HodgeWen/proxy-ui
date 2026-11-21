@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -33,13 +34,13 @@ func (w *syncBuf) String() string {
 }
 
 // mustNewEngineWithCode 装配引擎并从启动日志截获一次性设置码（与运维从服务器控制台获取同源）。
-func mustNewEngineWithCode(dbPath, dataDir string) (http.Handler, string) {
+func mustNewEngineWithCode(ctx context.Context, dbPath, dataDir string) (http.Handler, string) {
 	var buf syncBuf
 	old := slog.Default()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	handler := mustNewEngine(dbPath, dataDir)
+	handler := mustNewEngine(ctx, dbPath, dataDir)
 	slog.SetDefault(old)
-	for _, line := range strings.Split(buf.String(), "\n") {
+	for line := range strings.SplitSeq(buf.String(), "\n") {
 		var rec struct {
 			SetupCode string `json:"setup_code"`
 		}
@@ -53,7 +54,7 @@ func mustNewEngineWithCode(dbPath, dataDir string) (http.Handler, string) {
 // newAuthServer 鉴权链路测试服务（setup/login/password 不触内核，无需内核构建标签）。
 func newAuthServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
-	handler, code := mustNewEngineWithCode(filepath.Join(t.TempDir(), "panel.db"), t.TempDir())
+	handler, code := mustNewEngineWithCode(t.Context(), filepath.Join(t.TempDir(), "panel.db"), t.TempDir())
 	if code == "" {
 		t.Fatal("未截获到一次性设置码")
 	}
@@ -70,7 +71,7 @@ func TestLoginLockout(t *testing.T) {
 		map[string]string{"username": "admin", "password": "password123", "setupCode": setupCode}); code != http.StatusOK {
 		t.Fatalf("setup 失败: %s", env.Msg)
 	}
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if code, _ := doJSON(t, client, http.MethodPost, srv.URL+"/api/login",
 			map[string]string{"username": "admin", "password": "wrong-password"}); code != http.StatusUnauthorized {
 			t.Fatalf("第 %d 次错误密码状态码 = %d, want 401", i+1, code)
@@ -90,8 +91,8 @@ func TestLoginLockoutResetBySuccess(t *testing.T) {
 		map[string]string{"username": "admin", "password": "password123", "setupCode": setupCode}); code != http.StatusOK {
 		t.Fatalf("setup 失败: %s", env.Msg)
 	}
-	for round := 0; round < 3; round++ {
-		for i := 0; i < 4; i++ { // 每轮 4 次失败（差一次到阈值），随后成功清零
+	for round := range 3 {
+		for i := range 4 { // 每轮 4 次失败（差一次到阈值），随后成功清零
 			if code, _ := doJSON(t, client, http.MethodPost, srv.URL+"/api/login",
 				map[string]string{"username": "admin", "password": "wrong-password"}); code != http.StatusUnauthorized {
 				t.Fatalf("第 %d 轮第 %d 次错误密码状态码 = %d, want 401", round+1, i+1, code)
@@ -183,4 +184,38 @@ func doRawLogin(t *testing.T, srvURL, forwardedProto string) string {
 		t.Fatalf("登录状态码 = %d, want 200", resp.StatusCode)
 	}
 	return resp.Header.Get("Set-Cookie")
+}
+
+// TestRequestLogRedactsSubscriptionToken 订阅请求日志必须脱敏，不泄露明文订阅令牌。
+func TestRequestLogRedactsSubscriptionToken(t *testing.T) {
+	srv, _ := newAuthServer(t)
+
+	var buf syncBuf
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	defer slog.SetDefault(old)
+
+	const secret = "secret-sub-token-987654321"
+	resp, err := http.Get(srv.URL + "/sub/" + secret)
+	if err != nil {
+		t.Fatalf("请求订阅接口失败: %v", err)
+	}
+	resp.Body.Close()
+
+	healthResp, err := http.Get(srv.URL + "/api/health")
+	if err != nil {
+		t.Fatalf("请求健康检查失败: %v", err)
+	}
+	healthResp.Body.Close()
+
+	logs := buf.String()
+	if strings.Contains(logs, secret) {
+		t.Fatalf("访问日志不应包含明文订阅令牌 %q: %s", secret, logs)
+	}
+	if !strings.Contains(logs, "/sub/[REDACTED]") {
+		t.Errorf("访问日志应记录脱敏后的订阅路径 /sub/[REDACTED]: %s", logs)
+	}
+	if !strings.Contains(logs, "/api/health") {
+		t.Errorf("普通路径应正常记录: %s", logs)
+	}
 }

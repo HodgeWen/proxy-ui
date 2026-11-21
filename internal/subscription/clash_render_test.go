@@ -1,6 +1,7 @@
 package subscription
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -27,8 +28,6 @@ type clashConfigDoc struct {
 		Nameserver    []string `yaml:"nameserver"`
 		DefaultNS     []string `yaml:"default-nameserver"`
 		NameserverPol []any    `yaml:"nameserver-policy"`
-		ProxyServerNS []string `yaml:"proxy-server-nameserver"`
-		EnhancedMode  string   `yaml:"enhanced-mode"`
 	} `yaml:"dns"`
 }
 
@@ -363,5 +362,97 @@ func TestRenderClashFallbackMatch(t *testing.T) {
 	doc := parseClash(t, raw)
 	if len(doc.Rules) != 1 || doc.Rules[0] != "MATCH,"+FallbackGroup {
 		t.Errorf("无规则时应仅有 MATCH 兜底行: %v", doc.Rules)
+	}
+}
+
+// TestRenderClashMoreProtocols 覆盖 TUIC / AnyTLS / VMess 与非 Reality TLS VLESS 的 Clash 渲染。
+func TestRenderClashMoreProtocols(t *testing.T) {
+	vlessTLS, _ := json.Marshal(&singbox.VLESSConfig{
+		Flow: "xtls-rprx-vision",
+		TLS:  singbox.TLSConfig{Enabled: true, ServerName: "vless.example.com", ALPN: []string{"h2", "http/1.1"}},
+	})
+	vlessCred, _ := json.Marshal(singbox.Credential{UUID: "11111111-1111-1111-1111-111111111111"})
+
+	vmessCfg, _ := json.Marshal(&singbox.VMessConfig{
+		WSPath: "/ws",
+		TLS:    singbox.TLSConfig{Enabled: true, ServerName: "vmess.example.com", ALPN: []string{"http/1.1"}},
+	})
+	vmessCred, _ := json.Marshal(singbox.Credential{UUID: "22222222-2222-2222-2222-222222222222"})
+
+	specs := []NodeSpec{
+		nodeSpec(t, "n-tuic", singbox.ProtoTUIC, 20003),
+		nodeSpec(t, "n-anytls", singbox.ProtoAnyTLS, 20004),
+		{Tag: "n-vmess", Protocol: singbox.ProtoVMess, Port: 20005, Config: string(vmessCfg), CredJSON: string(vmessCred)},
+		{Tag: "n-vless-tls", Protocol: singbox.ProtoVLESS, Port: 20006, Config: string(vlessTLS), CredJSON: string(vlessCred)},
+	}
+	d, err := Assemble("example.com", specs, nil, nil, "", nil)
+	if err != nil {
+		t.Fatalf("组装订阅失败: %v", err)
+	}
+	raw, err := RenderClash(d)
+	if err != nil {
+		t.Fatalf("渲染 clash 失败: %v", err)
+	}
+	doc := parseClash(t, raw)
+
+	tuic := findProxy(t, doc, "n-tuic")
+	if tuic["type"] != "tuic" || tuic["uuid"] == "" || tuic["password"] == "" ||
+		tuic["congestion-controller"] != singbox.CongestionBBR || tuic["sni"] != "example.com" {
+		t.Errorf("TUIC proxy 字段不符: %v", tuic)
+	}
+	if alpn, _ := tuic["alpn"].([]any); len(alpn) != 1 || alpn[0] != "h3" {
+		t.Errorf("TUIC proxy ALPN 应含 h3: %v", tuic)
+	}
+
+	anytls := findProxy(t, doc, "n-anytls")
+	if anytls["type"] != "anytls" || anytls["password"] == "" || anytls["sni"] != "example.com" {
+		t.Errorf("AnyTLS proxy 字段不符: %v", anytls)
+	}
+
+	vmess := findProxy(t, doc, "n-vmess")
+	if vmess["type"] != "vmess" || vmess["uuid"] == "" || vmess["network"] != "ws" ||
+		vmess["tls"] != true || vmess["servername"] != "vmess.example.com" {
+		t.Errorf("VMess proxy 字段不符: %v", vmess)
+	}
+	wsOpts, _ := vmess["ws-opts"].(map[string]any)
+	if wsOpts == nil || wsOpts["path"] != "/ws" {
+		t.Errorf("VMess ws-opts 不符: %v", vmess)
+	}
+
+	vless := findProxy(t, doc, "n-vless-tls")
+	if vless["tls"] != true || vless["servername"] != "vless.example.com" {
+		t.Errorf("非 Reality TLS VLESS 字段不符: %v", vless)
+	}
+	if _, ok := vless["reality-opts"]; ok {
+		t.Errorf("非 Reality VLESS 不应带 reality-opts: %v", vless)
+	}
+	if _, ok := vless["client-fingerprint"]; ok {
+		t.Errorf("非 Reality VLESS 不应带 client-fingerprint: %v", vless)
+	}
+}
+
+// TestClashDNSServerIPv6 IPv6 DNS 服务器地址在带端口与默认端口下均格式合法。
+func TestClashDNSServerIPv6(t *testing.T) {
+	tests := []struct {
+		name string
+		srv  singbox.DNSServer
+		want string
+	}{
+		{"UDP IPv6 默认端口", singbox.DNSServer{Type: singbox.DNSTypeUDP, Server: "2606:4700:4700::1111"}, "2606:4700:4700::1111"},
+		{"UDP IPv6 自定义端口", singbox.DNSServer{Type: singbox.DNSTypeUDP, Server: "2606:4700:4700::1111", ServerPort: 5353}, "[2606:4700:4700::1111]:5353"},
+		{"TCP IPv6 默认端口", singbox.DNSServer{Type: singbox.DNSTypeTCP, Server: "2606:4700:4700::1111"}, "tcp://[2606:4700:4700::1111]:53"},
+		{"TLS IPv6 默认端口", singbox.DNSServer{Type: singbox.DNSTypeTLS, Server: "2606:4700:4700::1111"}, "tls://[2606:4700:4700::1111]:853"},
+		{"HTTPS IPv6 默认端口", singbox.DNSServer{Type: singbox.DNSTypeHTTPS, Server: "2606:4700:4700::1111"}, "https://[2606:4700:4700::1111]/dns-query"},
+		{"HTTPS IPv6 自定义端口", singbox.DNSServer{Type: singbox.DNSTypeHTTPS, Server: "2606:4700:4700::1111", ServerPort: 8443, Path: "/q"}, "https://[2606:4700:4700::1111]:8443/q"},
+		{"H3 IPv6 默认端口", singbox.DNSServer{Type: singbox.DNSTypeH3, Server: "2606:4700:4700::1111"}, "h3://[2606:4700:4700::1111]/dns-query"},
+		{"H3 IPv6 已带方括号", singbox.DNSServer{Type: singbox.DNSTypeH3, Server: "[::1]"}, "h3://[::1]/dns-query"},
+		{"H3 IPv6 自定义端口", singbox.DNSServer{Type: singbox.DNSTypeH3, Server: "2606:4700:4700::1111", ServerPort: 8443}, "h3://[2606:4700:4700::1111]:8443/dns-query"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := clashDNSServer(tt.srv); got != tt.want {
+				t.Errorf("clashDNSServer(%+v) = %q, want %q", tt.srv, got, tt.want)
+			}
+		})
 	}
 }

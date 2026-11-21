@@ -21,18 +21,11 @@ import (
 
 // tokenView 订阅用户响应视图（含配额用量与名下节点）。
 type tokenView struct {
-	ID                uint            `json:"id"`                // 主键
-	Token             string          `json:"token"`             // 匿名令牌
-	Name              string          `json:"name"`              // 备注
-	Revoked           bool            `json:"revoked"`           // 是否手动停用
-	TrafficLimitBytes int64           `json:"trafficLimitBytes"` // 流量配额字节，0 不限
-	UsedBytes         int64           `json:"usedBytes"`         // 已用流量（上+下行）
-	ExpiresAt         *time.Time      `json:"expiresAt"`         // 到期时间，空为永久
-	Expired           bool            `json:"expired"`           // 是否已到期
-	OverQuota         bool            `json:"overQuota"`         // 是否超出配额
-	CreatedAt         time.Time       `json:"createdAt"`         // 创建时间
-	LastUsedAt        *time.Time      `json:"lastUsedAt"`        // 最近一次使用时间
-	Nodes             []tokenNodeView `json:"nodes"`             // 该用户在各入站下的节点
+	db.SubscriptionToken
+	UsedBytes int64           `json:"usedBytes"` // 已用流量（上+下行）
+	Expired   bool            `json:"expired"`   // 是否已到期
+	OverQuota bool            `json:"overQuota"` // 是否超出配额
+	Nodes     []tokenNodeView `json:"nodes"`     // 该用户在各入站下的节点
 }
 
 // tokenNodeView 订阅用户的一个节点（= 在某入站下的一个用户身份）。
@@ -44,10 +37,15 @@ type tokenNodeView struct {
 	ListenPort    int    `json:"listenPort"`    // 入站端口
 	Name          string `json:"name"`          // 用户名（客户端节点名）
 	Enabled       bool   `json:"enabled"`       // 生效状态
-	Disabled      bool   `json:"disabled"`      // 管理员手动停用
 	Suspended     bool   `json:"suspended"`     // 是否被系统暂停
 	UploadBytes   int64  `json:"uploadBytes"`   // 上行累计
 	DownloadBytes int64  `json:"downloadBytes"` // 下行累计
+}
+
+// previewResp 订阅预览响应。
+type previewResp struct {
+	Format  string `json:"format"`  // 输出格式
+	Content string `json:"content"` // 渲染内容
 }
 
 // tokenReq 创建/更新订阅用户请求；指针字段缺省表示不修改。
@@ -98,7 +96,7 @@ func (a *API) HandleTokenPreview(c *gin.Context) {
 		}
 		return
 	}
-	OK(c, gin.H{"format": previewFormatLabel(format), "content": string(content)})
+	OK(c, previewResp{Format: previewFormatLabel(format), Content: string(content)})
 }
 
 // previewFormatLabel 预览响应的格式标识：对外统一称 mihomo（即 clash 格式）。
@@ -178,7 +176,7 @@ func (a *API) HandleTokenDelete(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	a.applyThenOK(c, gin.H{"deleted": id})
+	a.applyThenOK(c, deletedResp{Deleted: id})
 }
 
 // HandleTokenRevoke PATCH /api/subscription/tokens/:id/revoked 停用/启用订阅用户。
@@ -280,11 +278,7 @@ func (a *API) updateToken(id uint, req tokenReq) (tokenView, error) {
 			updates["name"] = strings.TrimSpace(*req.Name)
 		}
 		if req.TrafficLimitBytes != nil {
-			limit := *req.TrafficLimitBytes
-			if limit < 0 {
-				limit = 0
-			}
-			updates["traffic_limit_bytes"] = limit
+			updates["traffic_limit_bytes"] = max(*req.TrafficLimitBytes, 0)
 		}
 		switch {
 		case req.ClearExpiry:
@@ -340,12 +334,7 @@ func (a *API) resetTokenTraffic(id uint) (tokenView, error) {
 			Select("inbound_user_id").Where("token_id = ?", id)).Find(&users).Error; err != nil {
 			return err
 		}
-		for _, u := range users {
-			if err := tx.Where("tag = ?", u.Name).Delete(&db.UserTraffic{}).Error; err != nil {
-				return err
-			}
-		}
-		return nil
+		return deleteUsersTraffic(tx, users)
 	})
 	if err != nil {
 		return tokenView{}, fmt.Errorf("清零流量失败: %w", err)
@@ -394,18 +383,17 @@ func tokenViewOf(record db.SubscriptionToken, nodes []tokenNodeView, used int64)
 		nodes = []tokenNodeView{}
 	}
 	return tokenView{
-		ID: record.ID, Token: record.Token, Name: record.Name, Revoked: record.Revoked,
-		TrafficLimitBytes: record.TrafficLimitBytes, UsedBytes: used,
-		ExpiresAt: record.ExpiresAt,
-		Expired:   record.ExpiresAt != nil && time.Now().After(*record.ExpiresAt),
-		OverQuota: record.TrafficLimitBytes > 0 && used >= record.TrafficLimitBytes,
-		CreatedAt: record.CreatedAt, LastUsedAt: record.LastUsedAt, Nodes: nodes,
+		SubscriptionToken: record,
+		UsedBytes:         used,
+		Expired:           record.ExpiresAt != nil && time.Now().After(*record.ExpiresAt),
+		OverQuota:         record.TrafficLimitBytes > 0 && used >= record.TrafficLimitBytes,
+		Nodes:             nodes,
 	}
 }
 
 // tokenNodes 查询某订阅用户名下节点视图（各节点展示自身累计用量）。
 func (a *API) tokenNodes(tokenID uint) ([]tokenNodeView, error) {
-	byToken, err := a.tokenNodesByToken()
+	byToken, err := a.tokenNodesByToken(tokenID)
 	if err != nil {
 		return nil, err
 	}
@@ -415,38 +403,70 @@ func (a *API) tokenNodes(tokenID uint) ([]tokenNodeView, error) {
 	return []tokenNodeView{}, nil
 }
 
-// tokenNodesByToken 一轮批量查询组装全部订阅用户名下的节点视图（键为订阅用户 ID）。
-// 列表接口与配额对账循环共用，避免按订阅用户逐个往返造成 N+1。
-func (a *API) tokenNodesByToken() (map[uint][]tokenNodeView, error) {
+// tokenNodesByToken 批量查询组装订阅用户名下的节点视图（键为订阅用户 ID）；
+// 传入 tokenIDs 时仅查询对应绑定、用户、入站及流量，无参数时查询全部供列表页使用。
+func (a *API) tokenNodesByToken(tokenIDs ...uint) (map[uint][]tokenNodeView, error) {
+	scoped := len(tokenIDs) > 0
+	query := a.db.Order("token_id, inbound_id, id")
+	if scoped {
+		query = query.Where("token_id IN ?", tokenIDs)
+	}
 	var bindings []db.SubscriptionNode
-	if err := a.db.Order("token_id, inbound_id, id").Find(&bindings).Error; err != nil {
+	if err := query.Find(&bindings).Error; err != nil {
 		return nil, err
+	}
+	if len(bindings) == 0 {
+		return map[uint][]tokenNodeView{}, nil
 	}
 	userIDs := make([]uint, 0, len(bindings))
 	for _, b := range bindings {
 		userIDs = append(userIDs, b.InboundUserID)
 	}
-	userMeta := map[uint]db.InboundUser{}
-	if len(userIDs) > 0 {
-		var users []db.InboundUser
-		if err := a.db.Where("id IN ?", userIDs).Find(&users).Error; err != nil {
-			return nil, err
-		}
-		for _, u := range users {
-			userMeta[u.ID] = u
+	var users []db.InboundUser
+	if err := a.db.Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	userMeta := make(map[uint]db.InboundUser, len(users))
+	tags := make([]string, 0, len(users))
+	inboundIDSet := make(map[uint]bool, len(users))
+	inboundIDs := make([]uint, 0, len(users))
+	for _, u := range users {
+		userMeta[u.ID] = u
+		tags = append(tags, u.Name)
+		if !inboundIDSet[u.InboundID] {
+			inboundIDSet[u.InboundID] = true
+			inboundIDs = append(inboundIDs, u.InboundID)
 		}
 	}
 	var inbounds []db.Inbound
-	if err := a.db.Find(&inbounds).Error; err != nil {
-		return nil, err
+	switch {
+	case !scoped:
+		if err := a.db.Find(&inbounds).Error; err != nil {
+			return nil, err
+		}
+	case len(inboundIDs) > 0:
+		if err := a.db.Where("id IN ?", inboundIDs).Find(&inbounds).Error; err != nil {
+			return nil, err
+		}
 	}
 	inMeta := make(map[uint]db.Inbound, len(inbounds))
 	for _, in := range inbounds {
 		inMeta[in.ID] = in
 	}
-	traffic, err := a.trafficByTag()
-	if err != nil {
-		return nil, err
+	var traffic map[string]db.UserTraffic
+	switch {
+	case !scoped:
+		var err error
+		traffic, err = a.trafficByTag()
+		if err != nil {
+			return nil, err
+		}
+	case len(tags) > 0:
+		var err error
+		traffic, err = a.trafficByTags(tags)
+		if err != nil {
+			return nil, err
+		}
 	}
 	byToken := make(map[uint][]tokenNodeView, len(bindings))
 	for _, b := range bindings {
@@ -458,8 +478,7 @@ func (a *API) tokenNodesByToken() (map[uint][]tokenNodeView, error) {
 		t := traffic[u.Name]
 		byToken[b.TokenID] = append(byToken[b.TokenID], tokenNodeView{
 			UserID: u.ID, InboundID: u.InboundID, InboundName: in.Name, Protocol: in.Protocol,
-			ListenPort: in.ListenPort, Name: u.Name, Enabled: u.Enabled,
-			Disabled: u.Disabled, Suspended: u.Suspended,
+			ListenPort: in.ListenPort, Name: u.Name, Enabled: u.Enabled, Suspended: u.Suspended,
 			UploadBytes: t.UploadBytes, DownloadBytes: t.DownloadBytes,
 		})
 	}
@@ -492,14 +511,15 @@ func (a *API) deleteToken(id uint) error {
 				return err
 			}
 			// 流量按用户名做键，用户删了但流量不清会残留；重建同名用户会继承旧用量
-			for _, u := range users {
-				if err := tx.Where("tag = ?", u.Name).Delete(&db.UserTraffic{}).Error; err != nil {
-					return err
-				}
+			if err := deleteUsersTraffic(tx, users); err != nil {
+				return err
 			}
 			if err := tx.Where("id IN ?", userIDs).Delete(&db.InboundUser{}).Error; err != nil {
 				return err
 			}
+		}
+		if err := tx.Where("token_id = ?", id).Delete(&db.TokenTraffic{}).Error; err != nil {
+			return err
 		}
 		if err := tx.Where("token_id = ?", id).Delete(&db.SubscriptionNode{}).Error; err != nil {
 			return err
@@ -574,7 +594,7 @@ func (a *API) registerTokenAITools() {
 			if err != nil {
 				return nil, err
 			}
-			return gin.H{"format": previewFormatLabel(format), "content": string(content)}, nil
+			return previewResp{Format: previewFormatLabel(format), Content: string(content)}, nil
 		},
 	})
 	a.registerModify(ai.Tool{
@@ -631,7 +651,7 @@ func (a *API) registerTokenAITools() {
 			if err := a.deleteToken(arg.ID); err != nil {
 				return nil, err
 			}
-			return gin.H{"deleted": arg.ID}, nil
+			return deletedResp{Deleted: arg.ID}, nil
 		},
 	})
 	a.registerModify(ai.Tool{

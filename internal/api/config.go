@@ -132,11 +132,15 @@ func (a *API) resolveCertPaths(certID uint) (string, string, error) {
 	if err := a.db.First(&cert, certID).Error; err != nil {
 		return "", "", fmt.Errorf("证书 %d 不存在", certID)
 	}
-	certPath, err := filepath.Abs(filepath.Join(a.certDir(), cert.CertPath))
+	rawCert, rawKey := a.certPaths(cert)
+	if rawCert == "" || rawKey == "" {
+		return "", "", fmt.Errorf("证书 %s 未配置路径", cert.Name)
+	}
+	certPath, err := filepath.Abs(rawCert)
 	if err != nil {
 		return "", "", fmt.Errorf("解析证书路径失败: %w", err)
 	}
-	keyPath, err := filepath.Abs(filepath.Join(a.certDir(), cert.KeyPath))
+	keyPath, err := filepath.Abs(rawKey)
 	if err != nil {
 		return "", "", fmt.Errorf("解析私钥路径失败: %w", err)
 	}

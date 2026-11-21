@@ -1,5 +1,7 @@
 package singbox
 
+import "slices"
+
 // DNS 配置：面板侧（服务端 route/dns 段）与客户端订阅共用同一份结构。
 //
 // 设计口径：只暴露真正影响分流效果的项——默认域名策略、几组 DNS 服务器与一组
@@ -63,10 +65,10 @@ const (
 
 // DNSPreset DNS 预设定义：一键填充 Servers/Rules/Final。
 type DNSPreset struct {
-	ID          string    // 预设 ID
-	Name        string    // 名称
-	Description string    // 说明
-	Config      DNSConfig // 预设配置（Enabled 由调用方置位）
+	ID          string    `json:"id"`          // 预设 ID
+	Name        string    `json:"name"`        // 名称
+	Description string    `json:"description"` // 说明
+	Config      DNSConfig `json:"config"`      // 预设配置（Enabled 由调用方置位）
 }
 
 // DNSPresets 内置 DNS 预设列表。
@@ -212,13 +214,13 @@ func (d *DNSConfig) rulesJSON() []map[string]any {
 	rules := make([]map[string]any, 0, len(d.Rules))
 	for _, r := range d.Rules {
 		rule := map[string]any{"action": "route", "server": r.Server}
-		if items := splitRuleValue(r.Domain); len(items) > 0 {
+		if items := SplitRuleValue(r.Domain); len(items) > 0 {
 			rule["domain"] = items
 		}
-		if items := splitRuleValue(r.DomainSuffix); len(items) > 0 {
+		if items := SplitRuleValue(r.DomainSuffix); len(items) > 0 {
 			rule["domain_suffix"] = items
 		}
-		if items := splitRuleValue(r.DomainKeyword); len(items) > 0 {
+		if items := SplitRuleValue(r.DomainKeyword); len(items) > 0 {
 			rule["domain_keyword"] = items
 		}
 		if len(rule) == 2 {
@@ -240,10 +242,5 @@ func (e *FieldError) Error() string { return e.Msg }
 
 // contains 判断字符串是否在列表中。
 func contains(list []string, v string) bool {
-	for _, item := range list {
-		if item == v {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, v)
 }

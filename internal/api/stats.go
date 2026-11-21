@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -11,11 +12,18 @@ import (
 	"proxy-ui/internal/db"
 )
 
+// realtimeStatsResp 实时速率视图。
+type realtimeStatsResp struct {
+	Up   int64     `json:"up"`   // 上行速率（字节/秒）
+	Down int64     `json:"down"` // 下行速率（字节/秒）
+	At   time.Time `json:"at"`   // 采样时间
+}
+
 // HandleStatsRealtime GET /api/stats/realtime 实时速率概览
 // （缓存最近一次采集样本，不直接触发内核请求）。
 func (a *API) HandleStatsRealtime(c *gin.Context) {
 	rates, at := a.stats.Rates()
-	OK(c, gin.H{"up": rates.Up, "down": rates.Down, "at": at})
+	OK(c, realtimeStatsResp{Up: rates.Up, Down: rates.Down, At: at})
 }
 
 // trafficRow 按用户累计流量视图。
@@ -84,8 +92,8 @@ func (a *API) registerStatsAITools() {
 		Name:        "get_kernel_status",
 		Description: "查询 sing-box 内核运行状态（内置内核、是否运行、版本、运行时长）",
 		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
-		Exec: func(ctx context.Context, _ json.RawMessage) (any, error) {
-			return a.kernelStatusOf(ctx), nil
+		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
+			return a.kernelStatusOf(), nil
 		},
 	})
 	a.ai.Register(ai.Tool{
@@ -113,7 +121,7 @@ func (a *API) registerStatsAITools() {
 		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
 		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
 			rates, at := a.stats.Rates()
-			return gin.H{"up": rates.Up, "down": rates.Down, "at": at}, nil
+			return realtimeStatsResp{Up: rates.Up, Down: rates.Down, At: at}, nil
 		},
 	})
 	a.ai.Register(ai.Tool{

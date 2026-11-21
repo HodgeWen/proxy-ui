@@ -91,7 +91,29 @@ func (s *Service) UpdateProvider(id uint, in ProviderInput) (db.AIProvider, erro
 // OrderProviders 按给定 ID 顺序重排供应商（缺失的 ID 保持原相对顺序排在末尾）。
 func (s *Service) OrderProviders(ids []uint) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		for i, id := range ids {
+		var existing []db.AIProvider
+		if err := tx.Select("id").Order("`sort`, id").Find(&existing).Error; err != nil {
+			return fmt.Errorf("查询 AI 供应商失败: %w", err)
+		}
+		exists := make(map[uint]bool, len(existing))
+		for _, p := range existing {
+			exists[p.ID] = true
+		}
+		ordered := make([]uint, 0, len(existing))
+		seen := make(map[uint]bool, len(existing))
+		for _, id := range ids {
+			if !exists[id] || seen[id] {
+				continue
+			}
+			seen[id] = true
+			ordered = append(ordered, id)
+		}
+		for _, p := range existing {
+			if !seen[p.ID] {
+				ordered = append(ordered, p.ID)
+			}
+		}
+		for i, id := range ordered {
 			if err := tx.Model(&db.AIProvider{}).Where("id = ?", id).Update("`sort`", i+1).Error; err != nil {
 				return fmt.Errorf("调整 AI 供应商排序失败: %w", err)
 			}
@@ -388,12 +410,12 @@ func normalizeUpstream(items []upstreamItem) []UpstreamModel {
 	return models
 }
 
-// summarizeBody 响应摘要：单行化并截断到 200 字节。
+// summarizeBody 响应摘要：单行化并按 rune 截断到 200 个字符。
 func summarizeBody(body []byte) string {
 	text := strings.Join(strings.Fields(string(body)), " ")
-	const max = 200
-	if len(text) > max {
-		text = text[:max] + "..."
+	const maxRunes = 200
+	if runes := []rune(text); len(runes) > maxRunes {
+		return string(runes[:maxRunes]) + "..."
 	}
 	return text
 }

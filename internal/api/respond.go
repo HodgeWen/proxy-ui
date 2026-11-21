@@ -19,6 +19,11 @@ type enabledReq struct {
 	Enabled bool `json:"enabled"` // 目标状态
 }
 
+// deletedResp 删除成功响应。
+type deletedResp struct {
+	Deleted uint `json:"deleted"` // 被删除的资源 ID
+}
+
 // OK 输出统一成功响应。
 func OK(c *gin.Context, data any) {
 	c.JSON(http.StatusOK, envelope{Success: true, Msg: "ok", Data: data})

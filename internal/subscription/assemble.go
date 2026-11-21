@@ -59,25 +59,41 @@ func Assemble(server string, nodes []NodeSpec, groups []singbox.GroupEntry, rule
 	for _, t := range nodeTags {
 		nodeSet[t] = true
 	}
-	groupNames := make(map[string]bool, len(groups))
+	activeGroups := make(map[string]bool, len(groups))
 	for _, g := range groups {
-		groupNames[g.Name] = true
+		activeGroups[g.Name] = true
 	}
-	for _, g := range groups {
-		members := make([]string, 0, len(g.Members))
-		for _, m := range g.Members {
-			if nodeSet[m] || m == "direct" || (groupNames[m] && m != g.Name) {
-				members = append(members, m)
+	// 多轮收敛：过滤无效成员后若整组为空且无节点则丢弃，并继续清理其它组对该组的引用
+	candidates := groups
+	for {
+		kept := make([]singbox.GroupEntry, 0, len(candidates))
+		nextActive := make(map[string]bool, len(candidates))
+		dropped := false
+		for _, g := range candidates {
+			members := make([]string, 0, len(g.Members))
+			for _, m := range g.Members {
+				if nodeSet[m] || m == "direct" || (activeGroups[m] && m != g.Name) {
+					members = append(members, m)
+				}
 			}
-		}
-		if len(members) == 0 {
-			if len(nodeTags) == 0 {
-				continue
+			if len(members) == 0 {
+				if len(nodeTags) == 0 {
+					dropped = true
+					continue
+				}
+				members = nodeTags
 			}
-			members = nodeTags
+			kept = append(kept, singbox.GroupEntry{Name: g.Name, Mode: g.Mode, Members: members})
+			nextActive[g.Name] = true
 		}
-		d.Groups = append(d.Groups, singbox.GroupEntry{Name: g.Name, Mode: g.Mode, Members: members})
+		candidates = kept
+		activeGroups = nextActive
+		if !dropped {
+			break
+		}
 	}
+	d.Groups = candidates
+
 	fallback := ""
 	if len(d.Groups) > 0 {
 		fallback = d.Groups[0].Name
@@ -85,6 +101,7 @@ func Assemble(server string, nodes []NodeSpec, groups []singbox.GroupEntry, rule
 		d.Groups = append(d.Groups, singbox.GroupEntry{
 			Name: FallbackGroup, Mode: singbox.GroupModeFixed, Members: nodeTags,
 		})
+		activeGroups[FallbackGroup] = true
 		fallback = FallbackGroup
 	}
 	if fallback == "" {
@@ -93,7 +110,7 @@ func Assemble(server string, nodes []NodeSpec, groups []singbox.GroupEntry, rule
 
 	mapOutbound := func(tag string) string {
 		switch {
-		case tag == singbox.OutboundBlock, tag == "direct", groupNames[tag]:
+		case tag == singbox.OutboundBlock, tag == "direct", activeGroups[tag]:
 			return tag
 		default:
 			return fallback

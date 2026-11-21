@@ -43,9 +43,8 @@ type InboundUser struct {
 	InboundID  uint      `gorm:"index;uniqueIndex:idx_inbound_user_name" json:"inboundId"` // 所属入站
 	Name       string    `gorm:"size:64;uniqueIndex:idx_inbound_user_name" json:"name"`    // 用户名（内核统计 user 名、客户端节点名）
 	Credential string    `gorm:"type:text" json:"credential"`                              // 凭据（JSON：uuid/password/flow 等，按协议取用）
-	Disabled   bool      `json:"disabled"`                                                 // 管理员手动停用（配额协调不会覆盖）
 	Suspended  bool      `json:"suspended"`                                                // 被系统暂停（配额用尽/到期/订阅停用）
-	Enabled    bool      `gorm:"default:true" json:"enabled"`                              // 生效状态 = !Disabled && !Suspended
+	Enabled    bool      `gorm:"default:true" json:"enabled"`                              // 生效状态 = !Suspended
 	CreatedAt  time.Time `json:"createdAt"`                                                // 创建时间
 	UpdatedAt  time.Time `json:"updatedAt"`                                                // 更新时间
 }

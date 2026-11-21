@@ -2,6 +2,7 @@ package singbox
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -64,23 +65,14 @@ func TestDNSValidate(t *testing.T) {
 	// 校验错误应带字段定位
 	d := valid()
 	d.Final = "nope"
-	var fieldErr *FieldError
 	err := d.Validate()
 	if err == nil {
 		t.Fatal("应校验失败")
 	}
-	if !asFieldError(err, &fieldErr) || fieldErr.Field == "" {
+	fieldErr, ok := errors.AsType[*FieldError](err)
+	if !ok || fieldErr.Field == "" {
 		t.Errorf("校验错误应带字段定位: %v", err)
 	}
-}
-
-// asFieldError 判断错误是否为 *FieldError 并取出。
-func asFieldError(err error, target **FieldError) bool {
-	fe, ok := err.(*FieldError)
-	if ok {
-		*target = fe
-	}
-	return ok
 }
 
 // TestDNSJSON 渲染后的内核 dns 段形状。

@@ -16,14 +16,15 @@ func TestCheckConfigMinConfig(t *testing.T) {
 	if err := m.CheckConfig(MinConfig()); err != nil {
 		t.Fatalf("最小配置应通过校验: %v", err)
 	}
-	if st := m.Status(); st.Running {
+	st := m.Status()
+	if st.Running {
 		t.Errorf("校验不应启动内核: %+v", st)
 	}
-	if !m.Installed() || !m.Status().Embedded {
+	if !st.Installed || !st.Embedded {
 		t.Error("内置内核应恒为已安装/内置")
 	}
-	if m.Version(nil) != EmbeddedVersion {
-		t.Errorf("内核版本 = %q, want %q", m.Version(nil), EmbeddedVersion)
+	if st.Version != EmbeddedVersion {
+		t.Errorf("内核版本 = %q, want %q", st.Version, EmbeddedVersion)
 	}
 }
 
@@ -72,18 +73,81 @@ func TestManagerLifecycle(t *testing.T) {
 	}
 }
 
-// TestManagerRestart 重建实例后仍处于运行中。
+// TestManagerRestart 以 Start 重建运行中实例后仍处于运行中且代号递增。
 func TestManagerRestart(t *testing.T) {
 	m := New(t.TempDir())
 	if err := m.Start(MinConfig()); err != nil {
 		t.Skipf("本机统计端口不可用，跳过重启用例: %v", err)
 	}
 	defer func() { _ = m.Stop() }()
-	if err := m.Restart(MinConfig()); err != nil {
-		t.Fatalf("重启内核失败: %v", err)
+	gen := m.Generation()
+	if err := m.Start(MinConfig()); err != nil {
+		t.Fatalf("重建内核失败: %v", err)
+	}
+	if m.Generation() <= gen {
+		t.Errorf("重建后实例代号应递增: %d -> %d", gen, m.Generation())
 	}
 	if st := m.Status(); !st.Running {
 		t.Fatalf("重启后应处于运行中: %+v", st)
+	}
+}
+
+// TestManagerStartRollback 新配置不合法或端口冲突时自动回滚到上一个可用配置，代理不中断。
+func TestManagerStartRollback(t *testing.T) {
+	m := New(t.TempDir())
+	if err := m.Start(MinConfig()); err != nil {
+		t.Skipf("本机统计端口不可用，跳过回滚用例: %v", err)
+	}
+	defer func() { _ = m.Stop() }()
+
+	// 配置不合法（build 阶段失败）应回滚
+	bad := Config{Inbounds: []any{map[string]any{"type": "not-a-protocol", "tag": "x"}}}
+	if err := m.Start(bad); err == nil || !strings.Contains(err.Error(), "已回滚") {
+		t.Fatalf("非法配置失败应返回含回滚提示的错误, got %v", err)
+	}
+	if st := m.Status(); !st.Running {
+		t.Fatalf("回滚后内核应仍处于运行中: %+v", st)
+	}
+
+	// 端口冲突（instance.Start 阶段失败）应回滚
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("占用临时端口失败: %v", err)
+	}
+	defer ln.Close()
+	port := ln.Addr().(*net.TCPAddr).Port
+	conflict := MinConfig()
+	conflict.Inbounds = []any{map[string]any{
+		"type": "vless", "tag": "conflict-in",
+		"listen": "127.0.0.1", "listen_port": port,
+		"users": []map[string]any{{"uuid": "0b3f6e8c-0000-4000-8000-000000000000"}},
+	}}
+	if err := m.Start(conflict); err == nil || !strings.Contains(err.Error(), "已回滚") {
+		t.Fatalf("端口冲突失败应返回含回滚提示的错误, got %v", err)
+	}
+	if st := m.Status(); !st.Running {
+		t.Fatalf("端口冲突回滚后内核应仍处于运行中: %+v", st)
+	}
+}
+
+// TestWithStatsAddrDoesNotMutateCaller withStatsAddr 不得原地改写调用方的指针字段。
+func TestWithStatsAddrDoesNotMutateCaller(t *testing.T) {
+	m := New(t.TempDir())
+	cfg := MinConfig()
+	origExp := cfg.Experimental
+	origV2 := cfg.Experimental.V2RayAPI
+	origListen := origV2.Listen
+
+	copied := cfg
+	m.withStatsAddr(&copied)
+	if origV2.Listen != origListen {
+		t.Errorf("调用方 V2RayAPI.Listen 被原地修改: %q -> %q", origListen, origV2.Listen)
+	}
+	if copied.Experimental == origExp || copied.Experimental.V2RayAPI == origV2 {
+		t.Error("withStatsAddr 应先复制指针再写入 statsAddr")
+	}
+	if copied.Experimental.V2RayAPI.Listen != m.StatsAddr() {
+		t.Errorf("副本监听地址 = %q, want %q", copied.Experimental.V2RayAPI.Listen, m.StatsAddr())
 	}
 }
 
@@ -159,7 +223,7 @@ func TestManagerStatsAddrIsDynamic(t *testing.T) {
 
 func TestLogBuffer(t *testing.T) {
 	var b logBuffer
-	for i := 0; i < logCapacity+10; i++ {
+	for range logCapacity + 10 {
 		b.add("core", "line")
 	}
 	all := b.snapshot(0)
@@ -191,23 +255,22 @@ func TestManagerStartWithConcurrentStatus(t *testing.T) {
 
 	done := make(chan struct{})
 	var wg sync.WaitGroup
-	for i := 0; i < 2; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 2 {
+		wg.Go(func() {
 			for {
 				select {
 				case <-done:
 					return
 				default:
 					_ = m.Status()
+					_ = m.Generation()
 				}
 			}
-		}()
+		})
 	}
 	changed := MinConfig()
 	changed.Log = &LogConfig{Level: "debug", Timestamp: true}
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if err := m.Start(changed); err != nil {
 			t.Errorf("并发读状态下重建内核失败: %v", err)
 			break
@@ -249,8 +312,5 @@ func TestManagerLogs(t *testing.T) {
 	logs := m.Logs(0)
 	if len(logs) != 1 || logs[0].Stream != "panel" || logs[0].Line != "面板启动" {
 		t.Fatalf("日志缓冲内容不符: %+v", logs)
-	}
-	if m.Dir() == "" {
-		t.Error("内核工作目录不应为空")
 	}
 }

@@ -12,7 +12,7 @@ func TestFailLimiterLocksAtThreshold(t *testing.T) {
 	l.now = func() time.Time { return now }
 
 	const ip = "203.0.113.9"
-	for i := 0; i < failThreshold; i++ {
+	for i := range failThreshold {
 		if !l.allow(ip) {
 			t.Fatalf("第 %d 次失败前不应锁定", i+1)
 		}
@@ -51,7 +51,7 @@ func TestFailLimiterEscalationCap(t *testing.T) {
 	l.now = func() time.Time { return now }
 
 	const ip = "203.0.113.9"
-	for i := 0; i < failThreshold; i++ {
+	for range failThreshold {
 		l.recordFail(ip)
 	}
 	e := l.entries[ip]
@@ -75,12 +75,12 @@ func TestFailLimiterReset(t *testing.T) {
 	l.now = func() time.Time { return now }
 
 	const ip = "203.0.113.9"
-	for i := 0; i < failThreshold-1; i++ {
+	for range failThreshold - 1 {
 		l.recordFail(ip)
 	}
 	l.reset(ip)
 	// 若计数未清零，累计第 5 次会触发锁定
-	for i := 0; i < failThreshold-1; i++ {
+	for range failThreshold - 1 {
 		l.recordFail(ip)
 	}
 	if !l.allow(ip) {

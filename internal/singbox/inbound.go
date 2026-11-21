@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -58,18 +59,12 @@ const (
 	BBRProfileAggressive   = "aggressive"   // 激进：高带宽/低丢包
 )
 
-// SupportedBBRProfiles Hysteria2 BBR 配置档位列表。
-var SupportedBBRProfiles = []string{BBRProfileConservative, BBRProfileStandard, BBRProfileAggressive}
-
 // 拥塞控制算法常量（TUIC）。
 const (
 	CongestionBBR     = "bbr" // BBR（默认，高丢包链路表现最好）
 	CongestionCubic   = "cubic"
 	CongestionNewReno = "new_reno"
 )
-
-// SupportedCongestionControls TUIC 拥塞控制算法列表。
-var SupportedCongestionControls = []string{CongestionBBR, CongestionCubic, CongestionNewReno}
 
 // TLS 版本常量（与 sing-box option 的 min_version / max_version 枚举一致）。
 const (
@@ -247,7 +242,7 @@ func NewTemplateConfig(protocol string) (any, error) {
 		// QUIC 类协议 ALPN 必须含 h3，默认即给上，避免保存后握手失败
 		return &Hysteria2Config{
 			ObfsEnabled:  true,
-			ObfsPassword: randBase64(16),
+			ObfsPassword: randBytesBase64(16),
 			BBRProfile:   BBRProfileStandard,
 			TLS:          TLSConfig{Enabled: true, CertMode: CertModeManaged, ALPN: []string{"h3"}},
 		}, nil
@@ -336,9 +331,9 @@ func NewCredential(protocol string) (Credential, error) {
 	case ProtoVLESS, ProtoVMess:
 		return Credential{UUID: uuid.NewString()}, nil
 	case ProtoTUIC:
-		return Credential{UUID: uuid.NewString(), Password: randBase64(16)}, nil
+		return Credential{UUID: uuid.NewString(), Password: randBytesBase64(16)}, nil
 	case ProtoHysteria2, ProtoAnyTLS, ProtoTrojan:
-		return Credential{Password: randBase64(16)}, nil
+		return Credential{Password: randBytesBase64(16)}, nil
 	case ProtoShadowsocks:
 		// 密钥长度取决于入站方法，由调用方按方法补齐（见 SSKeyLength）
 		return Credential{Password: ""}, nil
@@ -567,10 +562,8 @@ func (t *TLSConfig) alpnWarn(add func(string, ...any)) {
 	if len(t.ALPN) == 0 {
 		return
 	}
-	for _, a := range t.ALPN {
-		if a == "h3" {
-			return
-		}
+	if slices.Contains(t.ALPN, "h3") {
+		return
 	}
 	add("QUIC 类协议 ALPN 需含 h3，当前配置不含 h3")
 }
@@ -676,9 +669,6 @@ func generateRealityKeypair() (private, public string, err error) {
 	return base64.RawURLEncoding.EncodeToString(key.Bytes()),
 		base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes()), nil
 }
-
-// randBase64 生成 n 字节安全随机数的 base64 字符串。
-func randBase64(n int) string { return randBytesBase64(n) }
 
 // randBytesBase64 生成 n 字节安全随机数的 base64 字符串。
 func randBytesBase64(n int) string {

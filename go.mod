@@ -7,8 +7,10 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/goccy/go-yaml v1.19.2
 	github.com/google/uuid v1.6.0
+	github.com/sagernet/sing v0.9.7-0.20261023115459-5dc452e537bf
 	github.com/sagernet/sing-box v1.14.4
 	golang.org/x/crypto v0.59.0
+	google.golang.org/grpc v1.79.1
 	gorm.io/gorm v1.31.2
 )
 
@@ -150,7 +152,6 @@ require (
 	github.com/sagernet/netlink v0.0.0-20260814022025-64455d367bbf // indirect
 	github.com/sagernet/nftables v0.3.0-mod.4 // indirect
 	github.com/sagernet/quic-go v0.61.0-sing-box-mod.12 // indirect
-	github.com/sagernet/sing v0.9.7-0.20261023115459-5dc452e537bf // indirect
 	github.com/sagernet/sing-cloudflared v0.1.4-0.20261021152903-2d40d788fcf6 // indirect
 	github.com/sagernet/sing-mux v0.3.10-0.20260929204512-caf09fe32475 // indirect
 	github.com/sagernet/sing-openconnect v0.1.1-0.20260929151225-cbd68c45de58 // indirect
@@ -206,7 +207,6 @@ require (
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
-	google.golang.org/grpc v1.79.1 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	lukechampine.com/blake3 v1.3.0 // indirect
 	modernc.org/libc v1.22.5 // indirect

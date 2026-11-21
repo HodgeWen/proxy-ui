@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"unicode"
+
+	"proxy-ui/internal/db"
 )
 
 // validTag 校验 tag 类名称：允许字母（含中文等 Unicode 字母）、数字、下划线、点与短横线。
@@ -30,7 +32,16 @@ func marshalMembers(members []string) string {
 	return string(raw)
 }
 
-// jsonUnmarshalStrings 解析 JSON 字符串数组。
-func jsonUnmarshalStrings(raw string, dst *[]string) error {
-	return json.Unmarshal([]byte(raw), dst)
+// getSetting 读取设置值，不存在返回空字符串。
+func (a *API) getSetting(key string) string {
+	var s db.Setting
+	if err := a.db.First(&s, "key = ?", key).Error; err != nil {
+		return ""
+	}
+	return s.Value
+}
+
+// setSetting 写入设置值（upsert）。
+func (a *API) setSetting(key, value string) error {
+	return a.db.Save(&db.Setting{Key: key, Value: value}).Error
 }

@@ -137,7 +137,7 @@ func (a *API) HandleOutboundDelete(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	a.applyThenOK(c, gin.H{"deleted": id})
+	a.applyThenOK(c, deletedResp{Deleted: id})
 }
 
 // ---------- 供 REST handler 与 AI 工具共用的写操作 ----------
@@ -295,7 +295,7 @@ func (a *API) registerOutboundAITools() {
 			if err := a.deleteOutbound(arg.ID); err != nil {
 				return nil, err
 			}
-			return gin.H{"deleted": arg.ID}, nil
+			return deletedResp{Deleted: arg.ID}, nil
 		},
 	})
 }

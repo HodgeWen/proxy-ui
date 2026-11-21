@@ -10,9 +10,6 @@ import (
 	"proxy-ui/internal/singbox"
 )
 
-// sptr 取字符串指针（tokenReq 备注字段用）。
-func sptr(s string) *string { return &s }
-
 // TestDecodeToolArgs 工具参数解码：空参数保持零值、典型输入正确解码、非法输入报错。
 func TestDecodeToolArgs(t *testing.T) {
 	// 空参数：保持目标零值
@@ -132,14 +129,14 @@ func TestCreateTokenCrossInboundNameCollision(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建入站失败: %v", err)
 	}
-	if _, err := a.createToken(tokenReq{Name: sptr("a"), NodeInbounds: &[]uint{bc.ID}}); err != nil {
+	if _, err := a.createToken(tokenReq{Name: new("a"), NodeInbounds: &[]uint{bc.ID}}); err != nil {
 		t.Fatalf("创建首个订阅用户失败: %v", err)
 	}
 	if !a.userNameTaken(a.db, "a-b-c") {
 		t.Errorf("跨入站同名用户应视为已占用（全局口径）")
 	}
 
-	if _, err := a.createToken(tokenReq{Name: sptr("a-b"), NodeInbounds: &[]uint{inc.ID}}); err != nil {
+	if _, err := a.createToken(tokenReq{Name: new("a-b"), NodeInbounds: &[]uint{inc.ID}}); err != nil {
 		t.Fatalf("跨入站撞名应追加序号而不是失败: %v", err)
 	}
 	var users []db.InboundUser
@@ -159,13 +156,13 @@ func TestUpdateTokenRollsBackOnSyncFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建入站失败: %v", err)
 	}
-	view, err := a.createToken(tokenReq{Name: sptr("old"), NodeInbounds: &[]uint{in.ID}})
+	view, err := a.createToken(tokenReq{Name: new("old"), NodeInbounds: &[]uint{in.ID}})
 	if err != nil {
 		t.Fatalf("创建订阅用户失败: %v", err)
 	}
 
 	_, err = a.updateToken(view.ID, tokenReq{
-		Name: sptr("renamed"), NodeInbounds: &[]uint{in.ID, 9999},
+		Name: new("renamed"), NodeInbounds: &[]uint{in.ID, 9999},
 	})
 	if err == nil || !strings.Contains(err.Error(), "入站不存在") {
 		t.Fatalf("勾选不存在的入站应失败: %v", err)
@@ -198,13 +195,13 @@ func TestUpdateTokenRenameUsesNewPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建入站失败: %v", err)
 	}
-	view, err := a.createToken(tokenReq{Name: sptr("old"), NodeInbounds: &[]uint{in1.ID}})
+	view, err := a.createToken(tokenReq{Name: new("old"), NodeInbounds: &[]uint{in1.ID}})
 	if err != nil {
 		t.Fatalf("创建订阅用户失败: %v", err)
 	}
 
 	if _, err := a.updateToken(view.ID, tokenReq{
-		Name: sptr("new"), NodeInbounds: &[]uint{in1.ID, in2.ID},
+		Name: new("new"), NodeInbounds: &[]uint{in1.ID, in2.ID},
 	}); err != nil {
 		t.Fatalf("改名并勾选新入站失败: %v", err)
 	}
@@ -225,7 +222,7 @@ func TestResetTokenTrafficClearsCounters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("创建入站失败: %v", err)
 	}
-	view, err := a.createToken(tokenReq{Name: sptr("t"), NodeInbounds: &[]uint{in.ID}})
+	view, err := a.createToken(tokenReq{Name: new("t"), NodeInbounds: &[]uint{in.ID}})
 	if err != nil {
 		t.Fatalf("创建订阅用户失败: %v", err)
 	}

@@ -318,3 +318,191 @@ func TestHandleCertDelete(t *testing.T) {
 		t.Error("文件缺失时证书记录也应删除")
 	}
 }
+
+// TestResolveCertPaths resolveCertPaths 按 mode 区分路径解析：
+// managed 相对 certDir 拼接并转绝对路径；path 直接转绝对路径；文件缺失或记录不存在均报错。
+func TestResolveCertPaths(t *testing.T) {
+	a := newInboundTestAPI(t)
+	certPEM, keyPEM, err := generateSelfSigned("example.com", nil, 30, KeyTypeP256)
+	if err != nil {
+		t.Fatalf("生成自签证书失败: %v", err)
+	}
+
+	// managed 模式
+	certName, keyName, err := a.writeCertFiles(certPEM, keyPEM)
+	if err != nil {
+		t.Fatalf("写入托管证书失败: %v", err)
+	}
+	managed := db.Certificate{Name: "m1", Mode: singbox.CertModeManaged, CertPath: certName, KeyPath: keyName}
+	if err := a.db.Create(&managed).Error; err != nil {
+		t.Fatal(err)
+	}
+	gotCert, gotKey, err := a.resolveCertPaths(managed.ID)
+	if err != nil {
+		t.Fatalf("managed 解析失败: %v", err)
+	}
+	wantCert, _ := filepath.Abs(filepath.Join(a.certDir(), certName))
+	wantKey, _ := filepath.Abs(filepath.Join(a.certDir(), keyName))
+	if gotCert != wantCert || gotKey != wantKey {
+		t.Errorf("managed 路径 = (%q, %q), want (%q, %q)", gotCert, gotKey, wantCert, wantKey)
+	}
+	if !filepath.IsAbs(gotCert) || !filepath.IsAbs(gotKey) {
+		t.Errorf("managed 返回路径必须为绝对路径: %q, %q", gotCert, gotKey)
+	}
+
+	// path 模式（绝对路径）
+	extDir := t.TempDir()
+	extCert := filepath.Join(extDir, "srv.crt")
+	extKey := filepath.Join(extDir, "srv.key")
+	if err := os.WriteFile(extCert, []byte(certPEM), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(extKey, []byte(keyPEM), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pathCert := db.Certificate{Name: "p1", Mode: singbox.CertModePath, CertPath: extCert, KeyPath: extKey}
+	if err := a.db.Create(&pathCert).Error; err != nil {
+		t.Fatal(err)
+	}
+	gotCert, gotKey, err = a.resolveCertPaths(pathCert.ID)
+	if err != nil {
+		t.Fatalf("path 解析失败: %v", err)
+	}
+	wantExtCert, _ := filepath.Abs(extCert)
+	wantExtKey, _ := filepath.Abs(extKey)
+	if gotCert != wantExtCert || gotKey != wantExtKey {
+		t.Errorf("path 路径 = (%q, %q), want (%q, %q)", gotCert, gotKey, wantExtCert, wantExtKey)
+	}
+
+	// path 模式文件缺失报错
+	missingPath := db.Certificate{Name: "p-miss", Mode: singbox.CertModePath, CertPath: filepath.Join(extDir, "missing.crt"), KeyPath: extKey}
+	if err := a.db.Create(&missingPath).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.resolveCertPaths(missingPath.ID); err == nil {
+		t.Error("path 模式缺失文件应报错")
+	}
+
+	// 记录不存在报错
+	if _, _, err := a.resolveCertPaths(999999); err == nil {
+		t.Error("不存在的证书 ID 应报错")
+	}
+}
+
+// TestCreateCertRejectsEmptyContent 新建证书时 managed 缺 PEM、path 缺路径必须被拒绝（防止空路径绕过）。
+func TestCreateCertRejectsEmptyContent(t *testing.T) {
+	a := newInboundTestAPI(t)
+	certPEM, keyPEM, err := generateSelfSigned("example.com", nil, 30, KeyTypeP256)
+	if err != nil {
+		t.Fatalf("生成自签证书失败: %v", err)
+	}
+	extCert := filepath.Join(t.TempDir(), "srv.crt")
+	if err := os.WriteFile(extCert, []byte(certPEM), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		req  certReq
+	}{
+		{"managed 证书与私钥均空", certReq{Name: "m-empty", Mode: singbox.CertModeManaged}},
+		{"managed 缺私钥", certReq{Name: "m-nokey", Mode: singbox.CertModeManaged, CertPem: certPEM}},
+		{"managed 缺证书", certReq{Name: "m-nocert", Mode: singbox.CertModeManaged, KeyPem: keyPEM}},
+		{"path 证书与私钥路径均空", certReq{Name: "p-empty", Mode: singbox.CertModePath}},
+		{"path 缺私钥路径", certReq{Name: "p-nokey", Mode: singbox.CertModePath, CertPath: extCert}},
+		{"path 缺证书路径", certReq{Name: "p-nocert", Mode: singbox.CertModePath, KeyPath: extCert}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := a.createCert(tt.req); err == nil {
+				t.Errorf("%s 应拒绝新建", tt.name)
+			}
+		})
+	}
+	var count int64
+	a.db.Model(&db.Certificate{}).Count(&count)
+	if count != 0 {
+		t.Errorf("拒绝新建后库内不应有证书记录, got %d", count)
+	}
+}
+
+// TestUpdateCertAtomicOnDBFailure 更新 managed 证书因重名导致 DB 保存失败时：
+// 原 PEM 文件仍在磁盘且内容未被破坏，新写入的临时 PEM 文件被清理。
+func TestUpdateCertAtomicOnDBFailure(t *testing.T) {
+	a := newInboundTestAPI(t)
+	cert1, key1, err := generateSelfSigned("one.example.com", nil, 30, KeyTypeP256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert2, key2, err := generateSelfSigned("two.example.com", nil, 30, KeyTypeP256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.createCert(certReq{Name: "existing", Mode: singbox.CertModeManaged, CertPem: cert1, KeyPem: key1}); err != nil {
+		t.Fatalf("创建参考证书失败: %v", err)
+	}
+	target, err := a.createCert(certReq{Name: "target", Mode: singbox.CertModeManaged, CertPem: cert1, KeyPem: key1})
+	if err != nil {
+		t.Fatalf("创建目标证书失败: %v", err)
+	}
+	oldCertPath := filepath.Join(a.certDir(), target.CertPath)
+	oldKeyPath := filepath.Join(a.certDir(), target.KeyPath)
+
+	entriesBefore, err := os.ReadDir(a.certDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 改名为已存在的 "existing" 并同时提交新 PEM → DB Save 因唯一索引失败
+	if _, err := a.updateCert(target.ID, certReq{
+		Name:    "existing",
+		CertPem: cert2,
+		KeyPem:  key2,
+	}); err == nil {
+		t.Fatal("重名更新应因 DB 约束失败")
+	}
+
+	// 旧 PEM 文件必须仍在磁盘上且内容不变
+	gotCertBytes, err := os.ReadFile(oldCertPath)
+	if err != nil {
+		t.Fatalf("旧证书文件不应被删: %v", err)
+	}
+	if string(gotCertBytes) != cert1 {
+		t.Error("旧证书文件内容不应变化")
+	}
+	gotKeyBytes, err := os.ReadFile(oldKeyPath)
+	if err != nil {
+		t.Fatalf("旧私钥文件不应被删: %v", err)
+	}
+	if string(gotKeyBytes) != key1 {
+		t.Error("旧私钥文件内容不应变化")
+	}
+
+	// 新写入的临时 PEM 文件必须已清理（文件数与更新前一致）
+	entriesAfter, err := os.ReadDir(a.certDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entriesAfter) != len(entriesBefore) {
+		t.Errorf("DB 失败后临时写入的 PEM 文件应被清理: before=%d after=%d", len(entriesBefore), len(entriesAfter))
+	}
+
+	// 合法更新应成功替换并删除旧 PEM 文件
+	updated, err := a.updateCert(target.ID, certReq{
+		Name:    "target-v2",
+		CertPem: cert2,
+		KeyPem:  key2,
+	})
+	if err != nil {
+		t.Fatalf("合法更新应成功: %v", err)
+	}
+	if updated.CertPath == target.CertPath || updated.KeyPath == target.KeyPath {
+		t.Error("替换 PEM 后应生成新文件名")
+	}
+	if _, err := os.Stat(oldCertPath); !os.IsNotExist(err) {
+		t.Errorf("更新成功后旧证书文件应已删除: %v", err)
+	}
+	if _, err := os.Stat(oldKeyPath); !os.IsNotExist(err) {
+		t.Errorf("更新成功后旧私钥文件应已删除: %v", err)
+	}
+}

@@ -15,7 +15,6 @@ import (
 	"time"
 
 	box "github.com/sagernet/sing-box"
-	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/include"
 	"github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
@@ -65,9 +64,6 @@ func New(dir string) *Manager {
 	return &Manager{dir: dir, statsAddr: freeStatsAddr()}
 }
 
-// Dir 内核工作目录。
-func (m *Manager) Dir() string { return m.dir }
-
 // statsAddrFallback 回环端口探测失败时的兜底地址（仅本机）。
 const statsAddrFallback = "127.0.0.1:19091"
 
@@ -89,12 +85,6 @@ func (m *Manager) StatsAddr() string { return m.statsAddr }
 
 // StatsListen 统计服务的默认监听地址（供不持管理器实例的配置生成使用）。
 func StatsListen() string { return statsAddrFallback }
-
-// Installed 内核是否可用（内置内核恒为 true）。
-func (m *Manager) Installed() bool { return true }
-
-// Version 内置内核版本号。
-func (m *Manager) Version(context.Context) string { return EmbeddedVersion }
 
 // Status 采集内核运行状态。
 func (m *Manager) Status() Status {
@@ -122,11 +112,29 @@ func (m *Manager) Start(cfg Config) error {
 	m.withStatsAddr(&cfg)
 	m.startMu.Lock()
 	defer m.startMu.Unlock()
+	return m.startLocked(cfg)
+}
+
+// Apply 按新配置重建内核；新配置与当前运行的配置完全一致时直接返回（不必白白重启代理）。
+func (m *Manager) Apply(cfg Config) error {
+	m.withStatsAddr(&cfg)
+	m.startMu.Lock()
+	defer m.startMu.Unlock()
+	m.mu.Lock()
+	last, running := m.lastGood, m.box != nil
+	m.mu.Unlock()
+	if running && last != nil && configEqual(*last, cfg) {
+		return nil
+	}
+	return m.startLocked(cfg)
+}
+
+// startLocked 停旧实例并启动新实例，新配置失败时自动回滚到上一个可用配置（调用方持 startMu）。
+func (m *Manager) startLocked(cfg Config) error {
 	m.mu.Lock()
 	last := m.lastGood
-	err := m.stopLocked()
 	m.mu.Unlock()
-	if err != nil {
+	if err := m.stopInstance(); err != nil {
 		return err
 	}
 	if err := m.start(cfg); err != nil {
@@ -143,18 +151,6 @@ func (m *Manager) Start(cfg Config) error {
 	return nil
 }
 
-// Apply 按新配置重建内核；新配置与当前运行的配置完全一致时直接返回（不必白白重启代理）。
-func (m *Manager) Apply(cfg Config) error {
-	m.withStatsAddr(&cfg)
-	m.mu.Lock()
-	last, running := m.lastGood, m.box != nil
-	m.mu.Unlock()
-	if running && last != nil && configEqual(*last, cfg) {
-		return nil
-	}
-	return m.Start(cfg)
-}
-
 // configEqual 判断两份内核配置的序列化结果是否一致。
 func configEqual(a, b Config) bool {
 	left, err := json.Marshal(a)
@@ -168,13 +164,19 @@ func configEqual(a, b Config) bool {
 	return string(left) == string(right)
 }
 
-// withStatsAddr 把统计服务监听地址指向本管理器的端口，避免多实例争用同一端口。
+// withStatsAddr 把统计服务监听地址指向本管理器的端口，避免多实例争用同一端口（不原地修改调用方指针）。
 func (m *Manager) withStatsAddr(cfg *Config) {
 	if cfg.Experimental == nil {
 		cfg.Experimental = &Experimental{}
+	} else {
+		exp := *cfg.Experimental
+		cfg.Experimental = &exp
 	}
 	if cfg.Experimental.V2RayAPI == nil {
 		cfg.Experimental.V2RayAPI = &V2RayAPI{Stats: &V2RayStatsConf{Enabled: true}}
+	} else {
+		v2 := *cfg.Experimental.V2RayAPI
+		cfg.Experimental.V2RayAPI = &v2
 	}
 	cfg.Experimental.V2RayAPI.Listen = m.statsAddr
 }
@@ -204,30 +206,29 @@ func (m *Manager) Generation() uint64 {
 	return m.generation
 }
 
-// Restart 以给定配置重建内核（等价于 Start：内置内核下配置变更即重建实例）。
-func (m *Manager) Restart(cfg Config) error { return m.Start(cfg) }
-
 // Stop 停止内核；未运行时幂等返回。
 func (m *Manager) Stop() error {
 	m.startMu.Lock()
 	defer m.startMu.Unlock()
-	m.mu.Lock()
-	err := m.stopLocked()
-	m.mu.Unlock()
+	err := m.stopInstance()
 	if err == nil {
 		m.log("panel", "内核已停止")
 	}
 	return err
 }
 
-// stopLocked 关闭当前实例（调用方持锁）。
-func (m *Manager) stopLocked() error {
+// stopInstance 关闭当前实例（调用方持 startMu）；等待 Close 期间释放 m.mu 以免阻塞只读状态查询。
+func (m *Manager) stopInstance() error {
+	m.mu.Lock()
 	if m.box == nil {
+		m.mu.Unlock()
 		return nil
 	}
-	done := make(chan error, 1)
 	instance := m.box
 	m.box = nil
+	m.mu.Unlock()
+
+	done := make(chan error, 1)
 	go func() { done <- instance.Close() }()
 	select {
 	case err := <-done:
@@ -237,7 +238,9 @@ func (m *Manager) stopLocked() error {
 		return nil
 	case <-time.After(stopTimeout):
 		// 超时也继续持有引用，便于下次关闭重试，避免端口/缓存文件被泄漏占用
+		m.mu.Lock()
 		m.box = instance
+		m.mu.Unlock()
 		m.log("panel", "内核停止超时")
 		return errors.New("内核停止超时")
 	}
@@ -333,6 +336,3 @@ func (b *logBuffer) snapshot(limit int) []LogLine {
 	copy(out, b.lines[len(b.lines)-limit:])
 	return out
 }
-
-// 保证 adapter 类型被引用（避免依赖被裁掉时编译报错）。
-var _ = adapter.V2RayServer(nil)

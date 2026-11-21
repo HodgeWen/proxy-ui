@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strconv"
 	"time"
@@ -11,6 +12,9 @@ import (
 	"proxy-ui/internal/singbox"
 )
 
+// errKernelStopped 服务生命周期已取消或已调用 StopKernel 时拒绝继续拉起/重建内核。
+var errKernelStopped = errors.New("服务已停机，跳过内核热应用")
+
 // kernelStatusView 内核状态视图：singbox.Status 附加热应用失败标记（内嵌结构体在 JSON 中扁平展开）。
 type kernelStatusView struct {
 	singbox.Status
@@ -18,16 +22,14 @@ type kernelStatusView struct {
 	PendingChanges bool `json:"pendingChanges"`
 }
 
-// kernelStatusOf 组合内核状态、内置版本与热应用失败标记。
-func (a *API) kernelStatusOf(ctx context.Context) kernelStatusView {
-	st := a.core.Status()
-	st.Version = a.core.Version(ctx)
-	return kernelStatusView{Status: st, PendingChanges: a.pendingKernel.Load()}
+// kernelStatusOf 组合内核状态与热应用失败标记。
+func (a *API) kernelStatusOf() kernelStatusView {
+	return kernelStatusView{Status: a.core.Status(), PendingChanges: a.pendingKernel.Load()}
 }
 
 // HandleKernelStatus GET /api/kernel/status 内核运行状态（只读）。
 func (a *API) HandleKernelStatus(c *gin.Context) {
-	OK(c, a.kernelStatusOf(c.Request.Context()))
+	OK(c, a.kernelStatusOf())
 }
 
 // HandleKernelLogs GET /api/kernel/logs?limit=200 内核日志（只读）。
@@ -40,10 +42,22 @@ func (a *API) HandleKernelLogs(c *gin.Context) {
 // 失败只告警：面板保持可用，用户修正配置后任意一次保存都会重新热应用。
 func (a *API) StartKernel(ctx context.Context) {
 	if err := a.applyKernelConfig(ctx); err != nil {
+		if ctx.Err() != nil || errors.Is(err, errKernelStopped) {
+			return
+		}
 		slog.Warn("启动时自动拉起内核失败，面板仍可用；修正配置后再保存任一配置即可重试", "err", err)
 		return
 	}
 	slog.Info("内核已随面板启动", "version", singbox.EmbeddedVersion)
+}
+
+// StopKernel 标记停机并停止运行中的内核实例。
+// 与 applyKernelConfig 共用 applyMu，确保先到先得、不会在停机后又被异步启动或热应用拉起内核。
+func (a *API) StopKernel() error {
+	a.applyMu.Lock()
+	defer a.applyMu.Unlock()
+	a.stopped = true
+	return a.core.Stop()
 }
 
 // applyKernelConfig 聚合当前配置并热应用：校验通过后重建内核实例。
@@ -52,10 +66,20 @@ func (a *API) StartKernel(ctx context.Context) {
 // 上一份可用配置（代理不中断），失败原因经返回值带回本次请求。调用方的数据库改动一律
 // 保留，用户修正配置后再保存即可重试。
 //
-// 整个过程串行化：并发保存若各自聚合再各自重建，后完成的一方可能把先落库的改动覆盖掉。
+// 整个过程串行化：并发保存若各自聚合再各自重建，后完成的一方可能把先落库的改动覆盖掉；
+// 同时检查生命周期 ctx 与停机标记，防止停机竞态导致后台协程在关闭后重新拉起内核。
 func (a *API) applyKernelConfig(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	a.applyMu.Lock()
 	defer a.applyMu.Unlock()
+	if a.stopped {
+		return errKernelStopped
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// 用户↔订阅归属只在写路径变化，而所有写 handler 落库后都收口到这里：无论接下来热应用
 	// 成败，库内归属已变，在此失效统计采集的归属缓存即覆盖全部写路径，且天然与写路径串行
 	if a.stats != nil {
@@ -98,7 +122,7 @@ func (a *API) applyThenOK(c *gin.Context, data any) {
 // singbox 反向 import api 会成环，故以方法值注入统计采集（落库成功后只对本轮有流量的 token 触发）。
 func (a *API) QuotaLoop(ctx context.Context, interval time.Duration) {
 	if a.stats != nil {
-		a.stats.SetQuotaReconciler(a.ReconcileQuotaTokens)
+		a.stats.SetQuotaReconciler(func(ids []uint) { a.reconcileQuotaTokens(ctx, ids) })
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -112,6 +136,9 @@ func (a *API) QuotaLoop(ctx context.Context, interval time.Duration) {
 				continue
 			}
 			if err := a.applyKernelConfig(ctx); err != nil {
+				if ctx.Err() != nil || errors.Is(err, errKernelStopped) {
+					return
+				}
 				slog.Warn("配额核对后热应用内核配置失败", "err", err)
 			}
 		}

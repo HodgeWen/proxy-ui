@@ -117,7 +117,7 @@ func RoutingRuleJSON(r RuleEntry) (map[string]any, *RuleSetConfig, error) {
 		rule["rule_set"] = []string{r.RuleSet.Tag}
 		refSet = &RuleSetConfig{Type: "remote", Tag: r.RuleSet.Tag, Format: "binary", URL: r.RuleSet.URL}
 	default:
-		items := splitRuleValue(r.Value)
+		items := SplitRuleValue(r.Value)
 		if len(items) == 0 {
 			return nil, nil, fmt.Errorf("规则的匹配值不能为空")
 		}
@@ -183,11 +183,10 @@ func GroupOutboundJSON(g GroupEntry) (map[string]any, error) {
 	}
 }
 
-// splitRuleValue 拆分逗号分隔的规则值并去空白。
-func splitRuleValue(value string) []string {
-	parts := strings.Split(value, ",")
-	items := make([]string, 0, len(parts))
-	for _, p := range parts {
+// SplitRuleValue 拆分逗号分隔的规则值并去空白。
+func SplitRuleValue(value string) []string {
+	var items []string
+	for p := range strings.SplitSeq(value, ",") {
 		if v := strings.TrimSpace(p); v != "" {
 			items = append(items, v)
 		}

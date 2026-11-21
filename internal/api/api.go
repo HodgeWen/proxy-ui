@@ -42,7 +42,8 @@ type API struct {
 	ai            *ai.Service           // AI 助手（供应商配置、对话代理、工具注册表）
 	subs          *subscription.Service // 订阅组装与渲染（面板内预览；匿名端点由 server 单独装配）
 	dataDir       string                // 数据目录（证书存储等落盘位置）
-	applyMu       sync.Mutex            // 串行化「聚合配置 + 重建内核」，保证并发写操作按落库顺序生效
+	applyMu       sync.Mutex            // 串行化「聚合配置 + 重建内核 + 停机」，保证并发写操作与关闭顺序一致
+	stopped       bool                  // 停机标记（applyMu 保护）：为 true 后拒绝任何后续内核启动或重建
 	pendingKernel atomic.Bool           // 热应用失败标记：true＝有已保存配置未生效，内核跑在回滚配置上（applyMu 临界区内写，状态接口原子读）
 	limiter       *failLimiter          // 登录与首次设置共用的按 IP 失败限流（内存）
 	setupMu       sync.Mutex            // 保护 setupCode 与 setupClaimed

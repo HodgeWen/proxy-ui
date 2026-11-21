@@ -14,18 +14,10 @@ import (
 
 // dnsView DNS 设置视图：当前配置 + 可选类型/策略/预设（前端下拉与预设卡直接消费）。
 type dnsView struct {
-	Config  singbox.DNSConfig `json:"config"`     // 当前生效的 DNS 配置
-	Types   []string          `json:"types"`      // 支持的服务器类型
-	Strats  []string          `json:"strategies"` // 支持的域名解析策略
-	Presets []dnsPresetView   `json:"presets"`    // 内置预设
-}
-
-// dnsPresetView DNS 预设视图。
-type dnsPresetView struct {
-	ID          string            `json:"id"`          // 预设 ID
-	Name        string            `json:"name"`        // 名称
-	Description string            `json:"description"` // 说明
-	Config      singbox.DNSConfig `json:"config"`      // 预设配置
+	Config  singbox.DNSConfig   `json:"config"`     // 当前生效的 DNS 配置
+	Types   []string            `json:"types"`      // 支持的服务器类型
+	Strats  []string            `json:"strategies"` // 支持的域名解析策略
+	Presets []singbox.DNSPreset `json:"presets"`    // 内置预设
 }
 
 // HandleDNSGet GET /api/dns DNS 设置（未设置返回默认国内外分流配置）。
@@ -35,15 +27,9 @@ func (a *API) HandleDNSGet(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "读取 DNS 配置失败: "+err.Error())
 		return
 	}
-	presets := make([]dnsPresetView, 0, len(singbox.DNSPresets))
-	for _, p := range singbox.DNSPresets {
-		presets = append(presets, dnsPresetView{
-			ID: p.ID, Name: p.Name, Description: p.Description, Config: p.Config,
-		})
-	}
 	OK(c, dnsView{
 		Config: *cfg, Types: singbox.SupportedDNSTypes,
-		Strats: singbox.SupportedDNSStrategies, Presets: presets,
+		Strats: singbox.SupportedDNSStrategies, Presets: singbox.DNSPresets,
 	})
 }
 

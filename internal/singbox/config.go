@@ -47,10 +47,9 @@ type V2RayAPI struct {
 
 // V2RayStatsConf 统计范围：哪些入站与用户参与计数。
 type V2RayStatsConf struct {
-	Enabled   bool     `json:"enabled"`             // 是否启用统计
-	Inbounds  []string `json:"inbounds,omitempty"`  // 参与统计的入站 tag
-	Outbounds []string `json:"outbounds,omitempty"` // 参与统计的出站 tag
-	Users     []string `json:"users,omitempty"`     // 参与统计的用户名
+	Enabled  bool     `json:"enabled"`            // 是否启用统计
+	Inbounds []string `json:"inbounds,omitempty"` // 参与统计的入站 tag
+	Users    []string `json:"users,omitempty"`    // 参与统计的用户名
 }
 
 // CacheFile 缓存文件配置：开启后远程规则集缓存到 cache.db，内核重启免重复下载。

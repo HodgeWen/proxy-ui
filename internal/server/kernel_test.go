@@ -1,7 +1,10 @@
 package server
 
 import (
+	"context"
 	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -20,7 +23,7 @@ type kernelStatusResp struct {
 func waitKernelRunning(t *testing.T, client *http.Client, srvURL string) kernelStatusResp {
 	t.Helper()
 	var status kernelStatusResp
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		code, env := doJSON(t, client, http.MethodGet, srvURL+"/api/kernel/status", nil)
 		if code != http.StatusOK {
 			t.Fatalf("查询内核状态失败: code=%d msg=%s", code, env.Msg)
@@ -167,4 +170,36 @@ func TestKernelPendingChangesFlag(t *testing.T) {
 	if status.PendingChanges {
 		t.Errorf("成功热应用后 pendingChanges 应清除: %+v", status)
 	}
+}
+
+// TestServerContextStopsKernel Options.Context 取消后，服务后台监听钩子应停止运行中的内核。
+func TestServerContextStopsKernel(t *testing.T) {
+	requireKernel(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	dbPath := filepath.Join(t.TempDir(), "panel.db")
+	dataDir := t.TempDir()
+	handler, setupCode := mustNewEngineWithCode(ctx, dbPath, dataDir)
+	srv := httptest.NewServer(handler)
+	setupCodes.Store(srv.URL, setupCode)
+	t.Cleanup(srv.Close)
+
+	client := setupAdmin(t, srv.URL)
+	waitKernelRunning(t, client, srv.URL)
+
+	cancel()
+	var status kernelStatusResp
+	for range 100 {
+		code, env := doJSON(t, client, http.MethodGet, srv.URL+"/api/kernel/status", nil)
+		if code != http.StatusOK {
+			t.Fatalf("查询内核状态失败: code=%d msg=%s", code, env.Msg)
+		}
+		decodeData(t, env, &status)
+		if !status.Running {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("Context 取消后内核应在预期时间内停止: %+v", status)
 }

@@ -111,7 +111,7 @@ func TestNewSetupCodeFormat(t *testing.T) {
 		t.Fatalf("字符集长度 = %d, want 32（保证取模映射无偏）", len(setupCodeCharset))
 	}
 	seen := make(map[string]bool, 1000)
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		code := newSetupCode()
 		if len(code) != setupCodeLen {
 			t.Fatalf("设置码长度 = %d, want %d", len(code), setupCodeLen)
@@ -161,7 +161,7 @@ func TestHandleSetupCodeGate(t *testing.T) {
 func TestHandleSetupLockedByWrongCode(t *testing.T) {
 	a, r, _ := newAuthTestAPI(t, filepath.Join(t.TempDir(), "panel.db"))
 	code := currentSetupCode(a)
-	for i := 0; i < failThreshold; i++ {
+	for i := range failThreshold {
 		if got := doAuthJSON(r, http.MethodPost, "/api/setup", setupBody(wrongCodeOf(code))); got != http.StatusUnauthorized {
 			t.Fatalf("第 %d 次错码状态码 = %d, want 401", i+1, got)
 		}
@@ -182,7 +182,7 @@ func TestConcurrentSetupSingleAdmin(t *testing.T) {
 	const n = 32
 	codes := make([]int, n)
 	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
+	for i := range n {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()

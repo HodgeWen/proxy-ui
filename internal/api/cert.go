@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -25,6 +26,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 
 	"proxy-ui/internal/ai"
 	"proxy-ui/internal/db"
@@ -133,8 +135,7 @@ func (a *API) createSelfSigned(req selfSignReq) (certView, error) {
 	}
 	cert := db.Certificate{Name: name, Mode: singbox.CertModeManaged, CertPath: certName, KeyPath: keyName}
 	if err := a.db.Create(&cert).Error; err != nil {
-		_ = os.Remove(filepath.Join(a.certDir(), certName))
-		_ = os.Remove(filepath.Join(a.certDir(), keyName))
+		a.removeCertFiles(certName, keyName)
 		return certView{}, fmt.Errorf("创建证书失败: %w", err)
 	}
 	return a.certViewOf(cert), nil
@@ -147,16 +148,12 @@ func (a *API) HandleCertCreate(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
 		return
 	}
-	cert := db.Certificate{Name: req.Name, Mode: req.Mode}
-	if err := a.applyCertReq(&cert, req); err != nil {
+	view, err := a.createCert(req)
+	if err != nil {
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := a.db.Create(&cert).Error; err != nil {
-		Fail(c, http.StatusInternalServerError, "创建证书失败: "+err.Error())
-		return
-	}
-	a.applyThenOK(c, a.certViewOf(cert))
+	a.applyThenOK(c, view)
 }
 
 // HandleCertUpdate PUT /api/certs/:id 更新证书（managed 模式可整体替换 PEM，path 模式可更换路径）。
@@ -170,20 +167,16 @@ func (a *API) HandleCertUpdate(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
 		return
 	}
-	var cert db.Certificate
-	if err := a.db.First(&cert, id).Error; err != nil {
-		Fail(c, http.StatusNotFound, "证书不存在")
-		return
-	}
-	if err := a.applyCertReq(&cert, req); err != nil {
+	view, err := a.updateCert(id, req)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			Fail(c, http.StatusNotFound, "证书不存在")
+			return
+		}
 		Fail(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := a.db.Save(&cert).Error; err != nil {
-		Fail(c, http.StatusInternalServerError, "保存证书失败: "+err.Error())
-		return
-	}
-	a.applyThenOK(c, a.certViewOf(cert))
+	a.applyThenOK(c, view)
 }
 
 // HandleCertDelete DELETE /api/certs/:id 删除证书（被入站 TLS 或 ECH 密钥引用时拒绝）。
@@ -209,27 +202,93 @@ func (a *API) HandleCertDelete(c *gin.Context) {
 		return
 	}
 	if cert.Mode == singbox.CertModeManaged {
-		for _, name := range []string{cert.CertPath, cert.KeyPath} {
-			if err := os.Remove(filepath.Join(a.certDir(), name)); err != nil && !os.IsNotExist(err) {
-				slog.Warn("删除证书文件失败，保留为孤儿文件", "file", name, "err", err)
+		a.removeCertFiles(cert.CertPath, cert.KeyPath)
+	}
+	a.applyThenOK(c, deletedResp{Deleted: id})
+}
+
+// ---------- 供 REST handler 与 AI 工具共用的写操作 ----------
+
+// createCert 新增证书（managed 模式写入 PEM 文件，落库失败时清理已写文件）。
+func (a *API) createCert(req certReq) (certView, error) {
+	cert := db.Certificate{Name: req.Name, Mode: req.Mode}
+	written, err := a.applyCertReq(&cert, req)
+	if err != nil {
+		return certView{}, err
+	}
+	if err := a.db.Create(&cert).Error; err != nil {
+		a.removeCertFiles(written...)
+		return certView{}, fmt.Errorf("创建证书失败: %w", err)
+	}
+	return a.certViewOf(cert), nil
+}
+
+// updateCert 更新证书：先写新文件再更新 DB；落库失败清理新文件并保留旧文件，成功后才删旧文件。
+func (a *API) updateCert(id uint, req certReq) (certView, error) {
+	var cert db.Certificate
+	if err := a.db.First(&cert, id).Error; err != nil {
+		return certView{}, fmt.Errorf("证书不存在: %w", err)
+	}
+	oldCert, oldKey := cert.CertPath, cert.KeyPath
+	written, err := a.applyCertReq(&cert, req)
+	if err != nil {
+		return certView{}, err
+	}
+	if err := a.db.Save(&cert).Error; err != nil {
+		for _, name := range written {
+			if name != oldCert && name != oldKey {
+				a.removeCertFiles(name)
 			}
 		}
+		return certView{}, fmt.Errorf("保存证书失败: %w", err)
 	}
-	a.applyThenOK(c, gin.H{"deleted": id})
+	if cert.Mode == singbox.CertModeManaged {
+		if oldCert != "" && oldCert != cert.CertPath {
+			a.removeCertFiles(oldCert)
+		}
+		if oldKey != "" && oldKey != cert.KeyPath {
+			a.removeCertFiles(oldKey)
+		}
+	}
+	return a.certViewOf(cert), nil
+}
+
+// certPaths 按证书引用方式返回证书与私钥路径（managed 拼接数据目录 certs/；path 原样返回）。
+func (a *API) certPaths(cert db.Certificate) (string, string) {
+	switch cert.Mode {
+	case singbox.CertModeManaged:
+		var certPath, keyPath string
+		if cert.CertPath != "" {
+			certPath = filepath.Join(a.certDir(), cert.CertPath)
+		}
+		if cert.KeyPath != "" {
+			keyPath = filepath.Join(a.certDir(), cert.KeyPath)
+		}
+		return certPath, keyPath
+	case singbox.CertModePath:
+		return cert.CertPath, cert.KeyPath
+	default:
+		return "", ""
+	}
+}
+
+// removeCertFiles 删除证书目录内的托管文件（忽略不存在错误，仅记警告）。
+func (a *API) removeCertFiles(names ...string) {
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		if err := os.Remove(filepath.Join(a.certDir(), name)); err != nil && !os.IsNotExist(err) {
+			slog.Warn("删除证书文件失败，保留为孤儿文件", "file", name, "err", err)
+		}
+	}
 }
 
 // certReferencedBy 返回引用该证书的入站名称，覆盖全部引用点：
 // 入站 TLS 的面板存储证书 ID、入站 TLS / ECH 密钥的服务器路径（path 模式证书按文件路径命中）。
 func (a *API) certReferencedBy(cert db.Certificate) []string {
-	var files []string
-	if cert.Mode == singbox.CertModeManaged {
-		files = []string{
-			cleanAbsPath(filepath.Join(a.certDir(), cert.CertPath)),
-			cleanAbsPath(filepath.Join(a.certDir(), cert.KeyPath)),
-		}
-	} else {
-		files = []string{cleanAbsPath(cert.CertPath), cleanAbsPath(cert.KeyPath)}
-	}
+	certPath, keyPath := a.certPaths(cert)
+	files := []string{cleanAbsPath(certPath), cleanAbsPath(keyPath)}
 	var inbounds []db.Inbound
 	if err := a.db.Find(&inbounds).Error; err != nil {
 		return nil // 查询失败时不拦截删除；删除后的热应用仍会兜底暴露问题
@@ -244,10 +303,12 @@ func (a *API) certReferencedBy(cert db.Certificate) []string {
 		if tls == nil {
 			continue
 		}
+		matchPath := func(p string) bool {
+			p = cleanAbsPath(p)
+			return p != "" && slices.Contains(files, p)
+		}
 		used := (tls.CertMode == singbox.CertModeManaged && tls.CertID == cert.ID) ||
-			contains(files, cleanAbsPath(tls.CertPath)) ||
-			contains(files, cleanAbsPath(tls.KeyPath)) ||
-			contains(files, cleanAbsPath(tls.ECH.KeyPath))
+			matchPath(tls.CertPath) || matchPath(tls.KeyPath) || matchPath(tls.ECH.KeyPath)
 		if used {
 			refs = append(refs, in.Name)
 		}
@@ -282,19 +343,14 @@ func (a *API) certViewOf(cert db.Certificate) certView {
 	}
 	v.CommonName = meta.commonName
 	v.Domains = meta.domains
-	notAfter := meta.notAfter
-	v.NotAfter = &notAfter
-	days := daysUntil(notAfter)
-	v.DaysLeft = &days
+	v.NotAfter = new(meta.notAfter)
+	v.DaysLeft = new(daysUntil(meta.notAfter))
 	return v
 }
 
 // readCertPEM 读取证书 PEM 文本：managed 读面板证书目录内文件，path 读服务器绝对路径。
 func (a *API) readCertPEM(cert db.Certificate) ([]byte, error) {
-	p := cert.CertPath
-	if cert.Mode == singbox.CertModeManaged {
-		p = filepath.Join(a.certDir(), cert.CertPath)
-	}
+	p, _ := a.certPaths(cert)
 	if p == "" {
 		return nil, fmt.Errorf("未配置证书路径")
 	}
@@ -320,7 +376,7 @@ func parseCertPEM(pemText []byte) (certMeta, error) {
 	}
 	parsed, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		return certMeta{}, fmt.Errorf("证书内容解析失败: %v", err)
+		return certMeta{}, fmt.Errorf("证书内容解析失败: %w", err)
 	}
 	domains := make([]string, 0, 1+len(parsed.DNSNames)+len(parsed.IPAddresses))
 	seen := map[string]bool{}
@@ -416,7 +472,7 @@ func generateSelfSigned(domain string, sans []string, days int, keyType string) 
 	tpl.DNSNames = []string{domain}
 	for _, san := range sans {
 		san = strings.TrimSpace(san)
-		if san == "" || san == domain || contains(tpl.DNSNames, san) {
+		if san == "" || san == domain || slices.Contains(tpl.DNSNames, san) {
 			continue
 		}
 		if ip := net.ParseIP(san); ip != nil {
@@ -436,58 +492,61 @@ func generateSelfSigned(domain string, sans []string, days int, keyType string) 
 	return certPEM, keyPEM, nil
 }
 
-// applyCertReq 把请求字段应用到证书记录并校验：managed 模式 PEM 落盘，path 模式校验路径存在。
-func (a *API) applyCertReq(cert *db.Certificate, req certReq) error {
+// applyCertReq 把请求字段应用到证书记录并校验：managed 模式 PEM 落盘（不删旧文件），
+// path 模式校验路径存在。返回本次新写入的托管文件名切片，供调用方按落库结果提交或清理。
+func (a *API) applyCertReq(cert *db.Certificate, req certReq) ([]string, error) {
 	if req.Name != "" {
 		cert.Name = req.Name
 	}
 	if req.Mode != "" {
 		if cert.Mode != "" && cert.Mode != req.Mode {
-			return fmt.Errorf("证书引用方式创建后不可变更，请删除后重建")
+			return nil, fmt.Errorf("证书引用方式创建后不可变更，请删除后重建")
 		}
 		cert.Mode = req.Mode
 	}
 	if cert.Name == "" {
-		return fmt.Errorf("名称不能为空")
+		return nil, fmt.Errorf("名称不能为空")
 	}
 	switch cert.Mode {
 	case singbox.CertModeManaged:
 		if req.CertPem == "" && req.KeyPem == "" {
-			return nil // 仅改名的更新
+			if cert.ID == 0 {
+				return nil, fmt.Errorf("证书与私钥 PEM 不能为空")
+			}
+			return nil, nil // 仅改名的更新
 		}
 		if req.CertPem == "" || req.KeyPem == "" {
-			return fmt.Errorf("证书与私钥 PEM 需成对提供")
+			return nil, fmt.Errorf("证书与私钥 PEM 需成对提供")
 		}
 		if !validPEM(req.CertPem) || !validPEM(req.KeyPem) {
-			return fmt.Errorf("证书或私钥 PEM 内容不合法")
+			return nil, fmt.Errorf("证书或私钥 PEM 内容不合法")
 		}
 		certName, keyName, err := a.writeCertFiles(req.CertPem, req.KeyPem)
 		if err != nil {
-			return err
-		}
-		// 替换内容时删除旧文件
-		if cert.CertPath != "" {
-			_ = os.Remove(filepath.Join(a.certDir(), cert.CertPath))
-			_ = os.Remove(filepath.Join(a.certDir(), cert.KeyPath))
+			return nil, err
 		}
 		cert.CertPath, cert.KeyPath = certName, keyName
+		return []string{certName, keyName}, nil
 	case singbox.CertModePath:
 		if req.CertPath == "" && req.KeyPath == "" {
-			return nil
+			if cert.ID == 0 {
+				return nil, fmt.Errorf("证书与私钥路径不能为空")
+			}
+			return nil, nil // 仅改名的更新
 		}
 		if req.CertPath == "" || req.KeyPath == "" {
-			return fmt.Errorf("证书与私钥路径需成对提供")
+			return nil, fmt.Errorf("证书与私钥路径需成对提供")
 		}
 		for _, p := range []string{req.CertPath, req.KeyPath} {
 			if _, err := os.Stat(p); err != nil {
-				return fmt.Errorf("路径不可访问: %s", p)
+				return nil, fmt.Errorf("路径不可访问: %s", p)
 			}
 		}
 		cert.CertPath, cert.KeyPath = req.CertPath, req.KeyPath
+		return nil, nil
 	default:
-		return fmt.Errorf("证书引用方式须为 managed 或 path")
+		return nil, fmt.Errorf("证书引用方式须为 managed 或 path")
 	}
-	return nil
 }
 
 // writeCertFiles 把证书/私钥 PEM 写入证书目录（0600），返回相对文件名。
@@ -502,6 +561,7 @@ func (a *API) writeCertFiles(certPem, keyPem string) (string, string, error) {
 		return "", "", fmt.Errorf("写入证书失败: %w", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, keyName), []byte(keyPem), 0o600); err != nil {
+		_ = os.Remove(filepath.Join(dir, certName))
 		return "", "", fmt.Errorf("写入私钥失败: %w", err)
 	}
 	return certName, keyName, nil

@@ -22,14 +22,19 @@ import (
 
 // Options 服务装配参数。
 type Options struct {
-	DB      *gorm.DB // 数据库
-	Dist    fs.FS    // 前端构建产物（web/dist 子目录）
-	Version string   // 面板版本号
-	DataDir string   // 数据目录（内核、配置等落盘位置）
+	Context context.Context // 后台协程生命周期上下文（空时回退 context.Background）
+	DB      *gorm.DB        // 数据库
+	Dist    fs.FS           // 前端构建产物（web/dist 子目录）
+	Version string          // 面板版本号
+	DataDir string          // 数据目录（内核、配置等落盘位置）
 }
 
 // New 装配面板 HTTP 服务。
 func New(opt Options) *gin.Engine {
+	ctx := opt.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if gin.Mode() == gin.DebugMode {
 		gin.SetMode(gin.ReleaseMode)
 	}
@@ -43,14 +48,18 @@ func New(opt Options) *gin.Engine {
 	core := singbox.New(coreDir)
 	selfUpdates := update.NewSelfUpdate(opt.Version)
 	stats := singbox.NewStatsMonitor(core, opt.DB)
-	go stats.Run(context.Background()) // 统计常驻采集（按用户累计流量），随进程生命周期
+	go stats.Run(ctx) // 统计常驻采集（按用户累计流量），随生命周期退出
 	subs := subscription.New(opt.DB)
 	a := api.New(opt.DB, store, core, selfUpdates, stats, opt.DataDir)
 	// 内核随面板自动运行：库里有可用入站则按聚合配置启动，没有则以最小配置启动。
 	// 失败只告警，不阻塞 HTTP 服务——面板必须能打开，用户才能修改配置。
-	go a.StartKernel(context.Background())
+	go a.StartKernel(ctx)
 	// 配额与到期周期核对：只靠管理员操作触发会让超限用户一直可用
-	go a.QuotaLoop(context.Background(), 30*time.Second)
+	go a.QuotaLoop(ctx, 30*time.Second)
+	go func() {
+		<-ctx.Done()
+		_ = a.StopKernel()
+	}()
 
 	engine := gin.New()
 	engine.Use(gin.Recovery(), requestLog())
@@ -196,14 +205,18 @@ func spa(dist fs.FS) gin.HandlerFunc {
 	}
 }
 
-// requestLog 以 slog 记录访问日志。
+// requestLog 以 slog 记录访问日志（订阅路径脱敏，避免令牌落盘）。
 func requestLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
+		logPath := c.Request.URL.Path
+		if strings.HasPrefix(logPath, "/sub/") {
+			logPath = "/sub/[REDACTED]"
+		}
 		slog.Info("http_request",
 			"method", c.Request.Method,
-			"path", c.Request.URL.Path,
+			"path", logPath,
 			"status", c.Writer.Status(),
 			"duration_ms", time.Since(start).Milliseconds(),
 		)

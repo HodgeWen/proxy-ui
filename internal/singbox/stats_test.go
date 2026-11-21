@@ -3,6 +3,7 @@ package singbox
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"proxy-ui/internal/db"
 )
@@ -93,11 +94,42 @@ func TestAccumulateDiff(t *testing.T) {
 
 	// 计数器重置（实例重建）时增量按 0 计，不产生负数
 	s.reset() // 清空差分基线（待落库增量是已测得的流量，不受影响）
+	if _, at := s.Rates(); !at.IsZero() {
+		t.Errorf("reset 后应清空速率样本时间: %v", at)
+	}
 	s.accumulate(map[string]CounterSet{"alice": {Up: 5, Down: 7}})
 	s.flushPending()
 	got = trafficOf(t, s, "alice")
 	if got.UploadBytes != 135 || got.DownloadBytes != 257 {
 		t.Errorf("基线清空后应按新绝对值累加: %+v", got)
+	}
+}
+
+// TestAccumulateNormalizesLongInterval 跨周期采样（如 RPC 超时 4s 后）按实际经过秒数归一化速率，
+// 避免出现 4 倍速率尖峰；累计落库流量仍按真实增量保存。
+func TestAccumulateNormalizesLongInterval(t *testing.T) {
+	s := newStatsMonitor(t)
+	s.accumulate(map[string]CounterSet{"alice": {Up: 100, Down: 200}})
+	s.mu.Lock()
+	s.lastAt = time.Now().Add(-4 * time.Second)
+	s.mu.Unlock()
+
+	s.accumulate(map[string]CounterSet{"alice": {Up: 4100, Down: 8200}})
+	rates, at := s.Rates()
+	if at.IsZero() {
+		t.Fatal("速率样本应记录时间")
+	}
+	if rates.Up < 900 || rates.Up > 1050 {
+		t.Errorf("上行速率应按约 4 秒归一化到 ~1000 B/s, got %d", rates.Up)
+	}
+	if rates.Down < 1800 || rates.Down > 2100 {
+		t.Errorf("下行速率应按约 4 秒归一化到 ~2000 B/s, got %d", rates.Down)
+	}
+
+	s.flushPending()
+	got := trafficOf(t, s, "alice")
+	if got.UploadBytes != 4100 || got.DownloadBytes != 8200 {
+		t.Errorf("累计落库流量不应受速率归一化影响: %+v", got)
 	}
 }
 

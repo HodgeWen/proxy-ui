@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -202,7 +203,7 @@ func (a *API) HandleInboundDelete(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, err.Error())
 		return
 	}
-	a.applyThenOK(c, gin.H{"deleted": id})
+	a.applyThenOK(c, deletedResp{Deleted: id})
 }
 
 // applyInboundReq 把请求字段应用到入站：归一化连接层配置、校验协议/端口/名称唯一性与证书引用。
@@ -414,7 +415,7 @@ func (a *API) uniqueInboundName(protocol string, id uint) string {
 // allocateInboundPort 分配一个未被占用且系统层面可绑定的随机端口。
 func (a *API) allocateInboundPort(protocol string, excludeID uint) (int, error) {
 	quic := singbox.QUICProtocol(protocol)
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		port := singbox.RandomPortMin + rand.IntN(singbox.RandomPortMax-singbox.RandomPortMin)
 		var used int64
 		a.db.Model(&db.Inbound{}).Where("listen_port = ? AND id <> ?", port, excludeID).Count(&used)
@@ -472,12 +473,12 @@ func (a *API) inboundToView(in db.Inbound, userCount int64) inboundView {
 
 // supportedProtocol 判断是否为面板支持的入站协议。
 func supportedProtocol(protocol string) bool {
-	return contains(singbox.SupportedProtocols, protocol)
+	return slices.Contains(singbox.SupportedProtocols, protocol)
 }
 
 // validListen 校验监听地址（仅接受面板给出的三种语义地址）。
 func validListen(listen string) bool {
-	return contains([]string{singbox.ListenAll, singbox.ListenIPv4, singbox.ListenLoopback}, listen)
+	return slices.Contains([]string{singbox.ListenAll, singbox.ListenIPv4, singbox.ListenLoopback}, listen)
 }
 
 // ---------- 供 AI 工具复用的写操作 ----------
@@ -537,10 +538,8 @@ func (a *API) deleteInbound(id uint) error {
 			if err := tx.Where("inbound_user_id IN ?", ids).Delete(&db.SubscriptionNode{}).Error; err != nil {
 				return err
 			}
-			for _, u := range users {
-				if err := tx.Where("tag = ?", u.Name).Delete(&db.UserTraffic{}).Error; err != nil {
-					return err
-				}
+			if err := deleteUsersTraffic(tx, users); err != nil {
+				return err
 			}
 		}
 		if err := tx.Where("inbound_id = ?", id).Delete(&db.InboundUser{}).Error; err != nil {
@@ -548,16 +547,6 @@ func (a *API) deleteInbound(id uint) error {
 		}
 		return tx.Delete(&db.Inbound{}, id).Error
 	})
-}
-
-// contains 判断字符串是否在列表中。
-func contains(list []string, v string) bool {
-	for _, item := range list {
-		if item == v {
-			return true
-		}
-	}
-	return false
 }
 
 // ---------- 入站 AI 工具 ----------
@@ -568,7 +557,6 @@ type inboundUserView struct {
 	ID        uint      `json:"id"`        // 主键
 	InboundID uint      `json:"inboundId"` // 所属入站
 	Name      string    `json:"name"`      // 用户名（客户端节点名）
-	Disabled  bool      `json:"disabled"`  // 管理员手动停用
 	Suspended bool      `json:"suspended"` // 被系统暂停
 	Enabled   bool      `json:"enabled"`   // 生效状态
 	CreatedAt time.Time `json:"createdAt"` // 创建时间
@@ -585,7 +573,7 @@ func (a *API) inboundUserViews() ([]inboundUserView, error) {
 	for _, u := range users {
 		views = append(views, inboundUserView{
 			ID: u.ID, InboundID: u.InboundID, Name: u.Name,
-			Disabled: u.Disabled, Suspended: u.Suspended, Enabled: u.Enabled,
+			Suspended: u.Suspended, Enabled: u.Enabled,
 			CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
 		})
 	}
@@ -671,7 +659,7 @@ func (a *API) registerInboundAITools() {
 			if err := a.deleteInbound(arg.ID); err != nil {
 				return nil, err
 			}
-			return gin.H{"deleted": arg.ID}, nil
+			return deletedResp{Deleted: arg.ID}, nil
 		},
 	})
 }

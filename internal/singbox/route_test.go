@@ -276,14 +276,14 @@ func TestSplitRuleValue(t *testing.T) {
 		{"single", []string{"single"}},
 	}
 	for _, tt := range tests {
-		got := splitRuleValue(tt.in)
+		got := SplitRuleValue(tt.in)
 		if len(got) != len(tt.want) {
-			t.Errorf("splitRuleValue(%q) = %v, want %v", tt.in, got, tt.want)
+			t.Errorf("SplitRuleValue(%q) = %v, want %v", tt.in, got, tt.want)
 			continue
 		}
 		for i := range got {
 			if got[i] != tt.want[i] {
-				t.Errorf("splitRuleValue(%q)[%d] = %q, want %q", tt.in, i, got[i], tt.want[i])
+				t.Errorf("SplitRuleValue(%q)[%d] = %q, want %q", tt.in, i, got[i], tt.want[i])
 			}
 		}
 	}
