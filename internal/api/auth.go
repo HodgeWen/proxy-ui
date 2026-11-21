@@ -15,8 +15,13 @@ type loginReq struct {
 	Password string `json:"password" binding:"required"` // 密码
 }
 
-// HandleLogin 管理员登录，成功后写入会话 Cookie。
+// HandleLogin 管理员登录，成功后写入会话 Cookie；按 IP 失败限流防在线爆破。
 func (a *API) HandleLogin(c *gin.Context) {
+	ip := c.ClientIP()
+	if !a.limiter.allow(ip) {
+		Fail(c, http.StatusTooManyRequests, "尝试过于频繁，请稍后再试")
+		return
+	}
 	var req loginReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
@@ -28,9 +33,11 @@ func (a *API) HandleLogin(c *gin.Context) {
 		err = bcrypt.CompareHashAndPassword([]byte(admin.PasswordHash), []byte(req.Password))
 	}
 	if err != nil {
+		a.limiter.recordFail(ip)
 		Fail(c, http.StatusUnauthorized, "用户名或密码错误")
 		return
 	}
+	a.limiter.reset(ip)
 	a.setSession(c)
 	OK(c, gin.H{"username": admin.Username})
 }
@@ -40,7 +47,7 @@ func (a *API) HandleLogout(c *gin.Context) {
 	if token, err := c.Cookie(SessionCookie); err == nil {
 		a.sessions.Remove(token)
 	}
-	c.SetCookie(SessionCookie, "", -1, "/", "", false, true)
+	clearSessionCookie(c)
 	OK(c, nil)
 }
 
@@ -85,5 +92,7 @@ func (a *API) HandleChangePassword(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "保存密码失败")
 		return
 	}
+	// 单管理员语义：改密后吊销全部会话（含当前），前端随后的请求会 401 跳登录页
+	a.sessions.Clear()
 	OK(c, nil)
 }

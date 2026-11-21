@@ -12,13 +12,15 @@ const auth = useAuthStore()
 
 const formRef = shallowRef<FormExposed>()
 const submitting = shallowRef(false)
-const form = reactive({ username: '', password: '', confirm: '' })
+const form = reactive({ setupCode: '', username: '', password: '', confirm: '' })
 
 async function handleSubmit() {
   if (!(await formRef.value?.validate())) return
   submitting.value = true
   try {
-    await auth.doSetup({ username: form.username, password: form.password })
+    // setupCode 随载荷一并提交后端校验（CredentialsPayload 的扩展字段，请求层原样透传）
+    const payload = { username: form.username, password: form.password, setupCode: form.setupCode.trim() }
+    await auth.doSetup(payload)
     message.success('管理员创建成功，已登录')
     router.push('/dashboard')
   } catch {
@@ -34,10 +36,20 @@ async function handleSubmit() {
     <u-card width="420">
       <u-card-header>
         <div class="setup-title">欢迎使用 proxy-ui</div>
-        <div class="setup-subtitle">首次访问请创建管理员账号，面板无任何默认账号口令</div>
+        <div class="setup-subtitle">首次访问需输入服务器启动日志中的一次性设置码创建管理员，面板无任何默认账号口令</div>
       </u-card-header>
       <u-card-content>
         <u-form ref="formRef" :model="form" :cols="1" label-position="top">
+          <u-input
+            label="设置码"
+            field="setupCode"
+            placeholder="8 位设置码，见服务器启动日志"
+            :rules="{
+              required: '请输入设置码',
+              minLen: [8, '设置码为 8 位'],
+              maxLen: [8, '设置码为 8 位'],
+            }"
+          />
           <u-input
             label="用户名"
             field="username"

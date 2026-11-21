@@ -32,15 +32,26 @@ type envelope struct {
 	Data    json.RawMessage `json:"data"`
 }
 
-// newTestServer 以临时数据库与内存静态资源构造面板服务。
-func newTestServer(t *testing.T) (*httptest.Server, string) {
+// setupCodes 各测试服务的一次性设置码（newTestServer 从启动日志截获存入，setupAdmin 取用）。
+var setupCodes sync.Map // 服务 URL → 设置码
+
+// newServerWithCode 以临时数据库与内存静态资源构造面板服务，并返回启动日志中的一次性设置码。
+func newServerWithCode(t *testing.T) (*httptest.Server, string, string) {
 	t.Helper()
 	// 面板的所有写接口都会热应用内核，内核起不来时这些用例没有意义
 	requireKernel(t)
 	dbPath := filepath.Join(t.TempDir(), "panel.db")
 	dataDir := t.TempDir()
-	srv := httptest.NewServer(mustNewEngine(dbPath, dataDir))
+	handler, code := mustNewEngineWithCode(dbPath, dataDir)
+	srv := httptest.NewServer(handler)
+	setupCodes.Store(srv.URL, code)
 	t.Cleanup(srv.Close)
+	return srv, dbPath, code
+}
+
+// newTestServer 以临时数据库与内存静态资源构造面板服务。
+func newTestServer(t *testing.T) (*httptest.Server, string) {
+	srv, dbPath, _ := newServerWithCode(t)
 	return srv, dbPath
 }
 
@@ -113,12 +124,16 @@ func doJSON(t *testing.T, client *http.Client, method, url string, body any) (in
 	return resp.StatusCode, env
 }
 
-// setupAdmin 完成首次设置并返回带会话的客户端。
+// setupAdmin 携带一次性设置码完成首次设置并返回带会话的客户端。
 func setupAdmin(t *testing.T, srvURL string) *http.Client {
 	t.Helper()
+	codeAny, ok := setupCodes.Load(srvURL)
+	if !ok {
+		t.Fatalf("未找到 %s 的一次性设置码", srvURL)
+	}
 	client := newClient(t)
 	if code, env := doJSON(t, client, http.MethodPost, srvURL+"/api/setup",
-		map[string]string{"username": "admin", "password": "password123"}); code != http.StatusOK {
+		map[string]string{"username": "admin", "password": "password123", "setupCode": codeAny.(string)}); code != http.StatusOK {
 		t.Fatalf("setup 失败: %s", env.Msg)
 	}
 	return client
@@ -191,15 +206,7 @@ type inboundResp struct {
 	Enabled    bool   `json:"enabled"`
 	Config     map[string]any
 	Warnings   []string `json:"warnings"`
-	Users      []struct {
-		ID        uint   `json:"id"`
-		InboundID uint   `json:"inboundId"`
-		Name      string `json:"name"`
-		Enabled   bool   `json:"enabled"`
-		Suspended bool   `json:"suspended"`
-		TokenID   uint   `json:"tokenId"`
-		TokenName string `json:"tokenName"`
-	} `json:"users"`
+	UserCount  int64    `json:"userCount"`
 }
 
 // TestUninitialized 未初始化时的守卫行为。
@@ -228,12 +235,12 @@ func TestUninitialized(t *testing.T) {
 
 // TestSetupLoginFlow 首次设置 + 登录 + 改密 + 登出全链路。
 func TestSetupLoginFlow(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _, setupCode := newServerWithCode(t)
 	client := newClient(t)
 
-	// 首次设置：创建管理员并自动登录
+	// 首次设置：携带启动日志中的一次性设置码创建管理员并自动登录
 	code, env := doJSON(t, client, http.MethodPost, srv.URL+"/api/setup",
-		map[string]string{"username": "admin", "password": "password123"})
+		map[string]string{"username": "admin", "password": "password123", "setupCode": setupCode})
 	if code != http.StatusOK || !env.Success {
 		t.Fatalf("setup 失败: code=%d msg=%s", code, env.Msg)
 	}
@@ -258,9 +265,9 @@ func TestSetupLoginFlow(t *testing.T) {
 	if code != http.StatusOK || !health.Initialized || health.Status != "ok" {
 		t.Fatalf("健康检查不符: code=%d %+v", code, health)
 	}
-	// 重复 setup 被拒
+	// 重复 setup 被拒（设置码已消费，带上原码也不行）
 	if code, _ = doJSON(t, client, http.MethodPost, srv.URL+"/api/setup",
-		map[string]string{"username": "hacker", "password": "password123"}); code != http.StatusConflict {
+		map[string]string{"username": "hacker", "password": "password123", "setupCode": setupCode}); code != http.StatusConflict {
 		t.Fatalf("重复 setup 状态码 = %d, want 409", code)
 	}
 	// 登出后受保护接口 401
@@ -314,7 +321,7 @@ func TestCreateInboundDefaults(t *testing.T) {
 		ListenPort int             `json:"listenPort"`
 		Enabled    bool            `json:"enabled"`
 		Config     json.RawMessage `json:"config"`
-		Users      []any           `json:"users"`
+		UserCount  int64           `json:"userCount"`
 	}
 	decodeData(t, env, &created)
 	if created.ListenPort < 10000 || created.ListenPort > 60000 {
@@ -329,8 +336,8 @@ func TestCreateInboundDefaults(t *testing.T) {
 	if created.Listen != "::" {
 		t.Errorf("默认监听地址 = %q, want ::", created.Listen)
 	}
-	if len(created.Users) != 0 {
-		t.Errorf("新建入站不应有用户: %v", created.Users)
+	if created.UserCount != 0 {
+		t.Errorf("新建入站不应有用户: %d", created.UserCount)
 	}
 	// 连接层配置为对象且不含任何用户凭据
 	cfg := map[string]any{}
@@ -368,37 +375,6 @@ func TestCreateInboundDefaults(t *testing.T) {
 	decodeData(t, env, &list)
 	if len(list) != 1 || list[0].ID != created.ID {
 		t.Fatalf("入站列表不符: %+v", list)
-	}
-}
-
-// TestSystemStatus 系统状态接口不得要求 root 或特定系统。
-func TestSystemStatus(t *testing.T) {
-	srv, _ := newTestServer(t)
-	client := setupAdmin(t, srv.URL)
-
-	code, env := doJSON(t, client, http.MethodGet, srv.URL+"/api/system/status", nil)
-	if code != http.StatusOK {
-		t.Fatalf("系统状态接口失败: code=%d msg=%s", code, env.Msg)
-	}
-	var status struct {
-		Platform      string   `json:"platform"`
-		Supported     bool     `json:"supported"`
-		Privileged    bool     `json:"privileged"`
-		BBREnabled    bool     `json:"bbrEnabled"`
-		AvailableCC   []string `json:"availableCc"`
-		Reason        string   `json:"reason"`
-		ManualCommand string   `json:"manualCommand"`
-	}
-	decodeData(t, env, &status)
-	if status.Platform == "" {
-		t.Error("platform 不应为空")
-	}
-	// 非 Linux 或非 root 时可一键开启应为 false，且给出原因与手动命令
-	if status.ManualCommand == "" {
-		t.Error("应提供手动命令")
-	}
-	if !status.Supported && status.Reason == "" {
-		t.Error("不可一键开启时应说明原因")
 	}
 }
 

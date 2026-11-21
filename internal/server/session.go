@@ -50,3 +50,10 @@ func (s *SessionStore) Remove(token string) {
 	defer s.mu.Unlock()
 	delete(s.entries, token)
 }
+
+// Clear 清空全部会话：单管理员语义下改密后吊销所有已登录端。
+func (s *SessionStore) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.entries = make(map[string]time.Time)
+}
