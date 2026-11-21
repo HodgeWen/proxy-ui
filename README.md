@@ -1,6 +1,6 @@
 # proxy-ui
 
-面向个人自用的 sing-box 代理面板：Go（后端）+ Vue3（前端）单二进制，**内核内置**（sing-box 1.14.4 编进面板，无需下载），管理入站与入站用户、出站、规则集与全局规则，按订阅用户分发独立节点并支持流量配额与到期，内置 DNS 配置、BBR 一键优化、按用户流量统计与 AI 助手。
+面向个人自用的 sing-box 代理面板：Go（后端）+ Vue3（前端）单二进制，**内核内置**（sing-box 1.14.4 编进面板，无需下载），管理入站与入站用户、出站、规则集与全局规则，按订阅用户分发独立节点并支持流量配额与到期，内置 DNS 配置、按用户流量统计与 AI 助手。
 
 - 单文件二进制（linux/amd64、darwin/arm64，禁 CGO），SQLite 落盘，无外部依赖
 - 面板自身只起 HTTP，TLS 交给反向代理
@@ -58,6 +58,8 @@ server {
 }
 ```
 
+> 注意：面板不信任反代传来的 `X-Forwarded-For`，登录/首次设置的失败限流按直连地址（即反代 IP）计数——反代部署下所有访问者共享同一个限流桶。若多人共用面板且需按真实 IP 限流，需在面板侧配置受信代理；单人自用不受影响。
+
 Caddy 示例（自动签发证书）：
 
 ```caddy
@@ -97,9 +99,17 @@ panel.example.com {
 
 ## BBR 加速
 
-「设置 → 系统优化」展示当前 TCP 拥塞控制算法。在 Linux 且面板以 root 运行时，可一键写入 `/etc/sysctl.d/99-proxy-ui-bbr.conf` 并执行 `sysctl --system` 开启 BBR；其它环境提供可复制的等价命令。
+协议层拥塞算法按协议给最佳默认：Hysteria2 用 `bbr_profile=standard`、TUIC 用 `bbr`，不依赖系统配置；TCP 类协议（VLESS/Trojan/VMess/Shadowsocks）走系统 TCP 拥塞控制，为其开启 BBR 需在服务器上手动写 sysctl（面板不修改系统参数）：
 
-协议层拥塞算法按协议给最佳默认：Hysteria2 用 `bbr_profile=standard`、TUIC 用 `bbr`；TCP 类协议（VLESS/Trojan/VMess/Shadowsocks）走系统 TCP 拥塞控制，因此 BBR 对它们同样有效。
+```bash
+cat > /etc/sysctl.d/99-bbr.conf <<'EOF'
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+EOF
+sysctl --system
+```
+
+前提是内核已带 BBR 模块（必要时先 `modprobe tcp_bbr` 加载）。
 
 ## AI 助手
 
