@@ -148,6 +148,20 @@ type VLESSConfig struct {
 	ConnectConfig
 }
 
+// RealitySNI 返回 VLESS Reality 握手与客户端共用的 SNI
+// （HandshakeServer 优先，其次 TLS.ServerName，默认 www.microsoft.com）。
+func (c *VLESSConfig) RealitySNI() string {
+	if c != nil {
+		if s := strings.TrimSpace(c.Reality.HandshakeServer); s != "" {
+			return s
+		}
+		if s := strings.TrimSpace(c.TLS.ServerName); s != "" {
+			return s
+		}
+	}
+	return "www.microsoft.com"
+}
+
 // Hysteria2Config Hysteria2 入站连接层配置。
 type Hysteria2Config struct {
 	ObfsEnabled           bool             `json:"obfsEnabled,omitempty"`           // 是否启用 salamander 混淆
@@ -580,9 +594,13 @@ func (t *TLSConfig) certWarnings(add func(string, ...any)) {
 
 // json 渲染 sing-box Reality 配置段。
 func (r RealityConfig) json() map[string]any {
-	server, port := r.HandshakeServer, r.HandshakePort
+	server := strings.TrimSpace(r.HandshakeServer)
 	if server == "" {
-		server, port = "www.microsoft.com", 443
+		server = "www.microsoft.com"
+	}
+	port := r.HandshakePort
+	if port <= 0 {
+		port = 443
 	}
 	reality := map[string]any{
 		"enabled":     true,

@@ -953,8 +953,55 @@ func TestVLESSRealityECH(t *testing.T) {
 	if _, ok := tls["reality"]; !ok {
 		t.Errorf("Reality 段应存在: %v", tls)
 	}
+	// Reality + ECH 并存时以 Reality 优先
 	if list := InboundWarnings(ProtoVLESS, cfg); !containsSubstring(list, "ECH") {
 		t.Errorf("Reality + ECH 应给出警示: %v", list)
+	}
+}
+
+// TestVLESSRealitySNISync Reality 启用时服务端 tls.server_name、handshake.server 与 RealitySNI 一致，
+// 仅填 handshakeServer 而 handshakePort 为 0 时默认补 443。
+func TestVLESSRealitySNISync(t *testing.T) {
+	cfg := &VLESSConfig{
+		Reality: RealityConfig{Enabled: true, PrivateKey: "pk", HandshakeServer: "www.apple.com"},
+		TLS:     TLSConfig{Enabled: true, ServerName: "www.microsoft.com"},
+	}
+	if got := cfg.RealitySNI(); got != "www.apple.com" {
+		t.Errorf("RealitySNI = %q, want www.apple.com", got)
+	}
+	in, err := inboundJSON(inboundWith(ProtoVLESS, 10012, cfg), cfg)
+	if err != nil {
+		t.Fatalf("生成 VLESS 入站失败: %v", err)
+	}
+	tls, _ := in["tls"].(map[string]any)
+	if tls["server_name"] != "www.apple.com" {
+		t.Errorf("服务端 tls.server_name = %v, want www.apple.com", tls["server_name"])
+	}
+	reality, _ := tls["reality"].(map[string]any)
+	hs, _ := reality["handshake"].(map[string]any)
+	if hs["server"] != "www.apple.com" || hs["server_port"] != 443 {
+		t.Errorf("handshake = %v, want server=www.apple.com server_port=443", hs)
+	}
+
+	// HandshakeServer 为空时退回 TLS.ServerName，再空取 www.microsoft.com
+	fallbackTLS := &VLESSConfig{
+		Reality: RealityConfig{Enabled: true, PrivateKey: "pk"},
+		TLS:     TLSConfig{Enabled: true, ServerName: "www.bing.com"},
+	}
+	if got := fallbackTLS.RealitySNI(); got != "www.bing.com" {
+		t.Errorf("RealitySNI fallback = %q, want www.bing.com", got)
+	}
+	in2, err := inboundJSON(inboundWith(ProtoVLESS, 10013, fallbackTLS), fallbackTLS)
+	if err != nil {
+		t.Fatalf("生成 VLESS 入站失败: %v", err)
+	}
+	hs2 := in2["tls"].(map[string]any)["reality"].(map[string]any)["handshake"].(map[string]any)
+	if hs2["server"] != "www.bing.com" || hs2["server_port"] != 443 {
+		t.Errorf("handshake fallback = %v, want server=www.bing.com server_port=443", hs2)
+	}
+	var nilCfg *VLESSConfig
+	if got := nilCfg.RealitySNI(); got != "www.microsoft.com" {
+		t.Errorf("nil RealitySNI = %q, want www.microsoft.com", got)
 	}
 }
 

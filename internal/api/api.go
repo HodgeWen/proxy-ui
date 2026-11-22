@@ -53,7 +53,7 @@ type API struct {
 
 // New 构造 API；dataDir 为面板数据目录。
 func New(database *gorm.DB, sessions SessionManager, core *singbox.Manager, selfUpdates *update.SelfUpdater, stats *singbox.StatsMonitor, dataDir string) *API {
-	a := &API{db: database, sessions: sessions, core: core, selfUpdates: selfUpdates, stats: stats, dataDir: dataDir, subs: subscription.New(database)}
+	a := &API{db: database, sessions: sessions, core: core, selfUpdates: selfUpdates, stats: stats, dataDir: dataDir, subs: subscription.New(database, dataDir)}
 	a.limiter = newFailLimiter()
 	a.initSetupCode()
 	a.ai = ai.New(database)

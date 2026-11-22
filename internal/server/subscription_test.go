@@ -18,6 +18,13 @@ func itoa(n uint) string { return strconv.FormatUint(uint64(n), 10) }
 // getSub 拉取订阅响应，返回状态码、Content-Type 与响应体。
 func getSub(t *testing.T, url, ua string) (int, string, string) {
 	t.Helper()
+	code, hdr, body := getSubWithHeaders(t, url, ua)
+	return code, hdr.Get("Content-Type"), body
+}
+
+// getSubWithHeaders 拉取订阅响应，返回状态码、响应头与响应体。
+func getSubWithHeaders(t *testing.T, url, ua string) (int, http.Header, string) {
+	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -34,7 +41,7 @@ func getSub(t *testing.T, url, ua string) (int, string, string) {
 	if _, err := buf.ReadFrom(resp.Body); err != nil {
 		t.Fatal(err)
 	}
-	return resp.StatusCode, resp.Header.Get("Content-Type"), buf.String()
+	return resp.StatusCode, resp.Header, buf.String()
 }
 
 // createInbound 创建入站并返回其视图。
@@ -156,13 +163,17 @@ func TestSubscriptionNodeCreation(t *testing.T) {
 		t.Errorf("订阅节点端口 = %d, want %d", tokens[0].Nodes[0].ListenPort, in.ListenPort)
 	}
 
-	// 订阅端点返回该节点
-	code, contentType, body := getSub(t, srv.URL+"/sub/"+view.Token, "SFM/1.0 sing-box/1.14.4")
+	// 订阅端点返回该节点，且响应头带订阅用户名而非 config.json/config.yaml
+	code, hdr, body := getSubWithHeaders(t, srv.URL+"/sub/"+view.Token, "SFM/1.0 sing-box/1.14.4")
+	contentType := hdr.Get("Content-Type")
 	if code != http.StatusOK {
 		t.Fatalf("订阅状态码 = %d: %s", code, body)
 	}
 	if !strings.Contains(contentType, "application/json") {
 		t.Errorf("sing-box 订阅 Content-Type = %q", contentType)
+	}
+	if cd := hdr.Get("Content-Disposition"); !strings.Contains(cd, "alice") || strings.Contains(cd, "config.json") {
+		t.Errorf("Content-Disposition 应含订阅名 alice 且不含 config.json: %q", cd)
 	}
 	outbounds := subOutbounds(t, body)
 	node2, ok := outbounds[wantName]
@@ -492,5 +503,65 @@ func TestSubscriptionTokenLifecycle(t *testing.T) {
 	decodeData(t, env, &detail)
 	if detail.UserCount != 0 {
 		t.Errorf("删除订阅用户后其入站用户应清除: %d", detail.UserCount)
+	}
+}
+
+// TestSubscriptionWithRuleTemplate 应用「国内直连 + 海外代理」模板（无自定义出站）后，
+// 订阅的 proxy 策略组必须自动填入用户节点而非仅剩 DIRECT。
+func TestSubscriptionWithRuleTemplate(t *testing.T) {
+	srv, _ := newTestServer(t)
+	client := setupAdmin(t, srv.URL)
+
+	in := createInbound(t, client, srv.URL, map[string]any{"name": "vless-tpl", "protocol": "vless"})
+	view := createToken(t, client, srv.URL, map[string]any{
+		"name": "tpl-user", "nodeInbounds": []uint{in.ID},
+	})
+	if code, env := doJSON(t, client, http.MethodPost, srv.URL+"/api/rule-templates/cn-direct-adblock/apply", nil); code != http.StatusOK {
+		t.Fatalf("应用规则模板失败: code=%d msg=%s", code, env.Msg)
+	}
+	code, _, body := getSub(t, srv.URL+"/sub/"+view.Token+"?format=clash", "clash-verge-rev")
+	if code != http.StatusOK {
+		t.Fatalf("拉取 clash 订阅失败: code=%d body=%s", code, body)
+	}
+	if !strings.Contains(body, "tpl-user-vless-tpl") {
+		t.Errorf("订阅应包含节点 tpl-user-vless-tpl:\n%s", body)
+	}
+	if strings.Contains(body, "proxies:\n  - DIRECT") {
+		t.Errorf("应用模板后 proxy 组不应仅剩 DIRECT:\n%s", body)
+	}
+}
+
+// TestSubscriptionSelfSignedCert 使用一键自签证书的入站，端到端拉取订阅自动带 insecure / skip-cert-verify。
+func TestSubscriptionSelfSignedCert(t *testing.T) {
+	srv, _ := newTestServer(t)
+	client := setupAdmin(t, srv.URL)
+
+	certID := createTestCert(t, client, srv.URL)
+	in := createInbound(t, client, srv.URL, map[string]any{
+		"name": "hy2-self", "protocol": "hysteria2",
+		"config": map[string]any{
+			"tls": map[string]any{"enabled": true, "certMode": "managed", "certId": certID, "alpn": []string{"h3"}},
+		},
+	})
+	view := createToken(t, client, srv.URL, map[string]any{
+		"name": "self-user", "nodeInbounds": []uint{in.ID},
+	})
+
+	code, _, sbBody := getSub(t, srv.URL+"/sub/"+view.Token+"?format=singbox", "SFM")
+	if code != http.StatusOK {
+		t.Fatalf("sing-box 订阅失败: code=%d body=%s", code, sbBody)
+	}
+	obs := subOutbounds(t, sbBody)
+	node := obs["self-user-hy2-self"]
+	if tls, _ := node["tls"].(map[string]any); tls["insecure"] != true {
+		t.Errorf("自签证书 sing-box 节点应自动带 tls.insecure=true: %v", node)
+	}
+
+	code, _, clashBody := getSub(t, srv.URL+"/sub/"+view.Token+"?format=clash", "clash-verge-rev")
+	if code != http.StatusOK {
+		t.Fatalf("clash 订阅失败: code=%d body=%s", code, clashBody)
+	}
+	if !strings.Contains(clashBody, "skip-cert-verify: true") {
+		t.Errorf("自签证书 clash 节点应自动带 skip-cert-verify: true:\n%s", clashBody)
 	}
 }

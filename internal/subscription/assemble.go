@@ -16,16 +16,27 @@ type Node struct {
 	Port     int                // 入站端口（同入站下所有用户共享）
 	Config   any                // singbox.ParseInboundConfig 解析的连接层配置
 	Cred     singbox.Credential // 该用户的凭据
+	Insecure bool               // 是否跳过 TLS 证书校验（自签证书场景）
+}
+
+// UserInfo 订阅流量与到期信息（用于 Subscription-Userinfo 响应头）。
+type UserInfo struct {
+	Upload   int64 // 已用上行字节
+	Download int64 // 已用下行字节
+	Total    int64 // 总配额字节，0 表示不限
+	Expire   int64 // 到期 Unix 时间戳（秒），0 表示永不过期
 }
 
 // Data 组装后的订阅数据。
 type Data struct {
-	Server string               // 节点服务器地址（请求 Host 去端口）
-	Nodes  []Node               // 该订阅用户的节点
-	Groups []singbox.GroupEntry // 策略组
-	Rules  []singbox.RuleEntry  // 路由规则
-	Final  string               // 兜底出站 tag（已映射，非空）
-	DNS    *singbox.DNSConfig   // DNS 配置
+	Title    string               // 订阅名称（用于响应头展示）
+	UserInfo *UserInfo            // 流量与到期信息（预览路径可为空）
+	Server   string               // 节点服务器地址（请求 Host 去端口）
+	Nodes    []Node               // 该订阅用户的节点
+	Groups   []singbox.GroupEntry // 策略组
+	Rules    []singbox.RuleEntry  // 路由规则
+	Final    string               // 兜底出站 tag（已映射，非空）
+	DNS      *singbox.DNSConfig   // DNS 配置
 }
 
 // NodeSpec 订阅组装输入的节点条目。
@@ -35,6 +46,7 @@ type NodeSpec struct {
 	Port     int    // 入站端口
 	Config   string // 连接层配置 JSON
 	CredJSON string // 该用户凭据 JSON
+	Insecure bool   // 是否跳过 TLS 证书校验（自签证书场景）
 }
 
 // Assemble 组装订阅数据：节点解析为客户端节点，策略组成员与规则/兜底出站映射为
@@ -51,7 +63,9 @@ func Assemble(server string, nodes []NodeSpec, groups []singbox.GroupEntry, rule
 		if err != nil {
 			return Data{}, fmt.Errorf("节点 %s: %w", n.Tag, err)
 		}
-		d.Nodes = append(d.Nodes, Node{Tag: n.Tag, Protocol: n.Protocol, Port: n.Port, Config: cfg, Cred: cred})
+		d.Nodes = append(d.Nodes, Node{
+			Tag: n.Tag, Protocol: n.Protocol, Port: n.Port, Config: cfg, Cred: cred, Insecure: n.Insecure,
+		})
 		nodeTags = append(nodeTags, n.Tag)
 	}
 
@@ -76,7 +90,10 @@ func Assemble(server string, nodes []NodeSpec, groups []singbox.GroupEntry, rule
 					members = append(members, m)
 				}
 			}
-			if len(members) == 0 {
+			// 规则模板无自定义出站时在服务端用 ["direct"] 占位（auto/failover 组）；
+			// 下发订阅且有可用节点时自动填充订阅节点，避免 proxy 组只剩 DIRECT。
+			templatePlaceholder := len(nodeTags) > 0 && g.Mode != singbox.GroupModeFixed && len(members) == 1 && members[0] == "direct"
+			if len(members) == 0 || templatePlaceholder {
 				if len(nodeTags) == 0 {
 					dropped = true
 					continue

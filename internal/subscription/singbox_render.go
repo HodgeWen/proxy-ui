@@ -6,13 +6,22 @@ import (
 	"proxy-ui/internal/singbox"
 )
 
-// RenderSingBox 渲染 sing-box 客户端配置：节点出站、策略组、DNS、路由规则与远程规则集
+// RenderSingBox 渲染 sing-box 客户端配置：TUN 入站、节点出站、策略组、DNS、路由规则与远程规则集
 // （走 direct 下载），结尾补 direct 兜底出站。
 func RenderSingBox(d Data) (singbox.Config, error) {
 	cfg := singbox.Config{
 		Log:          &singbox.LogConfig{Level: "info", Timestamp: true},
 		Experimental: &singbox.Experimental{CacheFile: &singbox.CacheFile{Enabled: true}},
 		DNS:          d.DNS.JSON(),
+		Inbounds: []any{
+			map[string]any{
+				"type":         "tun",
+				"tag":          "tun-in",
+				"address":      []string{"172.19.0.1/30", "fdfe:dcba:9876::1/126"},
+				"auto_route":   true,
+				"strict_route": true,
+			},
+		},
 	}
 	for _, n := range d.Nodes {
 		ob, err := nodeOutboundJSON(n, d.Server)
@@ -30,7 +39,12 @@ func RenderSingBox(d Data) (singbox.Config, error) {
 	}
 	cfg.Outbounds = append(cfg.Outbounds, map[string]any{"type": "direct", "tag": "direct"})
 
-	route := &singbox.RouteConfig{Final: d.Final}
+	route := &singbox.RouteConfig{Final: d.Final, AutoDetectInterface: true}
+	route.Rules = append(route.Rules, map[string]any{"action": "sniff"})
+	if d.DNS != nil && d.DNS.Enabled && len(d.DNS.Servers) > 0 {
+		route.Rules = append(route.Rules, map[string]any{"protocol": "dns", "action": "hijack-dns"})
+	}
+	route.Rules = append(route.Rules, map[string]any{"ip_is_private": true, "outbound": "direct"})
 	seen := map[string]bool{}
 	for _, r := range d.Rules {
 		rule, refSet, err := singbox.RoutingRuleJSON(r)
@@ -69,14 +83,9 @@ func nodeOutboundJSON(n Node, server string) (map[string]any, error) {
 			ob["flow"] = flow
 		}
 		if c.Reality.Enabled {
-			// SNI 取握手目标站点，与 clash 渲染及服务端默认一致，空则 www.microsoft.com
-			sni := c.Reality.HandshakeServer
-			if sni == "" {
-				sni = "www.microsoft.com"
-			}
 			ob["tls"] = map[string]any{
 				"enabled":     true,
-				"server_name": sni,
+				"server_name": c.RealitySNI(),
 				"utls":        map[string]any{"enabled": true, "fingerprint": "chrome"},
 				"reality": map[string]any{
 					"enabled":    true,
@@ -85,7 +94,7 @@ func nodeOutboundJSON(n Node, server string) (map[string]any, error) {
 				},
 			}
 		} else {
-			if tls := clientTLS(c.TLS, server, false); tls != nil {
+			if tls := clientTLS(c.TLS, server, false, n.Insecure); tls != nil {
 				ob["tls"] = tls
 			}
 		}
@@ -101,11 +110,11 @@ func nodeOutboundJSON(n Node, server string) (map[string]any, error) {
 		if c.DownMbps > 0 {
 			ob["down_mbps"] = c.DownMbps
 		}
-		// sing-box 客户端在带宽不限时默认用 BBR，与服务端 bbr_profile 对齐
-		if c.BBRProfile != "" {
+		// 默认档位 standard 省略，兼容不支持 bbr_profile 的旧版 sing-box 客户端
+		if c.BBRProfile != "" && c.BBRProfile != singbox.BBRProfileStandard {
 			ob["bbr_profile"] = c.BBRProfile
 		}
-		ob["tls"] = clientTLS(c.TLS, server, true)
+		ob["tls"] = clientTLS(c.TLS, server, true, n.Insecure)
 	case *singbox.TUICConfig:
 		ob["type"] = singbox.ProtoTUIC
 		ob["uuid"] = n.Cred.UUID
@@ -113,7 +122,7 @@ func nodeOutboundJSON(n Node, server string) (map[string]any, error) {
 		if c.CongestionControl != "" {
 			ob["congestion_control"] = c.CongestionControl
 		}
-		tls := clientTLS(c.TLS, server, true)
+		tls := clientTLS(c.TLS, server, true, n.Insecure)
 		if _, ok := tls["alpn"]; !ok {
 			tls["alpn"] = []string{"h3"}
 		}
@@ -121,11 +130,11 @@ func nodeOutboundJSON(n Node, server string) (map[string]any, error) {
 	case *singbox.AnyTLSConfig:
 		ob["type"] = singbox.ProtoAnyTLS
 		ob["password"] = n.Cred.Password
-		ob["tls"] = clientTLS(c.TLS, server, true)
+		ob["tls"] = clientTLS(c.TLS, server, true, n.Insecure)
 	case *singbox.TrojanConfig:
 		ob["type"] = singbox.ProtoTrojan
 		ob["password"] = n.Cred.Password
-		if tls := clientTLS(c.TLS, server, false); tls != nil {
+		if tls := clientTLS(c.TLS, server, false, n.Insecure); tls != nil {
 			ob["tls"] = tls
 		}
 	case *singbox.VMessConfig:
@@ -136,7 +145,7 @@ func nodeOutboundJSON(n Node, server string) (map[string]any, error) {
 			path = "/"
 		}
 		ob["transport"] = map[string]any{"type": "ws", "path": path}
-		if tls := clientTLS(c.TLS, server, false); tls != nil {
+		if tls := clientTLS(c.TLS, server, false, n.Insecure); tls != nil {
 			ob["tls"] = tls
 		}
 	case *singbox.ShadowsocksConfig:
@@ -160,8 +169,8 @@ func nodeOutboundJSON(n Node, server string) (map[string]any, error) {
 }
 
 // clientTLS 渲染客户端 TLS 对象；SNI 未配置时用服务器地址兜底。
-// forceEnabled 用于必须 TLS 的协议，未启用且不强制时返回 nil。
-func clientTLS(t singbox.TLSConfig, server string, forceEnabled bool) map[string]any {
+// forceEnabled 用于必须 TLS 的协议，未启用且不强制时返回 nil；insecure 用于自签证书跳过校验。
+func clientTLS(t singbox.TLSConfig, server string, forceEnabled, insecure bool) map[string]any {
 	if !t.Enabled && !forceEnabled {
 		return nil
 	}
@@ -173,6 +182,9 @@ func clientTLS(t singbox.TLSConfig, server string, forceEnabled bool) map[string
 	}
 	if len(t.ALPN) > 0 {
 		tls["alpn"] = t.ALPN
+	}
+	if insecure {
+		tls["insecure"] = true
 	}
 	return tls
 }

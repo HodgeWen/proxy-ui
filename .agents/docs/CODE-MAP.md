@@ -48,7 +48,7 @@ proxy-ui/
 | api | `internal/api/` | REST handlers（见上）；`applyKernelConfig` 热应用编排（串行化，失败置 pendingChanges）、`applyThenOK` 落库后热应用并写响应（热应用失败仍成功响应、msg 带原因，内核已回滚）；REST 与 AI 工具共用各资源 createXxx/updateXxx/deleteXxx 编排；`ReconcileQuota` 全量 / `ReconcileQuotaTokens` 增量刷新配额暂停状态 | `New(db, sessions, core, selfUpdates, stats, dataDir)` |
 | db | `internal/db/` | SQLite 连接、模型、自动迁移；旧 schema 库自动重建为空库 | `Open(path)` |
 | singbox | `internal/singbox/` | 配置模型与映射、多用户渲染、路由与规则集、DNS、进程内内核生命周期（`Apply` 幂等应用 + 失败回滚）、v2ray 统计采集 | `New(dir)` / `NewStatsMonitor(mgr, db)` |
-| subscription | `internal/subscription/` | 订阅组装与双格式渲染、配额拒绝、匿名端点、面板内预览（跳过停用/配额/到期校验） | `New(db)` |
+| subscription | `internal/subscription/` | 订阅组装与双格式渲染、配额拒绝、匿名端点、面板内预览（跳过停用/配额/到期校验） | `New(db, dataDir)` |
 | update | `internal/update/` | 面板自身版本查询与自更新 | `NewSelfUpdate(version)` |
 | ai | `internal/ai/` | 多供应商与多模型配置（key 不回显、模型 id 全局唯一）、上游 /models 拉取、transport 元数据、按供应商 SSE 对话代理、工具注册表 | `New(db)` |
 | web | `web/` | Vue3 SPA | `src/main.ts` |

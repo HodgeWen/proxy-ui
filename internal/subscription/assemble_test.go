@@ -467,14 +467,33 @@ func TestRenderSingBoxRoute(t *testing.T) {
 	if cfg.Route == nil {
 		t.Fatal("应生成 route 段")
 	}
+	if len(cfg.Inbounds) != 1 {
+		t.Fatalf("应包含 1 个客户端 tun 入站, got %d", len(cfg.Inbounds))
+	}
+	if inb, _ := cfg.Inbounds[0].(map[string]any); inb["type"] != "tun" || inb["tag"] != "tun-in" {
+		t.Errorf("客户端入站应为 tun-in: %v", cfg.Inbounds[0])
+	}
+	if !cfg.Route.AutoDetectInterface {
+		t.Error("应启用 route.auto_detect_interface")
+	}
 	if cfg.Route.Final != "proxy" {
 		t.Errorf("route.final = %q, want proxy", cfg.Route.Final)
 	}
-	if len(cfg.Route.Rules) != 5 {
-		t.Fatalf("应有 5 条规则, got %d", len(cfg.Route.Rules))
+	// 前置 3 条客户端基础规则（sniff / hijack-dns / ip_is_private）+ 5 条用户规则
+	if len(cfg.Route.Rules) != 8 {
+		t.Fatalf("应有 8 条规则, got %d: %+v", len(cfg.Route.Rules), cfg.Route.Rules)
 	}
-	if cfg.Route.Rules[0]["action"] != "reject" {
-		t.Errorf("拦截规则应映射为 reject: %v", cfg.Route.Rules[0])
+	if cfg.Route.Rules[0]["action"] != "sniff" {
+		t.Errorf("第 0 条应为 sniff 规则: %v", cfg.Route.Rules[0])
+	}
+	if cfg.Route.Rules[1]["protocol"] != "dns" || cfg.Route.Rules[1]["action"] != "hijack-dns" {
+		t.Errorf("第 1 条应为 hijack-dns 规则: %v", cfg.Route.Rules[1])
+	}
+	if cfg.Route.Rules[2]["ip_is_private"] != true || cfg.Route.Rules[2]["outbound"] != "direct" {
+		t.Errorf("第 2 条应为私有 IP 直连规则: %v", cfg.Route.Rules[2])
+	}
+	if cfg.Route.Rules[3]["action"] != "reject" {
+		t.Errorf("拦截规则应映射为 reject: %v", cfg.Route.Rules[3])
 	}
 	// 规则集去重且下载走 direct
 	if len(cfg.Route.RuleSet) != 2 {
@@ -580,5 +599,112 @@ func TestRenderDispatch(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "proxies:") {
 		t.Errorf("clash 渲染结果缺少 proxies: %s", raw)
+	}
+}
+
+// TestRenderSingBoxCheckConfig 渲染出的 sing-box 客户端配置应能通过真实 sing-box 内核校验。
+func TestRenderSingBoxCheckConfig(t *testing.T) {
+	specs := []NodeSpec{
+		nodeSpec(t, "n-vless", singbox.ProtoVLESS, 20001),
+		nodeSpec(t, "n-hy2", singbox.ProtoHysteria2, 20002),
+		nodeSpec(t, "n-tuic", singbox.ProtoTUIC, 20003),
+		nodeSpec(t, "n-anytls", singbox.ProtoAnyTLS, 20004),
+		nodeSpec(t, "n-trojan", singbox.ProtoTrojan, 20005),
+		nodeSpec(t, "n-vmess", singbox.ProtoVMess, 20006),
+	}
+	ssSpecItem, _, _ := ssSpec(t, "n-ss", 20007)
+	specs = append(specs, ssSpecItem)
+
+	adSrc := &singbox.RuleSetSource{
+		Tag: singbox.AntiADTag, URL: singbox.AntiADBuiltinURL,
+		MihomoURL: singbox.AntiADMihomoURL, MihomoBehavior: "domain",
+	}
+	groups := []singbox.GroupEntry{{Name: "proxy", Mode: singbox.GroupModeAuto, Members: []string{"direct"}}}
+	rules := []singbox.RuleEntry{
+		{MatchType: singbox.MatchRuleSet, RuleSet: adSrc, Outbound: singbox.OutboundBlock},
+		{MatchType: singbox.MatchDomain, MatchMethod: singbox.MethodSuffix, Value: "cn", Outbound: "direct"},
+	}
+	d, err := Assemble("example.com", specs, groups, rules, "proxy", singbox.DefaultDNSConfig())
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	cfg, err := RenderSingBox(d)
+	if err != nil {
+		t.Fatalf("渲染 sing-box 失败: %v", err)
+	}
+	if err := singbox.New(t.TempDir()).CheckConfig(cfg); err != nil {
+		t.Fatalf("客户端 sing-box 配置应通过内核 CheckConfig 校验: %v", err)
+	}
+}
+
+// TestRenderSingBoxInsecureAndBBR 自签证书输出 insecure:true，Hysteria2 默认 standard 省略 bbr_profile。
+func TestRenderSingBoxInsecureAndBBR(t *testing.T) {
+	hy2Default := nodeSpec(t, "hy2-std", singbox.ProtoHysteria2, 20001)
+	hy2Default.Insecure = true
+
+	aggRaw, _ := json.Marshal(&singbox.Hysteria2Config{
+		BBRProfile: singbox.BBRProfileAggressive,
+		TLS:        singbox.TLSConfig{Enabled: true, CertMode: singbox.CertModeManaged, CertID: 1},
+	})
+	hy2Cred, _ := json.Marshal(singbox.Credential{Password: "pw"})
+	hy2Agg := NodeSpec{Tag: "hy2-agg", Protocol: singbox.ProtoHysteria2, Port: 20002, Config: string(aggRaw), CredJSON: string(hy2Cred)}
+
+	vlessReality := nodeSpec(t, "vless-r", singbox.ProtoVLESS, 20003)
+	vlessReality.Insecure = true // Reality 不应输出 tls.insecure
+
+	d, err := Assemble("example.com", []NodeSpec{hy2Default, hy2Agg, vlessReality}, nil, nil, "", nil)
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	cfg, err := RenderSingBox(d)
+	if err != nil {
+		t.Fatalf("渲染失败: %v", err)
+	}
+
+	std := findOutbound(t, cfg, "hy2-std")
+	if _, ok := std["bbr_profile"]; ok {
+		t.Errorf("默认 standard bbr_profile 应省略以兼容旧版客户端: %v", std)
+	}
+	if tls, _ := std["tls"].(map[string]any); tls["insecure"] != true {
+		t.Errorf("自签节点应输出 tls.insecure=true: %v", tls)
+	}
+
+	agg := findOutbound(t, cfg, "hy2-agg")
+	if agg["bbr_profile"] != singbox.BBRProfileAggressive {
+		t.Errorf("非默认 bbr_profile 应保留: %v", agg["bbr_profile"])
+	}
+	if tls, _ := agg["tls"].(map[string]any); tls["insecure"] != nil {
+		t.Errorf("非自签节点不应输出 tls.insecure: %v", tls)
+	}
+
+	vr := findOutbound(t, cfg, "vless-r")
+	if tls, _ := vr["tls"].(map[string]any); tls["insecure"] != nil {
+		t.Errorf("Reality 节点不应输出 tls.insecure: %v", tls)
+	}
+}
+
+// TestAssembleTemplatePlaceholderExpansion 规则模板无自定义出站时用 ["direct"] 占位的 auto/failover 组，
+// 下发订阅且有可用节点时自动填充订阅节点，而 fixed 组保留 direct。
+func TestAssembleTemplatePlaceholderExpansion(t *testing.T) {
+	specs := []NodeSpec{
+		nodeSpec(t, "n1", singbox.ProtoVLESS, 20001),
+		nodeSpec(t, "n2", singbox.ProtoTrojan, 20002),
+	}
+	groups := []singbox.GroupEntry{
+		{Name: "proxy", Mode: singbox.GroupModeAuto, Members: []string{"direct"}},
+		{Name: "direct-only", Mode: singbox.GroupModeFixed, Members: []string{"direct"}},
+	}
+	d, err := Assemble("example.com", specs, groups, nil, "proxy", nil)
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	if len(d.Groups) != 2 {
+		t.Fatalf("应有 2 个策略组: %+v", d.Groups)
+	}
+	if got := d.Groups[0].Members; len(got) != 2 || got[0] != "n1" || got[1] != "n2" {
+		t.Errorf("模板 auto 组应自动填充订阅节点, got %v", got)
+	}
+	if got := d.Groups[1].Members; len(got) != 1 || got[0] != "direct" {
+		t.Errorf("手动 fixed 组含 direct 应保留, got %v", got)
 	}
 }

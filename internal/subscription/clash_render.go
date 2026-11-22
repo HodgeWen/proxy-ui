@@ -100,16 +100,10 @@ type clashRuleProvider struct {
 
 // clashDNS mihomo dns 配置。
 type clashDNS struct {
-	Enable         bool             `yaml:"enable"`
-	DefaultNameser []string         `yaml:"default-nameserver"`
-	Nameserver     []string         `yaml:"nameserver"`
-	NameserverPol  []clashDNSPolicy `yaml:"nameserver-policy,omitempty"`
-}
-
-// clashDNSPolicy mihomo 按域名指定 DNS 服务器。
-type clashDNSPolicy struct {
-	Domain string   `yaml:"domain"`
-	Server []string `yaml:"server"`
+	Enable         bool          `yaml:"enable"`
+	DefaultNameser []string      `yaml:"default-nameserver"`
+	Nameserver     []string      `yaml:"nameserver"`
+	NameserverPol  yaml.MapSlice `yaml:"nameserver-policy,omitempty"`
 }
 
 // clashDNSOf 把面板 DNS 配置映射为 mihomo dns 段；未启用返回 nil。
@@ -126,7 +120,8 @@ func clashDNSOf(d *singbox.DNSConfig) *clashDNS {
 	out := &clashDNS{Enable: true, Nameserver: all}
 	// default-nameserver 必须是 IP 型明文解析器，用于解析 DoH 域名本身
 	for _, s := range d.Servers {
-		if s.Type == singbox.DNSTypeUDP || s.Type == singbox.DNSTypeTCP {
+		if (s.Type == singbox.DNSTypeUDP || s.Type == singbox.DNSTypeTCP) &&
+			net.ParseIP(strings.Trim(s.Server, "[]")) != nil {
 			out.DefaultNameser = append(out.DefaultNameser, clashDNSServer(s))
 		}
 	}
@@ -138,13 +133,19 @@ func clashDNSOf(d *singbox.DNSConfig) *clashDNS {
 			out.Nameserver = []string{server}
 		}
 	}
+	// nameserver-policy 必须是 YAML mapping（域名模式 -> 服务器列表），保持先到优先并去重
+	seenPolicy := make(map[string]bool)
 	for _, r := range d.Rules {
 		server, ok := byTag[r.Server]
 		if !ok {
 			continue
 		}
 		for _, domain := range clashDomainPatterns(r) {
-			out.NameserverPol = append(out.NameserverPol, clashDNSPolicy{Domain: domain, Server: []string{server}})
+			if seenPolicy[domain] {
+				continue
+			}
+			seenPolicy[domain] = true
+			out.NameserverPol = append(out.NameserverPol, yaml.MapItem{Key: domain, Value: []string{server}})
 		}
 	}
 	return out
@@ -199,7 +200,7 @@ func clashDomainPatterns(r singbox.DNSRule) []string {
 	}
 	for v := range strings.SplitSeq(r.DomainSuffix, ",") {
 		if v = strings.TrimSpace(v); v != "" {
-			out = append(out, "."+strings.TrimPrefix(v, "."))
+			out = append(out, "+."+strings.TrimPrefix(v, "."))
 		}
 	}
 	for v := range strings.SplitSeq(r.DomainKeyword, ",") {
@@ -226,9 +227,12 @@ type clashProxy struct {
 	Server            string            `yaml:"server"`
 	Port              int               `yaml:"port"`
 	UUID              string            `yaml:"uuid,omitempty"`
+	AlterID           *int              `yaml:"alterId,omitempty"`
 	Password          string            `yaml:"password,omitempty"`
 	Flow              string            `yaml:"flow,omitempty"`
+	UDP               bool              `yaml:"udp,omitempty"`
 	TLS               bool              `yaml:"tls,omitempty"`
+	SkipCertVerify    bool              `yaml:"skip-cert-verify,omitempty"`
 	ServerName        string            `yaml:"servername,omitempty"`
 	SNI               string            `yaml:"sni,omitempty"`
 	ALPN              []string          `yaml:"alpn,omitempty"`
@@ -282,7 +286,7 @@ func clashGroupOf(g singbox.GroupEntry) clashProxyGroup {
 
 // clashProxyOf 把订阅节点映射为 clash proxy。
 func clashProxyOf(n Node, server string) (clashProxy, error) {
-	p := clashProxy{Name: n.Tag, Server: server, Port: n.Port}
+	p := clashProxy{Name: n.Tag, Server: server, Port: n.Port, UDP: true}
 	sni := func(t singbox.TLSConfig) string {
 		if t.ServerName != "" {
 			return t.ServerName
@@ -299,16 +303,14 @@ func clashProxyOf(n Node, server string) (clashProxy, error) {
 		}
 		if c.Reality.Enabled {
 			p.TLS = true
-			p.ServerName = c.Reality.HandshakeServer
-			if p.ServerName == "" {
-				p.ServerName = "www.microsoft.com"
-			}
+			p.ServerName = c.RealitySNI()
 			p.RealityOpts = &clashRealityOpts{PublicKey: c.Reality.PublicKey, ShortID: c.Reality.ShortID}
 			p.Fingerprint = "chrome" // mihomo Reality 必须指定客户端指纹
 		} else if c.TLS.Enabled {
 			p.TLS = true
 			p.ServerName = sni(c.TLS)
 			p.ALPN = c.TLS.ALPN
+			p.SkipCertVerify = n.Insecure
 		}
 	case *singbox.Hysteria2Config:
 		p.Type = "hysteria2"
@@ -329,6 +331,7 @@ func clashProxyOf(n Node, server string) (clashProxy, error) {
 		} else {
 			p.ALPN = []string{"h3"}
 		}
+		p.SkipCertVerify = n.Insecure
 	case *singbox.TUICConfig:
 		p.Type = "tuic"
 		p.UUID = n.Cred.UUID
@@ -340,18 +343,24 @@ func clashProxyOf(n Node, server string) (clashProxy, error) {
 		} else {
 			p.ALPN = []string{"h3"}
 		}
+		p.SkipCertVerify = n.Insecure
 	case *singbox.AnyTLSConfig:
 		p.Type = "anytls"
 		p.Password = n.Cred.Password
 		p.SNI = sni(c.TLS)
+		p.ALPN = c.TLS.ALPN
+		p.SkipCertVerify = n.Insecure
 	case *singbox.TrojanConfig:
 		p.Type = "trojan"
 		p.Password = n.Cred.Password
 		p.SNI = sni(c.TLS)
 		p.ALPN = c.TLS.ALPN
+		p.SkipCertVerify = n.Insecure
 	case *singbox.VMessConfig:
 		p.Type = "vmess"
 		p.UUID = n.Cred.UUID
+		p.AlterID = new(0)
+		p.Cipher = "auto"
 		p.Network = "ws"
 		path := c.WSPath
 		if path == "" {
@@ -362,9 +371,13 @@ func clashProxyOf(n Node, server string) (clashProxy, error) {
 			p.TLS = true
 			p.ServerName = sni(c.TLS)
 			p.ALPN = c.TLS.ALPN
+			p.SkipCertVerify = n.Insecure
 		}
 	case *singbox.ShadowsocksConfig:
 		p.Type = "ss"
+		if c.Network == "tcp" {
+			p.UDP = false
+		}
 		p.Cipher = c.Method
 		if p.Cipher == "" {
 			p.Cipher = "2022-blake3-aes-128-gcm"

@@ -1,9 +1,18 @@
 package subscription
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,7 +32,7 @@ func newTestService(t *testing.T) (*Service, *gorm.DB) {
 	if err != nil {
 		t.Fatalf("打开数据库失败: %v", err)
 	}
-	return New(database), database
+	return New(database, t.TempDir()), database
 }
 
 // doRequest 直接调用匿名订阅 handler（httptest，不监听端口）。
@@ -363,5 +372,241 @@ func TestHandleSubscription(t *testing.T) {
 	rec = doRequest(t, s, "handle-token", "", "")
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("超额订阅状态码 = %d, want 403", rec.Code)
+	}
+}
+
+// TestSubscriptionHeaders 响应头订阅名称（不含 config.yaml/config.json）、Profile-Title 与 Subscription-Userinfo。
+func TestSubscriptionHeaders(t *testing.T) {
+	s, database := newTestService(t)
+	cfg, _ := singbox.NewTemplateConfig(singbox.ProtoVLESS)
+	rawCfg, _ := json.Marshal(cfg)
+	inbound := db.Inbound{Name: "v-in", Protocol: singbox.ProtoVLESS, ListenPort: 12401, Enabled: true, Config: string(rawCfg)}
+	if err := database.Create(&inbound).Error; err != nil {
+		t.Fatal(err)
+	}
+	cred, _ := singbox.NewCredential(singbox.ProtoVLESS)
+	rawCred, _ := json.Marshal(cred)
+
+	mkToken := func(tok, name string, limit int64, exp *time.Time) db.SubscriptionToken {
+		t.Helper()
+		rec := db.SubscriptionToken{Token: tok, Name: name, TrafficLimitBytes: limit, ExpiresAt: exp}
+		if err := database.Create(&rec).Error; err != nil {
+			t.Fatal(err)
+		}
+		u := db.InboundUser{InboundID: inbound.ID, Name: "u-" + tok, Credential: string(rawCred), Enabled: true}
+		if err := database.Create(&u).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := database.Create(&db.SubscriptionNode{TokenID: rec.ID, InboundID: inbound.ID, InboundUserID: u.ID}).Error; err != nil {
+			t.Fatal(err)
+		}
+		return rec
+	}
+
+	future := time.Now().Add(24 * time.Hour).Truncate(time.Second)
+	asciiTok := mkToken("tok-ascii", "alice-phone", 1024, &future)
+	if err := database.Create(&db.TokenTraffic{TokenID: asciiTok.ID, UploadBytes: 100, DownloadBytes: 200}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	rec := doRequest(t, s, "tok-ascii", "clash", "clash-verge-rev")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d: %s", rec.Code, rec.Body.String())
+	}
+	cd := rec.Header().Get("Content-Disposition")
+	if cd != `attachment; filename="alice-phone"` {
+		t.Errorf("ASCII Content-Disposition = %q, want %q", cd, `attachment; filename="alice-phone"`)
+	}
+	if strings.Contains(cd, "config.yaml") || strings.Contains(cd, "config.json") {
+		t.Errorf("Content-Disposition 不得包含 config.yaml/config.json: %q", cd)
+	}
+	wantPT := "base64:" + base64.StdEncoding.EncodeToString([]byte("alice-phone"))
+	if got := rec.Header().Get("Profile-Title"); got != wantPT {
+		t.Errorf("Profile-Title = %q, want %q", got, wantPT)
+	}
+	ui := rec.Header().Get("Subscription-Userinfo")
+	for _, part := range []string{"upload=100", "download=200", "total=1024", "expire="} {
+		if !strings.Contains(ui, part) {
+			t.Errorf("Subscription-Userinfo 缺少 %q: %q", part, ui)
+		}
+	}
+
+	// 中文名使用 RFC 5987 filename*=UTF-8''...，且不带 config.*
+	mkToken("tok-zh", "我的节点", 0, nil)
+	rec = doRequest(t, s, "tok-zh", "sing-box", "SFM")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d: %s", rec.Code, rec.Body.String())
+	}
+	cd = rec.Header().Get("Content-Disposition")
+	if !strings.HasPrefix(cd, "attachment; filename*=UTF-8''") || strings.Contains(cd, "config.json") {
+		t.Errorf("中文 Content-Disposition 不符: %q", cd)
+	}
+	wantPT = "base64:" + base64.StdEncoding.EncodeToString([]byte("我的节点"))
+	if got := rec.Header().Get("Profile-Title"); got != wantPT {
+		t.Errorf("中文 Profile-Title = %q, want %q", got, wantPT)
+	}
+	ui = rec.Header().Get("Subscription-Userinfo")
+	if ui != "upload=0; download=0" {
+		t.Errorf("不限流量无过期时 Subscription-Userinfo = %q, want %q", ui, "upload=0; download=0")
+	}
+
+	// 空备注名回退请求 Host
+	mkToken("tok-empty", "   ", 0, nil)
+	rec = doRequest(t, s, "tok-empty", "clash", "")
+	if cd = rec.Header().Get("Content-Disposition"); cd != `attachment; filename="example.com"` {
+		t.Errorf("空备注应回退到 Host: %q", cd)
+	}
+}
+
+// writeTestCertFile 生成自签或 CA 签发证书文件（测试证书检测用）。
+func writeTestCertFile(t *testing.T, path string, selfSigned bool) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leafTpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(2),
+		Subject:               pkix.Name{CommonName: "node.example.com"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"node.example.com"},
+	}
+	var parentTpl *x509.Certificate
+	var parentKey any
+	if selfSigned {
+		parentTpl = leafTpl
+		parentKey = leafKey
+	} else {
+		caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parentTpl = &x509.Certificate{
+			SerialNumber:          big.NewInt(1),
+			Subject:               pkix.Name{CommonName: "Test Root CA"},
+			NotBefore:             time.Now().Add(-time.Hour),
+			NotAfter:              time.Now().Add(48 * time.Hour),
+			KeyUsage:              x509.KeyUsageCertSign,
+			BasicConstraintsValid: true,
+			IsCA:                  true,
+		}
+		parentKey = caKey
+	}
+	der, err := x509.CreateCertificate(rand.Reader, leafTpl, parentTpl, &leafKey.PublicKey, parentKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	if err := os.WriteFile(path, pemBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSelfSignedCertAutoInsecure 托管/本地自签证书自动下发 insecure / skip-cert-verify，CA 签发证书不下发。
+func TestSelfSignedCertAutoInsecure(t *testing.T) {
+	s, database := newTestService(t)
+	selfFile := "self-cert.pem"
+	caFile := "ca-cert.pem"
+	writeTestCertFile(t, filepath.Join(s.dataDir, "certs", selfFile), true)
+	writeTestCertFile(t, filepath.Join(s.dataDir, "certs", caFile), false)
+	pathSelfFile := filepath.Join(t.TempDir(), "path-self.pem")
+	writeTestCertFile(t, pathSelfFile, true)
+
+	selfCert := db.Certificate{Name: "self", Mode: singbox.CertModeManaged, CertPath: selfFile, KeyPath: "k1.pem"}
+	caCert := db.Certificate{Name: "ca", Mode: singbox.CertModeManaged, CertPath: caFile, KeyPath: "k2.pem"}
+	for _, c := range []*db.Certificate{&selfCert, &caCert} {
+		if err := database.Create(c).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	hySelfCfg, _ := json.Marshal(&singbox.Hysteria2Config{
+		TLS: singbox.TLSConfig{Enabled: true, CertMode: singbox.CertModeManaged, CertID: selfCert.ID, ServerName: "node.example.com"},
+	})
+	hyCACfg, _ := json.Marshal(&singbox.Hysteria2Config{
+		TLS: singbox.TLSConfig{Enabled: true, CertMode: singbox.CertModeManaged, CertID: caCert.ID, ServerName: "node.example.com"},
+	})
+	trojanPathCfg, _ := json.Marshal(&singbox.TrojanConfig{
+		TLS: singbox.TLSConfig{Enabled: true, CertMode: singbox.CertModePath, CertPath: pathSelfFile, KeyPath: "/tmp/k.pem"},
+	})
+	inSelf := db.Inbound{Name: "hy-self", Protocol: singbox.ProtoHysteria2, ListenPort: 12501, Enabled: true, Config: string(hySelfCfg)}
+	inCA := db.Inbound{Name: "hy-ca", Protocol: singbox.ProtoHysteria2, ListenPort: 12502, Enabled: true, Config: string(hyCACfg)}
+	inPath := db.Inbound{Name: "tr-path", Protocol: singbox.ProtoTrojan, ListenPort: 12503, Enabled: true, Config: string(trojanPathCfg)}
+	for _, in := range []*db.Inbound{&inSelf, &inCA, &inPath} {
+		if err := database.Create(in).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tok := db.SubscriptionToken{Token: "cert-tok", Name: "cert-user"}
+	if err := database.Create(&tok).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, pair := range []struct {
+		inID uint
+		name string
+		pw   string
+	}{
+		{inSelf.ID, "n-self", "pw1"},
+		{inCA.ID, "n-ca", "pw2"},
+		{inPath.ID, "n-path", "pw3"},
+	} {
+		cred, _ := json.Marshal(singbox.Credential{Password: pair.pw})
+		u := db.InboundUser{InboundID: pair.inID, Name: pair.name, Credential: string(cred), Enabled: true}
+		if err := database.Create(&u).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := database.Create(&db.SubscriptionNode{TokenID: tok.ID, InboundID: pair.inID, InboundUserID: u.ID}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// sing-box 订阅
+	rec := doRequest(t, s, "cert-tok", "sing-box", "SFM")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d: %s", rec.Code, rec.Body.String())
+	}
+	var sbDoc map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &sbDoc); err != nil {
+		t.Fatal(err)
+	}
+	obs := map[string]map[string]any{}
+	for _, item := range sbDoc["outbounds"].([]any) {
+		ob := item.(map[string]any)
+		if tag, ok := ob["tag"].(string); ok {
+			obs[tag] = ob
+		}
+	}
+	if tls, _ := obs["n-self"]["tls"].(map[string]any); tls["insecure"] != true {
+		t.Errorf("managed 自签证书节点应带 tls.insecure=true: %v", tls)
+	}
+	if tls, _ := obs["n-path"]["tls"].(map[string]any); tls["insecure"] != true {
+		t.Errorf("path 自签证书节点应带 tls.insecure=true: %v", tls)
+	}
+	if tls, _ := obs["n-ca"]["tls"].(map[string]any); tls["insecure"] != nil {
+		t.Errorf("CA 签发证书节点不应带 tls.insecure: %v", tls)
+	}
+
+	// clash 订阅
+	rec = doRequest(t, s, "cert-tok", "clash", "Mihomo")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("clash 状态码 = %d: %s", rec.Code, rec.Body.String())
+	}
+	doc := parseClash(t, rec.Body.Bytes())
+	if p := findProxy(t, doc, "n-self"); p["skip-cert-verify"] != true {
+		t.Errorf("clash 自签节点应带 skip-cert-verify=true: %v", p)
+	}
+	if p := findProxy(t, doc, "n-path"); p["skip-cert-verify"] != true {
+		t.Errorf("clash path 自签节点应带 skip-cert-verify=true: %v", p)
+	}
+	if p := findProxy(t, doc, "n-ca"); p["skip-cert-verify"] != nil {
+		t.Errorf("clash CA 证书节点不应带 skip-cert-verify: %v", p)
 	}
 }

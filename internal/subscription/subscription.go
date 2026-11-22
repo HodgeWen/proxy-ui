@@ -3,11 +3,18 @@
 package subscription
 
 import (
+	"bytes"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -64,11 +71,14 @@ func DetectFormat(param, ua string) Format {
 
 // Service 订阅服务：校验匿名令牌、组装订阅数据并按格式渲染下发。
 type Service struct {
-	db *gorm.DB
+	db      *gorm.DB
+	dataDir string // 面板数据目录，用于读取托管证书判定是否自签
 }
 
 // New 构造订阅服务。
-func New(database *gorm.DB) *Service { return &Service{db: database} }
+func New(database *gorm.DB, dataDir string) *Service {
+	return &Service{db: database, dataDir: dataDir}
+}
 
 // Handle GET /sub/:token 匿名订阅端点（无会话）：按 format 参数或 UA 自适应格式。
 func (s *Service) Handle(c *gin.Context) {
@@ -90,13 +100,17 @@ func (s *Service) Handle(c *gin.Context) {
 		c.String(http.StatusInternalServerError, "生成订阅失败: "+err.Error())
 		return
 	}
+	title := sanitizeHeaderTitle(data.Title)
 	c.Header("Cache-Control", "no-store")
+	c.Header("Profile-Title", "base64:"+base64.StdEncoding.EncodeToString([]byte(title)))
+	c.Header("Content-Disposition", contentDisposition(title))
+	if data.UserInfo != nil {
+		c.Header("Subscription-Userinfo", formatUserInfo(data.UserInfo))
+	}
 	if format == FormatClash {
-		c.Header("Content-Disposition", `attachment; filename="config.yaml"`)
 		c.Data(http.StatusOK, "text/yaml; charset=utf-8", content)
 		return
 	}
-	c.Header("Content-Disposition", `attachment; filename="config.json"`)
 	c.Data(http.StatusOK, "application/json; charset=utf-8", content)
 }
 
@@ -112,10 +126,11 @@ func (s *Service) Fetch(token, requestHost string) (Data, error) {
 		return Data{}, ErrInvalidToken
 	}
 	// 配额与到期判定必须统计该用户全部节点（含被停用的），否则停用后用量归零会重新放行
-	used, err := s.usedBytes(record.ID)
+	up, down, err := s.trafficBytes(record.ID)
 	if err != nil {
 		return Data{}, err
 	}
+	used := up + down
 	if record.ExpiresAt != nil && time.Now().After(*record.ExpiresAt) {
 		return Data{}, ErrUnavailable
 	}
@@ -124,7 +139,16 @@ func (s *Service) Fetch(token, requestHost string) (Data, error) {
 	}
 	now := time.Now()
 	s.db.Model(&record).Update("last_used_at", now) // 最近使用时间非关键数据，失败忽略
-	return s.assemble(record, requestHost)
+	data, err := s.assemble(record, requestHost)
+	if err != nil {
+		return Data{}, err
+	}
+	info := &UserInfo{Upload: up, Download: down, Total: record.TrafficLimitBytes}
+	if record.ExpiresAt != nil {
+		info.Expire = record.ExpiresAt.Unix()
+	}
+	data.UserInfo = info
+	return data, nil
 }
 
 // Preview 按订阅用户 ID 与格式渲染预览内容：跳过停用、配额与到期校验，
@@ -178,8 +202,13 @@ func (s *Service) assemble(record db.SubscriptionToken, requestHost string) (Dat
 	if err != nil {
 		return Data{}, err
 	}
-	return Assemble(hostOnly(requestHost), specs, groupEntries, ruleEntries,
+	data, err := Assemble(hostOnly(requestHost), specs, groupEntries, ruleEntries,
 		getSetting(s.db, db.SettingRouteFinal), dns)
+	if err != nil {
+		return Data{}, err
+	}
+	data.Title = subscriptionTitle(record.Name, requestHost)
+	return data, nil
 }
 
 // noNodeReason 无可用节点的原因：要么没勾过入站，要么勾选的入站已全部停用，
@@ -200,17 +229,17 @@ func (s *Service) noNodeReason(tokenID uint) string {
 	return "该用户的节点已全部停用/暂停"
 }
 
-// usedBytes 统计订阅用户的已用流量（唯一依据是 TokenTraffic，与当前用户身份无关）。
-func (s *Service) usedBytes(tokenID uint) (int64, error) {
+// trafficBytes 查询订阅用户的上行与下行累计流量（唯一依据是 TokenTraffic，与当前用户身份无关）。
+func (s *Service) trafficBytes(tokenID uint) (upload, download int64, err error) {
 	var row db.TokenTraffic
-	err := s.db.First(&row, "token_id = ?", tokenID).Error
+	err = s.db.First(&row, "token_id = ?", tokenID).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return 0, nil
+		return 0, 0, nil
 	}
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return row.UploadBytes + row.DownloadBytes, nil
+	return row.UploadBytes, row.DownloadBytes, nil
 }
 
 // nodes 组装该用户生效中的节点（入站启用 + 用户启用且未暂停）。
@@ -243,6 +272,15 @@ func (s *Service) nodes(tokenID uint) ([]NodeSpec, error) {
 	for _, in := range inbounds {
 		inMeta[in.ID] = in
 	}
+	var certs []db.Certificate
+	if err := s.db.Find(&certs).Error; err != nil {
+		return nil, err
+	}
+	certMeta := make(map[uint]db.Certificate, len(certs))
+	for _, c := range certs {
+		certMeta[c.ID] = c
+	}
+	selfSignedCache := make(map[string]bool)
 	specs := make([]NodeSpec, 0, len(bindings))
 	for _, b := range bindings {
 		in, ok := inMeta[b.InboundID]
@@ -259,9 +297,93 @@ func (s *Service) nodes(tokenID uint) ([]NodeSpec, error) {
 		specs = append(specs, NodeSpec{
 			Tag: user.Name, Protocol: in.Protocol, Port: in.ListenPort,
 			Config: in.Config, CredJSON: user.Credential,
+			Insecure: s.inboundInsecure(in.Protocol, in.Config, certMeta, selfSignedCache),
 		})
 	}
 	return specs, nil
+}
+
+// inboundInsecure 判断入站是否使用自签 TLS 证书（Reality 节点恒为 false）。
+func (s *Service) inboundInsecure(protocol, rawConfig string, certs map[uint]db.Certificate, cache map[string]bool) bool {
+	cfg, err := singbox.ParseInboundConfig(protocol, rawConfig)
+	if err != nil {
+		return false
+	}
+	if vc, ok := cfg.(*singbox.VLESSConfig); ok && vc.Reality.Enabled {
+		return false
+	}
+	tlsCfg := singbox.InboundTLS(cfg)
+	if tlsCfg == nil {
+		return false
+	}
+	tlsActive := tlsCfg.Enabled || protocol == singbox.ProtoHysteria2 || protocol == singbox.ProtoTUIC ||
+		protocol == singbox.ProtoAnyTLS || protocol == singbox.ProtoTrojan
+	if !tlsActive {
+		return false
+	}
+	path := s.certFilePath(tlsCfg, certs)
+	if path == "" {
+		return false
+	}
+	if cached, ok := cache[path]; ok {
+		return cached
+	}
+	selfSigned := isSelfSignedPEMFile(path)
+	cache[path] = selfSigned
+	return selfSigned
+}
+
+// certFilePath 解析入站 TLS 引用的证书文件路径。
+func (s *Service) certFilePath(tlsCfg *singbox.TLSConfig, certs map[uint]db.Certificate) string {
+	switch tlsCfg.CertMode {
+	case singbox.CertModeManaged:
+		if tlsCfg.CertID == 0 {
+			return ""
+		}
+		cert, ok := certs[tlsCfg.CertID]
+		if !ok {
+			return ""
+		}
+		if cert.Mode == singbox.CertModeManaged {
+			if cert.CertPath == "" || s.dataDir == "" {
+				return ""
+			}
+			return filepath.Join(s.dataDir, "certs", cert.CertPath)
+		}
+		if cert.Mode == singbox.CertModePath {
+			return cert.CertPath
+		}
+	case singbox.CertModePath:
+		return tlsCfg.CertPath
+	}
+	return ""
+}
+
+// isSelfSignedPEMFile 判断 PEM 文件中的首个证书是否为自签证书。
+func isSelfSignedPEMFile(path string) bool {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for len(raw) > 0 {
+		var block *pem.Block
+		block, raw = pem.Decode(raw)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return false
+		}
+		// 面板自签叶子证书不带 IsCA/KeyUsageCertSign，CheckSignatureFrom 会按 CA 约束拒绝；
+		// 用 CheckSignature 直接校验证书自身公钥签名。
+		return bytes.Equal(cert.RawIssuer, cert.RawSubject) &&
+			cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature) == nil
+	}
+	return false
 }
 
 // ruleEntries 把规则记录解析为带规则集下载源的条目（跳过无可用源的规则集规则）。
@@ -346,6 +468,62 @@ func getSetting(database *gorm.DB, key string) string {
 		return ""
 	}
 	return s.Value
+}
+
+// subscriptionTitle 解析订阅显示名：优先用户备注，其次请求域名，最后 proxy-ui。
+func subscriptionTitle(name, requestHost string) string {
+	if t := strings.TrimSpace(name); t != "" {
+		return t
+	}
+	if h := strings.TrimSpace(hostOnly(requestHost)); h != "" {
+		return h
+	}
+	return "proxy-ui"
+}
+
+// sanitizeHeaderTitle 清洗响应头使用的订阅名：移除控制字符并替换引号/分隔符等破坏头结构的字符。
+func sanitizeHeaderTitle(raw string) string {
+	cleaned := strings.Map(func(r rune) rune {
+		switch {
+		case r < 0x20 || r == 0x7f:
+			return -1
+		case r == '"' || r == '\\' || r == ';' || r == '/':
+			return '-'
+		default:
+			return r
+		}
+	}, strings.TrimSpace(raw))
+	cleaned = strings.TrimSpace(cleaned)
+	if cleaned == "" {
+		return "proxy-ui"
+	}
+	return cleaned
+}
+
+// contentDisposition 生成 Content-Disposition 响应头（不附带 config.* 与扩展名，避免客户端展示为文件名）：
+// 纯 ASCII 使用 filename="..."；含非 ASCII 使用 RFC 5987 filename*=UTF-8”...。
+func contentDisposition(title string) string {
+	for _, r := range title {
+		if r < 0x20 || r >= 0x7f {
+			return "attachment; filename*=UTF-8''" + url.PathEscape(title)
+		}
+	}
+	return fmt.Sprintf("attachment; filename=%q", title)
+}
+
+// formatUserInfo 生成 Subscription-Userinfo 响应头值。
+func formatUserInfo(info *UserInfo) string {
+	parts := []string{
+		fmt.Sprintf("upload=%d", info.Upload),
+		fmt.Sprintf("download=%d", info.Download),
+	}
+	if info.Total > 0 {
+		parts = append(parts, fmt.Sprintf("total=%d", info.Total))
+	}
+	if info.Expire > 0 {
+		parts = append(parts, fmt.Sprintf("expire=%d", info.Expire))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // marshalJSON 序列化 sing-box 配置（缩进两格）。

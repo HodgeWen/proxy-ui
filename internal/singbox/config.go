@@ -16,6 +16,7 @@ type RouteConfig struct {
 	RuleSet               []RuleSetConfig  `json:"rule_set,omitempty"`                // 远程规则集（规则集内容项）
 	Final                 string           `json:"final,omitempty"`                   // 未命中规则的兜底出站 tag
 	DefaultDomainResolver string           `json:"default_domain_resolver,omitempty"` // 默认域名解析使用的 DNS 服务器 tag
+	AutoDetectInterface   bool             `json:"auto_detect_interface,omitempty"`   // 客户端自动探测出口网卡
 }
 
 // RuleSetConfig 远程规则集。

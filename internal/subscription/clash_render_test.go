@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/ast"
+	"github.com/goccy/go-yaml/parser"
 
 	"proxy-ui/internal/singbox"
 )
@@ -24,10 +26,10 @@ type clashConfigDoc struct {
 	} `yaml:"rule-providers"`
 	Rules []string `yaml:"rules"`
 	DNS   struct {
-		Enable        bool     `yaml:"enable"`
-		Nameserver    []string `yaml:"nameserver"`
-		DefaultNS     []string `yaml:"default-nameserver"`
-		NameserverPol []any    `yaml:"nameserver-policy"`
+		Enable        bool                `yaml:"enable"`
+		Nameserver    []string            `yaml:"nameserver"`
+		DefaultNS     []string            `yaml:"default-nameserver"`
+		NameserverPol map[string][]string `yaml:"nameserver-policy"`
 	} `yaml:"dns"`
 }
 
@@ -211,6 +213,33 @@ func TestRenderClashStructure(t *testing.T) {
 	if len(doc.DNS.NameserverPol) == 0 {
 		t.Error("dns.nameserver-policy 不应为空（按域名分流）")
 	}
+	if got := doc.DNS.NameserverPol["+.cn"]; len(got) == 0 {
+		t.Errorf("dns.nameserver-policy 应为含 +.cn 的 mapping: %v", doc.DNS.NameserverPol)
+	}
+	// 用 YAML AST 校验 dns.nameserver-policy 确实为 MappingNode（非 SequenceNode），防止 mihomo 报 pipeline must contain YAML mapping
+	file, err := parser.ParseBytes(raw, 0)
+	if err != nil {
+		t.Fatalf("AST 解析失败: %v\n%s", err, raw)
+	}
+	var rawMap map[string]any
+	if err := yaml.Unmarshal(raw, &rawMap); err != nil {
+		t.Fatalf("Unmarshal map 失败: %v", err)
+	}
+	dnsMap, _ := rawMap["dns"].(map[string]any)
+	if _, ok := dnsMap["nameserver-policy"].(map[string]any); !ok {
+		t.Fatalf("dns.nameserver-policy 应反序列化为 map[string]any，实际 %T:\n%s", dnsMap["nameserver-policy"], raw)
+	}
+	policyNode, err := yaml.PathString("$.dns.nameserver-policy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	node, err := policyNode.FilterFile(file)
+	if err != nil {
+		t.Fatalf("查找 $.dns.nameserver-policy 节点失败: %v", err)
+	}
+	if node.Type() != ast.MappingType {
+		t.Fatalf("$.dns.nameserver-policy AST 类型应为 MappingType, got %v:\n%s", node.Type(), raw)
+	}
 }
 
 // TestRenderClashShadowsocks2022 SS-2022 的 clash 密码同样是「入站PSK:用户密钥」。
@@ -287,12 +316,40 @@ func TestClashDNSOf(t *testing.T) {
 	if len(out.DefaultNameser) != 2 || out.DefaultNameser[0] != "223.5.5.5" || out.DefaultNameser[1] != "8.8.8.8:5353" {
 		t.Errorf("default-nameserver 应取明文 UDP 服务器: %v", out.DefaultNameser)
 	}
-	// 规则展开为 mihomo 域名匹配串
-	if len(out.NameserverPol) != 1 || out.NameserverPol[0].Domain != ".cn" {
+	// 规则展开为 mihomo 域名匹配串（后缀用 +. 匹配根域与子域）且保持顺序与去重
+	if len(out.NameserverPol) != 1 || out.NameserverPol[0].Key != "+.cn" {
 		t.Errorf("nameserver-policy 域名映射不符: %+v", out.NameserverPol)
 	}
-	if out.NameserverPol[0].Server[0] != "223.5.5.5" {
+	if servers, _ := out.NameserverPol[0].Value.([]string); len(servers) == 0 || servers[0] != "223.5.5.5" {
 		t.Errorf("nameserver-policy 服务器不符: %+v", out.NameserverPol[0])
+	}
+
+	// 重复域名规则先到优先且去重
+	dupPolicy := clashDNSOf(&singbox.DNSConfig{
+		Enabled: true,
+		Servers: []singbox.DNSServer{
+			{Tag: "a", Type: singbox.DNSTypeUDP, Server: "223.5.5.5"},
+			{Tag: "b", Type: singbox.DNSTypeUDP, Server: "8.8.8.8"},
+		},
+		Rules: []singbox.DNSRule{
+			{DomainSuffix: "cn,qq.com", Server: "a"},
+			{DomainSuffix: "cn", Server: "b"},
+		},
+	})
+	if len(dupPolicy.NameserverPol) != 2 {
+		t.Errorf("重复域名应去重为 2 项, got %+v", dupPolicy.NameserverPol)
+	}
+	if s, _ := dupPolicy.NameserverPol[0].Value.([]string); len(s) == 0 || s[0] != "223.5.5.5" {
+		t.Errorf("重复域名应保留先出现的规则: %+v", dupPolicy.NameserverPol[0])
+	}
+
+	// 非 IP 型 UDP 服务器不进入 default-nameserver，回落公共 DNS
+	domainUDP := clashDNSOf(&singbox.DNSConfig{
+		Enabled: true,
+		Servers: []singbox.DNSServer{{Tag: "u", Type: singbox.DNSTypeUDP, Server: "dns.alidns.com"}},
+	})
+	if len(domainUDP.DefaultNameser) == 0 || domainUDP.DefaultNameser[0] != "223.5.5.5" {
+		t.Errorf("非 IP UDP 服务器不应放入 default-nameserver, got %v", domainUDP.DefaultNameser)
 	}
 
 	// 无明文 UDP 服务器时 default-nameserver 回落到公共 DNS
@@ -414,13 +471,19 @@ func TestRenderClashMoreProtocols(t *testing.T) {
 		vmess["tls"] != true || vmess["servername"] != "vmess.example.com" {
 		t.Errorf("VMess proxy 字段不符: %v", vmess)
 	}
+	if alterID, ok := vmess["alterId"]; !ok || intOf(alterID) != 0 {
+		t.Errorf("VMess 必须含 alterId: 0: %v", vmess)
+	}
+	if vmess["cipher"] != "auto" || vmess["udp"] != true {
+		t.Errorf("VMess 应含 cipher=auto 与 udp=true: %v", vmess)
+	}
 	wsOpts, _ := vmess["ws-opts"].(map[string]any)
 	if wsOpts == nil || wsOpts["path"] != "/ws" {
 		t.Errorf("VMess ws-opts 不符: %v", vmess)
 	}
 
 	vless := findProxy(t, doc, "n-vless-tls")
-	if vless["tls"] != true || vless["servername"] != "vless.example.com" {
+	if vless["tls"] != true || vless["servername"] != "vless.example.com" || vless["udp"] != true {
 		t.Errorf("非 Reality TLS VLESS 字段不符: %v", vless)
 	}
 	if _, ok := vless["reality-opts"]; ok {
@@ -428,6 +491,58 @@ func TestRenderClashMoreProtocols(t *testing.T) {
 	}
 	if _, ok := vless["client-fingerprint"]; ok {
 		t.Errorf("非 Reality VLESS 不应带 client-fingerprint: %v", vless)
+	}
+}
+
+// TestRenderClashSkipCertVerifyAndUDP 自签证书写入 skip-cert-verify（Reality 不写），仅 TCP SS 省略 udp。
+func TestRenderClashSkipCertVerifyAndUDP(t *testing.T) {
+	vlessTLS, _ := json.Marshal(&singbox.VLESSConfig{
+		Flow: "xtls-rprx-vision",
+		TLS:  singbox.TLSConfig{Enabled: true, ServerName: "vless.example.com"},
+	})
+	vlessCred, _ := json.Marshal(singbox.Credential{UUID: "11111111-1111-1111-1111-111111111111"})
+	ssTCPCfg, _ := json.Marshal(&singbox.ShadowsocksConfig{Method: "2022-blake3-aes-128-gcm", PSK: "AAAAAAAAAAAAAAAAAAAAAA==", Network: "tcp"})
+	ssCred, _ := json.Marshal(singbox.Credential{Password: "BBBBBBBBBBBBBBBBBBBBBB=="})
+
+	realitySpec := nodeSpec(t, "n-reality", singbox.ProtoVLESS, 20001)
+	realitySpec.Insecure = true // Reality 即使标了也不应输出 skip-cert-verify
+	hy2Spec := nodeSpec(t, "n-hy2", singbox.ProtoHysteria2, 20002)
+	hy2Spec.Insecure = true
+	tuicSpec := nodeSpec(t, "n-tuic", singbox.ProtoTUIC, 20003)
+	tuicSpec.Insecure = true
+	anytlsSpec := nodeSpec(t, "n-anytls", singbox.ProtoAnyTLS, 20004)
+	anytlsSpec.Insecure = true
+	trojanSpec := nodeSpec(t, "n-trojan", singbox.ProtoTrojan, 20005)
+	trojanSpec.Insecure = true
+	vlessTLSSpec := NodeSpec{Tag: "n-vless-tls", Protocol: singbox.ProtoVLESS, Port: 20006, Config: string(vlessTLS), CredJSON: string(vlessCred), Insecure: true}
+	ssTCPSpec := NodeSpec{Tag: "n-ss-tcp", Protocol: singbox.ProtoShadowsocks, Port: 20007, Config: string(ssTCPCfg), CredJSON: string(ssCred)}
+
+	d, err := Assemble("example.com", []NodeSpec{realitySpec, hy2Spec, tuicSpec, anytlsSpec, trojanSpec, vlessTLSSpec, ssTCPSpec}, nil, nil, "", nil)
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	raw, err := RenderClash(d)
+	if err != nil {
+		t.Fatalf("渲染 clash 失败: %v", err)
+	}
+	doc := parseClash(t, raw)
+
+	reality := findProxy(t, doc, "n-reality")
+	if _, ok := reality["skip-cert-verify"]; ok {
+		t.Errorf("Reality 节点不应写入 skip-cert-verify: %v", reality)
+	}
+	for _, tag := range []string{"n-hy2", "n-tuic", "n-anytls", "n-trojan", "n-vless-tls"} {
+		p := findProxy(t, doc, tag)
+		if p["skip-cert-verify"] != true {
+			t.Errorf("%s 自签节点应写入 skip-cert-verify: true: %v", tag, p)
+		}
+		if p["udp"] != true {
+			t.Errorf("%s 节点应写入 udp: true: %v", tag, p)
+		}
+	}
+	ss := findProxy(t, doc, "n-ss-tcp")
+	if _, ok := ss["udp"]; ok {
+		t.Errorf("仅 TCP 的 SS 节点不应写入 udp: true: %v", ss)
 	}
 }
 

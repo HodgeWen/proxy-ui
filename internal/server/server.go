@@ -49,7 +49,7 @@ func New(opt Options) *gin.Engine {
 	selfUpdates := update.NewSelfUpdate(opt.Version)
 	stats := singbox.NewStatsMonitor(core, opt.DB)
 	go stats.Run(ctx) // 统计常驻采集（按用户累计流量），随生命周期退出
-	subs := subscription.New(opt.DB)
+	subs := subscription.New(opt.DB, opt.DataDir)
 	a := api.New(opt.DB, store, core, selfUpdates, stats, opt.DataDir)
 	// 内核随面板自动运行：库里有可用入站则按聚合配置启动，没有则以最小配置启动。
 	// 失败只告警，不阻塞 HTTP 服务——面板必须能打开，用户才能修改配置。

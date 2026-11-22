@@ -1,6 +1,9 @@
 package singbox
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // inboundJSON 把入站连接层配置 + 其下用户映射为 sing-box inbound JSON 对象。
 // 用户凭据按协议写入 users 数组；无用户的入站不产出（内核要求至少一个认证用户）。
@@ -20,7 +23,13 @@ func inboundJSON(e InboundEntry, cfg any) (map[string]any, error) {
 			return nil, err
 		}
 		if c.Reality.Enabled {
-			tls["reality"] = c.Reality.json()
+			sni := c.RealitySNI()
+			tls["server_name"] = sni
+			rc := c.Reality
+			if strings.TrimSpace(rc.HandshakeServer) == "" {
+				rc.HandshakeServer = sni
+			}
+			tls["reality"] = rc.json()
 			// 内核不允许 Reality 与 ECH 并存（reality_server 会直接报错），这里以 Reality 优先
 			delete(tls, "ech")
 		}
