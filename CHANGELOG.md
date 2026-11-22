@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.1 (2026-11-22)
+
+### 修复
+
+- 修复 Clash（mihomo）订阅中 `dns.nameserver-policy` 被渲染为列表导致客户端校验报错 `pipeline must contain YAML mapping` 的问题，并将域名后缀规则改为 `+.` 匹配及过滤非 IP 类型的 `default-nameserver`
+- 修复客户端导入订阅后名称显示为 `config.json` / `config.yaml` 的问题：改用订阅用户名称输出 `Content-Disposition` 与 `Profile-Title` 响应头，并附带 `Subscription-Userinfo` 流量与到期信息
+- 修复使用自签 TLS 证书的入站在客户端订阅中未下发跳过证书校验参数（`insecure` / `skip-cert-verify`）导致 TLS 握手失败的问题
+- 修复 VLESS + Reality 修改握手目标站点或省略握手端口时服务端与客户端 SNI 不一致、端口缺失的问题
+- 修复无自定义出站时应用规则模板后客户端 `proxy` 策略组仅剩 `DIRECT`、未包含订阅节点的问题
+- 修复 sing-box 客户端订阅缺少 TUN 入站与基础路由规则（嗅探、DNS 劫持、私有 IP 直连）以及默认下发旧版客户端不识别的 `bbr_profile` 导致配置不可用的问题
+- 修复 Clash 订阅中 VMess 节点缺少必填的 `alterId` / `cipher` 字段及代理节点默认未开启 `udp` 的问题
+
 ## 0.1.0 (2026-11-21)
 
 ### 新增
