@@ -50,6 +50,7 @@ const canDelete = computed(() => items.value.length > 1)
 const editingId = shallowRef(0)
 const saving = shallowRef(false)
 const switchingId = shallowRef(0)
+const deletingId = shallowRef(0)
 
 /**
  * 编辑表单在 v-for 内，用按行 ID 索引的函数 ref 取实例。
@@ -203,6 +204,7 @@ async function handleDelete(item: RuleSetItem): Promise<void> {
     '删除',
   )
   if (!ok) return
+  deletingId.value = item.id
   try {
     await deleteRuleSetItem(item.id)
     message.success('内容项已删除')
@@ -210,6 +212,8 @@ async function handleDelete(item: RuleSetItem): Promise<void> {
     emit('changed')
   } catch {
     // 错误已由请求封装统一提示
+  } finally {
+    deletingId.value = 0
   }
 }
 
@@ -347,6 +351,7 @@ watch(visible, (open) => {
               text
               size="small"
               type="danger"
+              :loading="deletingId === item.id"
               :disabled="!canDelete"
               :title="canDelete ? undefined : '每个规则集至少保留一条内容项'"
               @click="handleDelete(item)"

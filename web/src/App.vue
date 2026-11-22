@@ -138,4 +138,10 @@
   margin-bottom: 8px;
   font-size: 14px;
 }
+
+/* 表格加载容器：给 v-loading 遮罩留足最小高度，避免空数据时压扁 */
+.table-wrap {
+  position: relative;
+  min-height: 120px;
+}
 </style>

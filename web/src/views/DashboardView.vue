@@ -9,6 +9,7 @@ import {
   UTable,
   UTag,
   defineTableColumns,
+  vLoading,
 } from '@veltra/desktop'
 import { ChartPie } from '@veltra/icons/normal'
 import { onBeforeUnmount, onMounted, shallowRef } from 'vue'
@@ -51,6 +52,7 @@ async function refreshRealtime() {
 // ---------- 按用户累计流量 ----------
 
 const trafficRows = shallowRef<UserTrafficRow[]>([])
+const trafficLoading = shallowRef(true)
 // 用户/订阅用户两列同为弹性列分摊剩余宽度，避免空表时首列独占整行失衡
 const trafficColumns = defineTableColumns([
   { key: 'tag', name: '用户', minWidth: 160 },
@@ -62,10 +64,13 @@ const trafficColumns = defineTableColumns([
 ])
 
 async function refreshTraffic() {
+  trafficLoading.value = true
   try {
     trafficRows.value = await fetchUserTraffic()
   } catch {
     // 错误已由请求封装统一提示
+  } finally {
+    trafficLoading.value = false
   }
 }
 
@@ -104,8 +109,8 @@ function formatRate(n: number): string {
       <u-card-header>内核状态</u-card-header>
       <u-card-content>
         <div class="kernel-meta">
-          <u-tag :type="status?.running ? 'success' : 'info'">
-            {{ status?.running ? '运行中' : '已停止' }}
+          <u-tag :type="status ? (status.running ? 'success' : 'info') : 'info'">
+            {{ status ? (status.running ? '运行中' : '已停止') : '加载中…' }}
           </u-tag>
           <span>版本：<strong>{{ status?.version || '-' }}</strong></span>
           <span>运行时长：{{ formatUptime(status?.uptimeSeconds) }}</span>
@@ -141,37 +146,40 @@ function formatRate(n: number): string {
       <u-card-header>
         <div class="card-header-row">
           <span>按用户累计流量</span>
-          <u-button @click="refreshTraffic">刷新</u-button>
+          <u-button :loading="trafficLoading" @click="refreshTraffic">刷新</u-button>
         </div>
       </u-card-header>
       <u-card-content>
-        <u-table :columns="trafficColumns" :data="trafficRows" row-key="tag" stripe>
-          <template #column:tag="{ rowData }">
-            <span class="mono">{{ rowData.tag }}</span>
-          </template>
-          <template #column:subscriber="{ rowData }">
-            {{ rowData.subscriber || '—' }}
-          </template>
-          <template #column:protocol="{ rowData }">
-            {{ protocolDef(rowData.protocol)?.name ?? rowData.protocol }}
-          </template>
-          <template #column:uploadBytes="{ rowData }">
-            {{ formatBytes(rowData.uploadBytes) }}
-          </template>
-          <template #column:downloadBytes="{ rowData }">
-            {{ formatBytes(rowData.downloadBytes) }}
-          </template>
-          <template #empty>
-            <EmptyState
-              :icon="ChartPie"
-              title="暂无用户流量"
-              description="入站下还没有用户，或用户尚未产生流量；创建用户后此处按用户累计上传与下载"
-              cta-text="前往入站页"
-              cta-plain
-              @cta="router.push({ name: 'inbounds' })"
-            />
-          </template>
-        </u-table>
+        <div v-loading="trafficLoading && !trafficRows.length" class="table-wrap">
+          <u-table :columns="trafficColumns" :data="trafficRows" row-key="tag" stripe>
+            <template #column:tag="{ rowData }">
+              <span class="mono">{{ rowData.tag }}</span>
+            </template>
+            <template #column:subscriber="{ rowData }">
+              {{ rowData.subscriber || '—' }}
+            </template>
+            <template #column:protocol="{ rowData }">
+              {{ protocolDef(rowData.protocol)?.name ?? rowData.protocol }}
+            </template>
+            <template #column:uploadBytes="{ rowData }">
+              {{ formatBytes(rowData.uploadBytes) }}
+            </template>
+            <template #column:downloadBytes="{ rowData }">
+              {{ formatBytes(rowData.downloadBytes) }}
+            </template>
+            <template #empty>
+              <EmptyState
+                v-if="!trafficLoading"
+                :icon="ChartPie"
+                title="暂无用户流量"
+                description="入站下还没有用户，或用户尚未产生流量；创建用户后此处按用户累计上传与下载"
+                cta-text="前往入站页"
+                cta-plain
+                @cta="router.push({ name: 'inbounds' })"
+              />
+            </template>
+          </u-table>
+        </div>
       </u-card-content>
     </u-card>
   </div>

@@ -23,12 +23,18 @@ type clashConfigDoc struct {
 		URL      string `yaml:"url"`
 		Path     string `yaml:"path"`
 		Interval int    `yaml:"interval"`
+		Proxy    string `yaml:"proxy"`
 	} `yaml:"rule-providers"`
 	Rules []string `yaml:"rules"`
 	DNS   struct {
 		Enable        bool                `yaml:"enable"`
+		EnhancedMode  string              `yaml:"enhanced-mode"`
+		FakeIPRange   string              `yaml:"fake-ip-range"`
+		FakeIPFilter  []string            `yaml:"fake-ip-filter"`
 		Nameserver    []string            `yaml:"nameserver"`
 		DefaultNS     []string            `yaml:"default-nameserver"`
+		ProxyServerNS []string            `yaml:"proxy-server-nameserver"`
+		DirectNS      []string            `yaml:"direct-nameserver"`
 		NameserverPol map[string][]string `yaml:"nameserver-policy"`
 	} `yaml:"dns"`
 }
@@ -179,12 +185,15 @@ func TestRenderClashStructure(t *testing.T) {
 	if antiAD.Interval != 86400 {
 		t.Errorf("rule-provider 更新间隔不符: %d", antiAD.Interval)
 	}
+	if antiAD.Proxy != "proxy" || geoip.Proxy != "proxy" {
+		t.Errorf("rule-provider 应经由代理组下载: antiAD=%q geoip=%q", antiAD.Proxy, geoip.Proxy)
+	}
 
-	// rules：各匹配方式映射正确，最后补 MATCH
+	// rules：各匹配方式映射正确（ipcidr 规则集带 no-resolve），最后补 MATCH
 	joined := strings.Join(doc.Rules, "\n")
 	for _, want := range []string{
 		"RULE-SET,anti-ad,REJECT",
-		"RULE-SET,geoip-cn,DIRECT",
+		"RULE-SET,geoip-cn,DIRECT,no-resolve",
 		"DOMAIN-SUFFIX,a.com,proxy",
 		"DOMAIN-SUFFIX,b.com,proxy",
 		"DOMAIN,exact.com,proxy",
@@ -204,11 +213,14 @@ func TestRenderClashStructure(t *testing.T) {
 	if !doc.DNS.Enable {
 		t.Error("应渲染 dns.enable = true")
 	}
-	if len(doc.DNS.Nameserver) == 0 {
-		t.Error("dns.nameserver 不应为空")
+	if doc.DNS.EnhancedMode != "fake-ip" || doc.DNS.FakeIPRange == "" || len(doc.DNS.FakeIPFilter) == 0 {
+		t.Errorf("应渲染 fake-ip 配置与过滤列表: %+v", doc.DNS)
 	}
-	if len(doc.DNS.DefaultNS) == 0 {
-		t.Error("dns.default-nameserver 不应为空（需明文 IP 解析器）")
+	if len(doc.DNS.Nameserver) != 1 || doc.DNS.Nameserver[0] != "https://1.1.1.1/dns-query#proxy" {
+		t.Errorf("远程 DoH nameserver 应附带 #proxy: %v", doc.DNS.Nameserver)
+	}
+	if len(doc.DNS.DefaultNS) == 0 || len(doc.DNS.ProxyServerNS) == 0 || len(doc.DNS.DirectNS) == 0 {
+		t.Errorf("dns default/proxy-server/direct nameserver 不应为空: %+v", doc.DNS)
 	}
 	if len(doc.DNS.NameserverPol) == 0 {
 		t.Error("dns.nameserver-policy 不应为空（按域名分流）")
@@ -301,20 +313,35 @@ func TestClashDNSOf(t *testing.T) {
 		Rules: []singbox.DNSRule{{DomainSuffix: "cn", Server: "udp"}},
 		Final: "doh",
 	}
-	out := clashDNSOf(cfg)
+	out := clashDNSOf(cfg, "proxy")
 	if out == nil {
 		t.Fatal("启用时不应返回 nil")
 	}
 	if !out.Enable {
 		t.Error("dns.enable 应为 true")
 	}
-	// final 指定时 nameserver 只保留该服务器
-	if len(out.Nameserver) != 1 || out.Nameserver[0] != "https://1.1.1.1/dns-query" {
-		t.Errorf("final 指定时 nameserver 应只含该服务器: %v", out.Nameserver)
+	// final 指定时 nameserver 只保留该服务器，远程 DoH 自动走代理组
+	if len(out.Nameserver) != 1 || out.Nameserver[0] != "https://1.1.1.1/dns-query#proxy" {
+		t.Errorf("final 指定时远程 DoH nameserver 应附带 #proxy: %v", out.Nameserver)
 	}
-	// default-nameserver 用明文 UDP 服务器
+	// 无 proxyGroup 时不追加 #proxy；显式指定 Detour 时优先保留
+	if noGroup := clashDNSOf(cfg, ""); len(noGroup.Nameserver) != 1 || noGroup.Nameserver[0] != "https://1.1.1.1/dns-query" {
+		t.Errorf("无 proxyGroup 时不应追加 #: %v", noGroup.Nameserver)
+	}
+	explicitDetour := clashDNSOf(&singbox.DNSConfig{
+		Enabled: true,
+		Servers: []singbox.DNSServer{{Tag: "doh", Type: singbox.DNSTypeHTTPS, Server: "1.1.1.1", Detour: "direct"}},
+		Final:   "doh",
+	}, "proxy")
+	if len(explicitDetour.Nameserver) != 1 || explicitDetour.Nameserver[0] != "https://1.1.1.1/dns-query#DIRECT" {
+		t.Errorf("显式 Detour=direct 应映射为 #DIRECT: %v", explicitDetour.Nameserver)
+	}
+	// default-nameserver / proxy-server-nameserver / direct-nameserver 用明文 UDP 服务器
 	if len(out.DefaultNameser) != 2 || out.DefaultNameser[0] != "223.5.5.5" || out.DefaultNameser[1] != "8.8.8.8:5353" {
 		t.Errorf("default-nameserver 应取明文 UDP 服务器: %v", out.DefaultNameser)
+	}
+	if len(out.ProxyServerNameser) != 2 || len(out.DirectNameser) != 2 {
+		t.Errorf("proxy-server-nameserver 与 direct-nameserver 应与 default-nameserver 一致: %+v", out)
 	}
 	// 规则展开为 mihomo 域名匹配串（后缀用 +. 匹配根域与子域）且保持顺序与去重
 	if len(out.NameserverPol) != 1 || out.NameserverPol[0].Key != "+.cn" {
@@ -335,7 +362,7 @@ func TestClashDNSOf(t *testing.T) {
 			{DomainSuffix: "cn,qq.com", Server: "a"},
 			{DomainSuffix: "cn", Server: "b"},
 		},
-	})
+	}, "proxy")
 	if len(dupPolicy.NameserverPol) != 2 {
 		t.Errorf("重复域名应去重为 2 项, got %+v", dupPolicy.NameserverPol)
 	}
@@ -347,7 +374,7 @@ func TestClashDNSOf(t *testing.T) {
 	domainUDP := clashDNSOf(&singbox.DNSConfig{
 		Enabled: true,
 		Servers: []singbox.DNSServer{{Tag: "u", Type: singbox.DNSTypeUDP, Server: "dns.alidns.com"}},
-	})
+	}, "proxy")
 	if len(domainUDP.DefaultNameser) == 0 || domainUDP.DefaultNameser[0] != "223.5.5.5" {
 		t.Errorf("非 IP UDP 服务器不应放入 default-nameserver, got %v", domainUDP.DefaultNameser)
 	}
@@ -357,13 +384,13 @@ func TestClashDNSOf(t *testing.T) {
 		Enabled: true,
 		Servers: []singbox.DNSServer{{Tag: "doh", Type: singbox.DNSTypeHTTPS, Server: "1.1.1.1"}},
 	}
-	fallback := clashDNSOf(onlyDoH)
+	fallback := clashDNSOf(onlyDoH, "proxy")
 	if len(fallback.DefaultNameser) == 0 {
 		t.Error("无明文服务器时 default-nameserver 应给出兜底值")
 	}
 
 	// 未启用返回 nil
-	if clashDNSOf(nil) != nil || clashDNSOf(&singbox.DNSConfig{Enabled: false}) != nil {
+	if clashDNSOf(nil, "proxy") != nil || clashDNSOf(&singbox.DNSConfig{Enabled: false}, "proxy") != nil {
 		t.Error("未启用时应返回 nil")
 	}
 }

@@ -19,6 +19,7 @@ import {
   UTag,
   defineTableColumns,
   message,
+  vLoading,
 } from '@veltra/desktop'
 import { onMounted, shallowRef, useTemplateRef } from 'vue'
 import { useRouter } from 'vue-router'
@@ -35,7 +36,8 @@ const classic = PROTOCOL_DEFS.filter((p) => !p.recommended)
 const router = useRouter()
 
 const inbounds = shallowRef<Inbound[]>([])
-const loading = shallowRef(false)
+const loading = shallowRef(true)
+const deletingId = shallowRef(0)
 const pickerVisible = shallowRef(false)
 
 const inboundForm = useTemplateRef<InstanceType<typeof InboundForm>>('inboundForm')
@@ -88,12 +90,15 @@ async function handleDelete(row: Inbound): Promise<void> {
     '删除',
   )
   if (!ok) return
+  deletingId.value = row.id
   try {
     await deleteInbound(row.id)
     message.success('入站已删除')
     await refresh()
   } catch {
     // 错误已由请求封装统一提示
+  } finally {
+    deletingId.value = 0
   }
 }
 
@@ -118,48 +123,50 @@ onMounted(refresh)
         用户在「订阅用户」页统一管理：勾选入站即在该端口上生成独立凭据的节点，流量按用户单独累计，
         这里只展示各入站下的用户数。任何改动保存后立即生效，内核随即按新配置重建。
       </div>
-      <u-table :columns="columns" :data="inbounds" row-key="id" :loading="loading">
-        <template #empty>
-          <EmptyState
-            v-if="!loading"
-            title="暂无入站"
-            description="先创建一个入站（协议 + 监听地址/端口 + TLS 等），再到「订阅用户」页勾选它，为使用者生成节点"
-            cta-text="新建入站"
-            @cta="pickerVisible = true"
-          />
-        </template>
-        <template #column:protocol="{ rowData }">
-          <u-tag :type="protocolDef(rowData.protocol)?.recommended ? 'success' : 'info'">
-            {{ protocolDef(rowData.protocol)?.name ?? rowData.protocol }}
-          </u-tag>
-        </template>
-        <template #column:listen="{ rowData }">
-          <span class="mono">{{ listenLabel(rowData.listen, rowData.listenPort) }}</span>
-        </template>
-        <template #column:users="{ rowData }">
-          <span :class="{ 'cell-dim': !rowData.userCount }">{{ rowData.userCount }} 个</span>
-        </template>
-        <template #column:warnings="{ rowData }">
-          <u-tag v-if="rowData.warnings?.length" type="warning" :title="rowData.warnings.join('\n')">
-            ⚠ {{ rowData.warnings.length }}
-          </u-tag>
-          <span v-else class="cell-dim">—</span>
-        </template>
-        <template #column:enabled="{ rowData }">
-          <u-switch
-            size="small"
-            :model-value="rowEnabled(rowData)"
-            :disabled="togglingId === rowData.id"
-            @update:model-value="(v: boolean) => handleToggle(rowData, v)"
-          />
-        </template>
-        <template #column:actions="{ rowData }">
-          <u-action-group>
-            <u-action @run="inboundForm?.openEdit(rowData)">编辑</u-action>
-            <u-action type="danger" @run="handleDelete(rowData)">删除</u-action>
-          </u-action-group>
-        </template>
-      </u-table>
+      <div v-loading="loading" class="table-wrap">
+        <u-table :columns="columns" :data="inbounds" row-key="id">
+          <template #empty>
+            <EmptyState
+              v-if="!loading"
+              title="暂无入站"
+              description="先创建一个入站（协议 + 监听地址/端口 + TLS 等），再到「订阅用户」页勾选它，为使用者生成节点"
+              cta-text="新建入站"
+              @cta="pickerVisible = true"
+            />
+          </template>
+          <template #column:protocol="{ rowData }">
+            <u-tag :type="protocolDef(rowData.protocol)?.recommended ? 'success' : 'info'">
+              {{ protocolDef(rowData.protocol)?.name ?? rowData.protocol }}
+            </u-tag>
+          </template>
+          <template #column:listen="{ rowData }">
+            <span class="mono">{{ listenLabel(rowData.listen, rowData.listenPort) }}</span>
+          </template>
+          <template #column:users="{ rowData }">
+            <span :class="{ 'cell-dim': !rowData.userCount }">{{ rowData.userCount }} 个</span>
+          </template>
+          <template #column:warnings="{ rowData }">
+            <u-tag v-if="rowData.warnings?.length" type="warning" :title="rowData.warnings.join('\n')">
+              ⚠ {{ rowData.warnings.length }}
+            </u-tag>
+            <span v-else class="cell-dim">—</span>
+          </template>
+          <template #column:enabled="{ rowData }">
+            <u-switch
+              size="small"
+              :model-value="rowEnabled(rowData)"
+              :disabled="togglingId === rowData.id"
+              @update:model-value="(v: boolean) => handleToggle(rowData, v)"
+            />
+          </template>
+          <template #column:actions="{ rowData }">
+            <u-action-group :loading="deletingId === rowData.id">
+              <u-action @run="inboundForm?.openEdit(rowData)">编辑</u-action>
+              <u-action type="danger" @run="handleDelete(rowData)">删除</u-action>
+            </u-action-group>
+          </template>
+        </u-table>
+      </div>
     </u-card-content>
   </u-card>
 

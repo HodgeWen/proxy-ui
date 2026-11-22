@@ -14,7 +14,7 @@ import {
   USwitch,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
-import { computed, reactive, shallowRef, useTemplateRef, watch } from 'vue'
+import { computed, nextTick, reactive, shallowRef, useTemplateRef, watch } from 'vue'
 
 import { listInbounds } from '../api/inbound'
 import type { Inbound } from '../api/inbound'
@@ -45,8 +45,10 @@ const UNIT_BYTES: Record<Exclude<QuotaUnit, 'none'>, number> = {
 }
 
 const saving = shallowRef(false)
+const inboundsLoading = shallowRef(false)
 const formRef = useTemplateRef<FormExposed>('formRef')
 const inbounds = shallowRef<Inbound[]>([])
+let loadSeq = 0
 
 const form = reactive({
   name: '',
@@ -118,9 +120,13 @@ function expiryISO(): string | null {
   return date ? new Date(`${date}T${time || '00:00:00'}`).toISOString() : null
 }
 
-// 打开即回填（新建给默认值），随后拉取入站列表供勾选
+// 打开即回填（新建给默认值），随后异步拉取入站列表供勾选
 watch(visible, async (open) => {
-  if (!open) return
+  if (!open) {
+    loadSeq++
+    return
+  }
+  const seq = ++loadSeq
   const quota = splitQuota(token?.trafficLimitBytes ?? 0)
   const expiry = token?.expiresAt ? splitDateTime(token.expiresAt) : undefined
   form.name = token?.name ?? ''
@@ -130,10 +136,15 @@ watch(visible, async (open) => {
   form.expiry = { date: expiry?.date, time: expiry?.time }
   // 已勾选的入站按节点的 inboundId 回显
   form.nodeInbounds = token ? token.nodes.map((n) => n.inboundId) : []
+  void nextTick(() => formRef.value?.clearValidate())
+  inboundsLoading.value = true
   try {
-    inbounds.value = await listInbounds()
+    const list = await listInbounds()
+    if (seq === loadSeq) inbounds.value = list
   } catch {
     // 错误已由请求封装统一提示，入站列表为空时弹窗内会提示先去创建
+  } finally {
+    if (seq === loadSeq) inboundsLoading.value = false
   }
 })
 
@@ -222,7 +233,7 @@ async function handleSave(): Promise<void> {
         label="勾选入站"
         field="nodeInbounds"
         :options="inboundOptions"
-        placeholder="选择该用户可用的入站"
+        :placeholder="inboundsLoading ? '正在加载入站列表…' : '选择该用户可用的入站'"
         tips="勾选的每个入站都会为该用户生成一个节点（独立凭据、共用入站端口），订阅里只有这些节点；默认不勾，保存后可随时补勾"
         filterable
       />
@@ -230,7 +241,7 @@ async function handleSave(): Promise<void> {
         勾选或取消入站，会在对应入站里创建 / 删除该用户的身份，节点随之增减；保存即生效，内核自动按新配置重建，无需任何额外操作。
         只改配额或到期时间同样保存即生效，只暂停 / 恢复节点，不影响链接与端口。
       </p>
-      <p v-if="!hasEnabledInbound" class="form-hint is-warning">
+      <p v-if="!inboundsLoading && !hasEnabledInbound" class="form-hint is-warning">
         暂无启用的入站，请先到「入站」页创建并启用入站，再回来为该用户勾选节点。
       </p>
       <p v-if="stoppedInbounds.length" class="form-hint">

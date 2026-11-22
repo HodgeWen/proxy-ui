@@ -24,6 +24,7 @@ import {
   UTextarea,
   defineTableColumns,
   message,
+  vLoading,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
 import { nextTick, onMounted, reactive, shallowRef, useTemplateRef } from 'vue'
@@ -36,7 +37,8 @@ import { dialogStyle } from '../dialog-style'
 import { formatDateTime } from '../utils/format'
 
 const certs = shallowRef<Certificate[]>([])
-const loading = shallowRef(false)
+const loading = shallowRef(true)
+const deletingId = shallowRef(0)
 
 const columns = defineTableColumns([
   { key: 'name', name: '名称', minWidth: 140 },
@@ -191,12 +193,15 @@ async function handleDelete(row: Certificate): Promise<void> {
     '删除',
   )
   if (!ok) return
+  deletingId.value = row.id
   try {
     await deleteCert(row.id)
     message.success('证书已删除')
     await refresh()
   } catch {
     // 错误已由请求封装统一提示
+  } finally {
+    deletingId.value = 0
   }
 }
 
@@ -232,40 +237,42 @@ onMounted(refresh)
       </div>
     </u-card-header>
     <u-card-content>
-      <u-table :columns="columns" :data="certs" row-key="id" stripe :loading="loading">
-        <template #empty>
-          <EmptyState
-            v-if="!loading"
-            title="暂无证书"
-            description="还没有证书。自用可一键生成自签证书（填域名与有效期即可），有正式证书可上传或引用服务器路径"
-            cta-text="新增证书"
-            @cta="openCreate"
-          />
-        </template>
-        <template #column:mode="{ rowData }">
-          <u-tag :type="rowData.mode === 'managed' ? 'success' : 'info'">
-            {{ rowData.mode === 'managed' ? '面板存储' : '本地路径' }}
-          </u-tag>
-        </template>
-        <template #column:domains="{ rowData }">
-          <span v-if="rowData.domains?.length" class="cell-domains">{{ rowData.domains.join('、') }}</span>
-          <span v-else class="cell-dim">{{ rowData.certError ? '—' : rowData.certPath }}</span>
-        </template>
-        <template #column:expiry="{ rowData }">
-          <span :class="{ 'cell-expired': isExpired(rowData) || rowData.certError }">
-            {{ expiryText(rowData) }}
-          </span>
-        </template>
-        <template #column:status="{ rowData }">
-          <u-tag :type="certStatus(rowData).type">{{ certStatus(rowData).label }}</u-tag>
-        </template>
-        <template #column:actions="{ rowData }">
-          <u-action-group>
-            <u-action @run="openEdit(rowData)">编辑</u-action>
-            <u-action type="danger" @run="handleDelete(rowData)">删除</u-action>
-          </u-action-group>
-        </template>
-      </u-table>
+      <div v-loading="loading" class="table-wrap">
+        <u-table :columns="columns" :data="certs" row-key="id" stripe>
+          <template #empty>
+            <EmptyState
+              v-if="!loading"
+              title="暂无证书"
+              description="还没有证书。自用可一键生成自签证书（填域名与有效期即可），有正式证书可上传或引用服务器路径"
+              cta-text="新增证书"
+              @cta="openCreate"
+            />
+          </template>
+          <template #column:mode="{ rowData }">
+            <u-tag :type="rowData.mode === 'managed' ? 'success' : 'info'">
+              {{ rowData.mode === 'managed' ? '面板存储' : '本地路径' }}
+            </u-tag>
+          </template>
+          <template #column:domains="{ rowData }">
+            <span v-if="rowData.domains?.length" class="cell-domains">{{ rowData.domains.join('、') }}</span>
+            <span v-else class="cell-dim">{{ rowData.certError ? '—' : rowData.certPath }}</span>
+          </template>
+          <template #column:expiry="{ rowData }">
+            <span :class="{ 'cell-expired': isExpired(rowData) || rowData.certError }">
+              {{ expiryText(rowData) }}
+            </span>
+          </template>
+          <template #column:status="{ rowData }">
+            <u-tag :type="certStatus(rowData).type">{{ certStatus(rowData).label }}</u-tag>
+          </template>
+          <template #column:actions="{ rowData }">
+            <u-action-group :loading="deletingId === rowData.id">
+              <u-action @run="openEdit(rowData)">编辑</u-action>
+              <u-action type="danger" @run="handleDelete(rowData)">删除</u-action>
+            </u-action-group>
+          </template>
+        </u-table>
+      </div>
     </u-card-content>
   </u-card>
 

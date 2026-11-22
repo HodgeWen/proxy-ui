@@ -501,14 +501,9 @@ func sanitizeHeaderTitle(raw string) string {
 }
 
 // contentDisposition 生成 Content-Disposition 响应头（不附带 config.* 与扩展名，避免客户端展示为文件名）：
-// 纯 ASCII 使用 filename="..."；含非 ASCII 使用 RFC 5987 filename*=UTF-8”...。
+// 统一使用 RFC 5987 无引号格式 `filename*=UTF-8”...`，避免部分客户端（如 Clash Verge）把双引号解析进配置文件名。
 func contentDisposition(title string) string {
-	for _, r := range title {
-		if r < 0x20 || r >= 0x7f {
-			return "attachment; filename*=UTF-8''" + url.PathEscape(title)
-		}
-	}
-	return fmt.Sprintf("attachment; filename=%q", title)
+	return "attachment; filename*=UTF-8''" + url.PathEscape(title)
 }
 
 // formatUserInfo 生成 Subscription-Userinfo 响应头值。

@@ -21,28 +21,35 @@ const format = shallowRef<PreviewFormat>('sing-box')
 const content = shallowRef('')
 const loading = shallowRef(false)
 const error = shallowRef('')
+let loadSeq = 0
 
 async function load(): Promise<void> {
   if (!token) return
+  const seq = ++loadSeq
   loading.value = true
   error.value = ''
+  content.value = ''
   try {
     const res = await previewSubscription(token.id, format.value)
+    if (seq !== loadSeq) return
     content.value = res.content
   } catch (e) {
+    if (seq !== loadSeq) return
     content.value = ''
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
-// 打开即加载默认格式（sing-box）；关闭时重置格式，避免重开时触发 format watcher 并发发两次请求
+// 打开即加载默认格式（sing-box）；关闭时作废在途请求并重置格式，避免重开时并发发两次请求
 watch(visible, (open) => {
   if (open) {
     void load()
   } else {
+    loadSeq++
     format.value = 'sing-box'
+    loading.value = false
   }
 })
 watch(format, () => {

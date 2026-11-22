@@ -145,3 +145,15 @@ func Assemble(server string, nodes []NodeSpec, groups []singbox.GroupEntry, rule
 	}
 	return d, nil
 }
+
+// primaryProxyGroup 返回订阅里作为默认代理出口的策略组名（供客户端规则集下载与远程 DNS 绕过防火墙）；
+// 优先取非 direct/block 的 Final，其次取首个策略组；无可用策略组时返回空串。
+func primaryProxyGroup(d Data) string {
+	if d.Final != "" && d.Final != "direct" && d.Final != singbox.OutboundBlock {
+		return d.Final
+	}
+	if len(d.Groups) > 0 {
+		return d.Groups[0].Name
+	}
+	return ""
+}

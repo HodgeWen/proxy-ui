@@ -1,6 +1,6 @@
 <!-- 设置页「AI 供应商」页签：供应商与模型列表展示、启停与删除交互（新增/编辑/导入弹框已拆出） -->
 <script setup lang="ts">
-import { UButton, UCard, UCardContent, UCardHeader, USwitch, UTag, message } from '@veltra/desktop'
+import { UButton, UCard, UCardContent, UCardHeader, USwitch, UTag, message, vLoading } from '@veltra/desktop'
 import { computed, onActivated, shallowRef } from 'vue'
 
 import { deleteAIModel, deleteAIProvider, fetchAIProviders, updateAIProvider } from '../../api/ai'
@@ -13,7 +13,9 @@ import AiProviderDialog from './AiProviderDialog.vue'
 
 /** 供应商列表（视图内含各自模型） */
 const aiProviders = shallowRef<AiProvider[]>([])
-const aiLoading = shallowRef(false)
+const aiLoading = shallowRef(true)
+const deletingProviderId = shallowRef(0)
+const deletingModelId = shallowRef(0)
 
 async function loadAIProviders(silent = true): Promise<void> {
   aiLoading.value = true
@@ -49,24 +51,30 @@ async function removeAIProvider(provider: AiProvider): Promise<void> {
     '删除',
   )
   if (!ok) return
+  deletingProviderId.value = provider.id
   try {
     await deleteAIProvider(provider.id)
     message.success('AI 供应商已删除')
     await loadAIProviders()
   } catch {
     // 错误已由请求封装统一提示
+  } finally {
+    deletingProviderId.value = 0
   }
 }
 
 async function removeAIModel(model: AiModel): Promise<void> {
   const ok = await confirmAction('删除模型', `确认删除模型「${model.modelId}」吗？`, true, '删除')
   if (!ok) return
+  deletingModelId.value = model.id
   try {
     await deleteAIModel(model.id)
     message.success('模型已删除')
     await loadAIProviders()
   } catch {
     // 错误已由请求封装统一提示
+  } finally {
+    deletingModelId.value = 0
   }
 }
 
@@ -149,60 +157,80 @@ onActivated(() => {
       </div>
     </u-card-header>
     <u-card-content>
-      <p class="section-desc">
-        新增供应商后从其 /models 导入或手工添加模型，每个模型可维护推理等级；Key 仅保存在服务端，
-        对话经面板代理转发，从顶栏「AI 助手」打开。
-      </p>
-      <p v-if="!aiProviders.length" class="section-desc">还没有供应商，点右上角「新增供应商」开始配置。</p>
+      <div v-loading="aiLoading && !aiProviders.length" class="ai-list-wrap">
+        <p class="section-desc">
+          新增供应商后从其 /models 导入或手工添加模型，每个模型可维护推理等级；Key 仅保存在服务端，
+          对话经面板代理转发，从顶栏「AI 助手」打开。
+        </p>
+        <p v-if="!aiLoading && !aiProviders.length" class="section-desc">
+          还没有供应商，点右上角「新增供应商」开始配置。
+        </p>
 
-      <!-- 供应商区块：头部信息与操作 + 其下模型列表 -->
-      <section v-for="provider in aiProviders" :key="provider.id" class="ai-provider">
-        <header class="ai-provider-head">
-          <div class="ai-provider-info">
-            <span class="ai-provider-name">{{ provider.name }}</span>
-            <u-tag v-if="!provider.enabled" type="info" size="small">已停用</u-tag>
-            <u-tag v-else-if="!provider.hasKey" type="warning" size="small">缺 API Key</u-tag>
-            <span class="ai-provider-url">{{ provider.baseUrl }}</span>
-          </div>
-          <div class="ai-provider-ops">
-            <u-switch
-              :model-value="rowEnabled(provider)"
-              :disabled="togglingId === provider.id"
-              @update:model-value="(v: boolean) => toggleAIProvider(provider, v)"
-            />
-            <u-button size="small" @click="openProviderEdit(provider)">编辑</u-button>
-            <u-button size="small" type="danger" plain @click="removeAIProvider(provider)">删除</u-button>
-          </div>
-        </header>
-
-        <div class="ai-model-toolbar">
-          <span class="ai-model-count">模型 {{ provider.models.length }} 个</span>
-          <u-button size="small" @click="openModelCreate(provider.id)">手工添加模型</u-button>
-          <u-button size="small" @click="openImport(provider)">从 /models 导入</u-button>
-        </div>
-
-        <div v-for="model in provider.models" :key="model.id" class="ai-model-row">
-          <div class="ai-model-body">
-            <div class="ai-model-main">
-              <span class="ai-model-id">{{ model.modelId }}</span>
-              <span v-if="model.label && model.label !== model.modelId" class="ai-model-label">
-                {{ model.label }}
-              </span>
-              <u-tag v-if="!model.enabled" type="info" size="small">已停用</u-tag>
-              <span v-if="model.contextWindow" class="ai-model-meta">
-                {{ formatContextWindow(model.contextWindow) }}
-              </span>
+        <!-- 供应商区块：头部信息与操作 + 其下模型列表 -->
+        <section v-for="provider in aiProviders" :key="provider.id" class="ai-provider">
+          <header class="ai-provider-head">
+            <div class="ai-provider-info">
+              <span class="ai-provider-name">{{ provider.name }}</span>
+              <u-tag v-if="!provider.enabled" type="info" size="small">已停用</u-tag>
+              <u-tag v-else-if="!provider.hasKey" type="warning" size="small">缺 API Key</u-tag>
+              <span class="ai-provider-url">{{ provider.baseUrl }}</span>
             </div>
-            <p v-if="model.description" class="ai-model-desc">{{ model.description }}</p>
-            <p class="ai-model-levels">推理等级：{{ levelSummary(model) }}</p>
+            <div class="ai-provider-ops">
+              <u-switch
+                :model-value="rowEnabled(provider)"
+                :disabled="togglingId === provider.id"
+                @update:model-value="(v: boolean) => toggleAIProvider(provider, v)"
+              />
+              <u-button size="small" @click="openProviderEdit(provider)">编辑</u-button>
+              <u-button
+                size="small"
+                type="danger"
+                plain
+                :loading="deletingProviderId === provider.id"
+                @click="removeAIProvider(provider)"
+              >
+                删除
+              </u-button>
+            </div>
+          </header>
+
+          <div class="ai-model-toolbar">
+            <span class="ai-model-count">模型 {{ provider.models.length }} 个</span>
+            <u-button size="small" @click="openModelCreate(provider.id)">手工添加模型</u-button>
+            <u-button size="small" @click="openImport(provider)">从 /models 导入</u-button>
           </div>
-          <div class="ai-model-actions">
-            <u-button text size="small" type="primary" @click="openModelEdit(provider.id, model)">编辑</u-button>
-            <u-button text size="small" type="danger" @click="removeAIModel(model)">删除</u-button>
+
+          <div v-for="model in provider.models" :key="model.id" class="ai-model-row">
+            <div class="ai-model-body">
+              <div class="ai-model-main">
+                <span class="ai-model-id">{{ model.modelId }}</span>
+                <span v-if="model.label && model.label !== model.modelId" class="ai-model-label">
+                  {{ model.label }}
+                </span>
+                <u-tag v-if="!model.enabled" type="info" size="small">已停用</u-tag>
+                <span v-if="model.contextWindow" class="ai-model-meta">
+                  {{ formatContextWindow(model.contextWindow) }}
+                </span>
+              </div>
+              <p v-if="model.description" class="ai-model-desc">{{ model.description }}</p>
+              <p class="ai-model-levels">推理等级：{{ levelSummary(model) }}</p>
+            </div>
+            <div class="ai-model-actions">
+              <u-button text size="small" type="primary" @click="openModelEdit(provider.id, model)">编辑</u-button>
+              <u-button
+                text
+                size="small"
+                type="danger"
+                :loading="deletingModelId === model.id"
+                @click="removeAIModel(model)"
+              >
+                删除
+              </u-button>
+            </div>
           </div>
-        </div>
-        <p v-if="!provider.models.length" class="hint">还没有模型：从 /models 导入或手工添加。</p>
-      </section>
+          <p v-if="!provider.models.length" class="hint">还没有模型：从 /models 导入或手工添加。</p>
+        </section>
+      </div>
     </u-card-content>
   </u-card>
 
@@ -223,6 +251,11 @@ onActivated(() => {
 
 <style scoped>
 /* settings-card / hint / card-header-row / ops-row 为 App.vue 全局类 */
+
+/* 列表容器最小高度：首屏加载遮罩不压扁 */
+.ai-list-wrap {
+  min-height: 120px;
+}
 
 /* 区块说明行：统一次级文案形态 */
 .section-desc {

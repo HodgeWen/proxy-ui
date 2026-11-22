@@ -2,7 +2,15 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import { setUnauthorizedHandler } from '../api/http'
+import AppLayout from '../components/AppLayout.vue'
 import { useAuthStore } from '../stores/auth'
+import CertsView from '../views/CertsView.vue'
+import DashboardView from '../views/DashboardView.vue'
+import InboundsView from '../views/InboundsView.vue'
+import OutboundsView from '../views/OutboundsView.vue'
+import RulesView from '../views/RulesView.vue'
+import SettingsView from '../views/SettingsView.vue'
+import SubscriptionView from '../views/SubscriptionView.vue'
 
 // 路由 meta 类型：title 用于页面标题；subtitle 为页面一句话副标题（供顶栏消费）
 declare module 'vue-router' {
@@ -17,49 +25,49 @@ export const router = createRouter({
   routes: [
     {
       path: '/',
-      component: () => import('../components/AppLayout.vue'),
+      component: AppLayout,
       children: [
         { path: '', redirect: '/dashboard' },
         {
           path: 'dashboard',
           name: 'dashboard',
-          component: () => import('../views/DashboardView.vue'),
+          component: DashboardView,
           meta: { title: '仪表盘', subtitle: '内核运行状态、实时速率与按用户流量' },
         },
         {
           path: 'inbounds',
           name: 'inbounds',
-          component: () => import('../views/InboundsView.vue'),
+          component: InboundsView,
           meta: { title: '入站', subtitle: '服务端协议监听，客户端订阅里的节点来源' },
         },
         {
           path: 'outbounds',
           name: 'outbounds',
-          component: () => import('../views/OutboundsView.vue'),
+          component: OutboundsView,
           meta: { title: '出站', subtitle: '流量的出口与路由规则的最终去向，未命中规则的流量也走这里的兜底出站' },
         },
         {
           path: 'certs',
           name: 'certs',
-          component: () => import('../views/CertsView.vue'),
+          component: CertsView,
           meta: { title: '证书', subtitle: 'TLS 证书管理：一键自签、上传/粘贴 PEM、引用服务器路径与到期倒计时' },
         },
         {
           path: 'rules',
           name: 'rules',
-          component: () => import('../views/RulesView.vue'),
+          component: RulesView,
           meta: { title: '规则', subtitle: '决定什么流量走哪个出站：自上而下逐条匹配，未命中走兜底出站' },
         },
         {
           path: 'subscription',
           name: 'subscription',
-          component: () => import('../views/SubscriptionView.vue'),
+          component: SubscriptionView,
           meta: { title: '订阅用户', subtitle: '为每台设备创建订阅用户，导出客户端订阅链接' },
         },
         {
           path: 'settings',
           name: 'settings',
-          component: () => import('../views/SettingsView.vue'),
+          component: SettingsView,
           meta: { title: '设置', subtitle: '外观、账号、内核与面板更新、AI 供应商' },
         },
       ],
@@ -91,11 +99,8 @@ setUnauthorizedHandler(() => {
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
-  try {
-    await auth.ensureHealth()
-  } catch {
-    // 后端不可达时放行导航，由页面内具体请求暴露错误
-  }
+  // 首次导航并发检查健康态与登录态，减少一次串行往返
+  await Promise.allSettled([auth.ensureHealth(), auth.user ? Promise.resolve() : auth.ensureSession()])
 
   // 未初始化：一切页面都进首次设置向导
   if (!auth.initialized) {
@@ -104,10 +109,6 @@ router.beforeEach(async (to) => {
   // 已初始化：向导页不可达
   if (to.name === 'setup') {
     return auth.user ? { name: 'dashboard' } : { name: 'login' }
-  }
-  // 刷新后首次导航时校验既有会话
-  if (!auth.user) {
-    await auth.ensureSession()
   }
   // 未登录：管理页重定向登录页并带回跳地址
   if (!auth.user) {

@@ -5,17 +5,15 @@
 import { UButton, UNav } from '@veltra/desktop'
 import type { NavItem } from '@veltra/desktop'
 import { AiChat, Download, Filter, Monitor, Moon, Secured, Setting, Share, Sun, Terminal, Upload, UserCircle } from '@veltra/icons/normal'
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
+import AiChatDialog from './AiChatDialog.vue'
 import { fetchKernelStatus } from '../api/kernel'
 import type { KernelStatus } from '../api/kernel'
 import { useAuthStore } from '../stores/auth'
 import { setThemeMode, useTheme } from '../theme'
 import type { ThemeMode } from '../theme'
-
-// AI 对话组件连带 @veltra/ai 体积较大，异步加载并在首次打开后才挂载，避免拖慢首屏
-const AiChatDialog = defineAsyncComponent(() => import('./AiChatDialog.vue'))
 
 const route = useRoute()
 const router = useRouter()
@@ -72,14 +70,11 @@ function toggleThemeMode(): void {
   setThemeMode(themeToggle.value.next)
 }
 
-// ---------- 顶栏 AI 助手弹框 ----------
+// ---------- 顶栏 AI 助手弹框（弹框本体轻，@veltra/ai 在打开后按需加载，避免点击延迟） ----------
 
 const aiVisible = shallowRef(false)
-/** 首次打开后才挂载弹框（配合异步组件延迟加载 @veltra/ai） */
-const aiMounted = shallowRef(false)
 
 function openAI(): void {
-  aiMounted.value = true
   aiVisible.value = true
 }
 
@@ -99,9 +94,16 @@ function onItemClick(item: NavItem) {
   router.push(item.path)
 }
 
+const loggingOut = shallowRef(false)
+
 async function handleLogout() {
-  await auth.doLogout()
-  router.push({ name: 'login' })
+  loggingOut.value = true
+  try {
+    await auth.doLogout()
+    router.push({ name: 'login' })
+  } finally {
+    loggingOut.value = false
+  }
 }
 </script>
 
@@ -122,7 +124,7 @@ async function handleLogout() {
           </span>
           <span class="app-user-name">{{ auth.user?.username }}</span>
         </div>
-        <u-button size="small" @click="handleLogout">退出</u-button>
+        <u-button size="small" :loading="loggingOut" @click="handleLogout">退出</u-button>
       </div>
     </aside>
     <div class="app-main">
@@ -136,7 +138,9 @@ async function handleLogout() {
             <span class="app-kernel-dot" />
             {{ kernelChip.text }}
           </span>
-          <span v-if="auth.version" class="app-version">v{{ auth.version }}</span>
+          <span v-if="auth.version" class="app-version">
+            {{ auth.version.startsWith('v') ? auth.version : `v${auth.version}` }}
+          </span>
           <u-button
             circle
             text
@@ -163,7 +167,7 @@ async function handleLogout() {
       </main>
     </div>
     <!-- AI 助手弹框挂在布局层，全站顶栏可达；关闭弹框即重置当前对话 -->
-    <AiChatDialog v-if="aiMounted" v-model="aiVisible" />
+    <AiChatDialog v-model="aiVisible" />
   </div>
 </template>
 

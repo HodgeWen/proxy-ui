@@ -15,6 +15,7 @@ import {
   UTag,
   defineTableColumns,
   message,
+  vLoading,
 } from '@veltra/desktop'
 import { computed, onMounted, shallowRef } from 'vue'
 
@@ -24,7 +25,9 @@ import { useEnabledOverride } from '../composables/useEnabledOverride'
 import { confirmAction } from '../confirm-action'
 
 const outbounds = shallowRef<Outbound[]>([])
-const loading = shallowRef(false)
+const loading = shallowRef(true)
+const addingDirect = shallowRef(false)
+const deletingId = shallowRef(0)
 const formVisible = shallowRef(false)
 const editing = shallowRef<Outbound | null>(null)
 
@@ -60,12 +63,15 @@ function openEdit(row: Outbound): void {
 }
 
 async function addDirect(): Promise<void> {
+  addingDirect.value = true
   try {
     await createOutbound({ name: 'direct', type: 'direct', config: {} })
     message.success('direct 出站已添加')
     await refresh()
   } catch {
     // 错误已由请求封装统一提示
+  } finally {
+    addingDirect.value = false
   }
 }
 
@@ -85,12 +91,15 @@ async function handleDelete(row: Outbound): Promise<void> {
     '删除',
   )
   if (!ok) return
+  deletingId.value = row.id
   try {
     await deleteOutbound(row.id)
     message.success('出站已删除')
     await refresh()
   } catch {
     // 错误已由请求封装统一提示
+  } finally {
+    deletingId.value = 0
   }
 }
 
@@ -122,7 +131,7 @@ onMounted(refresh)
   <u-alert v-if="!hasDirect && !loading" class="direct-alert" type="info">
     <div class="direct-row">
       <span><strong>direct 出站：</strong>sing-box 内置直连出站，作为未命中规则的默认出口，通常保持添加即可。</span>
-      <u-button type="primary" plain @click="addDirect">添加 direct 出站</u-button>
+      <u-button type="primary" plain :loading="addingDirect" @click="addDirect">添加 direct 出站</u-button>
     </div>
   </u-alert>
 
@@ -137,38 +146,40 @@ onMounted(refresh)
       </div>
     </u-card-header>
     <u-card-content>
-      <u-table :columns="columns" :data="outbounds" row-key="id" stripe :loading="loading">
-        <template #empty>
-          <EmptyState
-            v-if="!loading"
-            title="暂无出站"
-            description="可先添加 direct 内置直连出站作为兜底，再按需新建自定义出站"
-            cta-text="新建自定义出站"
-            @cta="openCreate"
-          />
-        </template>
-        <template #column:type="{ rowData }">
-          <u-tag :type="rowData.type === 'direct' ? 'success' : 'info'">{{ rowData.type }}</u-tag>
-        </template>
-        <template #column:endpoint="{ rowData }">
-          {{ endpointOf(rowData) }}
-        </template>
-        <template #column:enabled="{ rowData }">
-          <u-switch
-            size="small"
-            :model-value="rowEnabled(rowData)"
-            :disabled="togglingId === rowData.id"
-            @update:model-value="(v: boolean) => handleToggle(rowData, v)"
-          />
-        </template>
-        <template #column:actions="{ rowData }">
-          <u-action-group>
-            <!-- direct 出站不可编辑，只能删除 -->
-            <u-action v-if="rowData.type !== 'direct'" @run="openEdit(rowData)">编辑</u-action>
-            <u-action type="danger" @run="handleDelete(rowData)">删除</u-action>
-          </u-action-group>
-        </template>
-      </u-table>
+      <div v-loading="loading" class="table-wrap">
+        <u-table :columns="columns" :data="outbounds" row-key="id" stripe>
+          <template #empty>
+            <EmptyState
+              v-if="!loading"
+              title="暂无出站"
+              description="可先添加 direct 内置直连出站作为兜底，再按需新建自定义出站"
+              cta-text="新建自定义出站"
+              @cta="openCreate"
+            />
+          </template>
+          <template #column:type="{ rowData }">
+            <u-tag :type="rowData.type === 'direct' ? 'success' : 'info'">{{ rowData.type }}</u-tag>
+          </template>
+          <template #column:endpoint="{ rowData }">
+            {{ endpointOf(rowData) }}
+          </template>
+          <template #column:enabled="{ rowData }">
+            <u-switch
+              size="small"
+              :model-value="rowEnabled(rowData)"
+              :disabled="togglingId === rowData.id"
+              @update:model-value="(v: boolean) => handleToggle(rowData, v)"
+            />
+          </template>
+          <template #column:actions="{ rowData }">
+            <u-action-group :loading="deletingId === rowData.id">
+              <!-- direct 出站不可编辑，只能删除 -->
+              <u-action v-if="rowData.type !== 'direct'" @run="openEdit(rowData)">编辑</u-action>
+              <u-action type="danger" @run="handleDelete(rowData)">删除</u-action>
+            </u-action-group>
+          </template>
+        </u-table>
+      </div>
     </u-card-content>
   </u-card>
 

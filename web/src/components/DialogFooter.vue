@@ -2,11 +2,11 @@
 <script setup lang="ts">
 import { UButton } from '@veltra/desktop'
 
-withDefaults(defineProps<{ loading?: boolean; confirmText?: string }>(), { confirmText: '保存' })
+withDefaults(defineProps<{ loading?: boolean; disabled?: boolean; confirmText?: string }>(), { confirmText: '保存' })
 defineEmits<{ cancel: []; confirm: [] }>()
 </script>
 
 <template>
   <u-button text @click="$emit('cancel')">取消</u-button>
-  <u-button type="primary" :loading="loading" @click="$emit('confirm')">{{ confirmText }}</u-button>
+  <u-button type="primary" :loading="loading" :disabled="disabled" @click="$emit('confirm')">{{ confirmText }}</u-button>
 </template>

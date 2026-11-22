@@ -18,6 +18,7 @@ const mihomoRuleSetDir = "./ruleset/"
 // rule-providers 与 dns。
 func RenderClash(d Data) ([]byte, error) {
 	cfg := clashConfig{}
+	proxyGroup := primaryProxyGroup(d)
 	for _, n := range d.Nodes {
 		p, err := clashProxyOf(n, d.Server)
 		if err != nil {
@@ -47,13 +48,14 @@ func RenderClash(d Data) ([]byte, error) {
 		entry := clashRuleProvider{
 			Type: "http", Behavior: src.MihomoBehavior, Format: clashProviderFormat(src.MihomoURL),
 			URL: src.MihomoURL, Path: mihomoRuleSetDir + tag + clashProviderExt(src.MihomoURL), Interval: 86400,
+			Proxy: proxyGroup,
 		}
 		if entry.Behavior == "" {
 			entry.Behavior = "domain"
 		}
 		cfg.RuleProviders = append(cfg.RuleProviders, yaml.MapItem{Key: tag, Value: entry})
 	}
-	if dns := clashDNSOf(d.DNS); dns != nil {
+	if dns := clashDNSOf(d.DNS, proxyGroup); dns != nil {
 		cfg.DNS = dns
 	}
 	out, err := yaml.Marshal(cfg)
@@ -90,36 +92,63 @@ type clashConfig struct {
 
 // clashRuleProvider 远程规则源定义。
 type clashRuleProvider struct {
-	Type     string `yaml:"type"`     // http 远程规则源
-	Behavior string `yaml:"behavior"` // 匹配行为：domain / ipcidr / classical
-	Format   string `yaml:"format"`   // 源格式：yaml / mrs
-	URL      string `yaml:"url"`      // 规则源地址
-	Path     string `yaml:"path"`     // 本地缓存路径
-	Interval int    `yaml:"interval"` // 更新间隔（秒）
+	Type     string `yaml:"type"`            // http 远程规则源
+	Behavior string `yaml:"behavior"`        // 匹配行为：domain / ipcidr / classical
+	Format   string `yaml:"format"`          // 源格式：yaml / mrs
+	URL      string `yaml:"url"`             // 规则源地址
+	Path     string `yaml:"path"`            // 本地缓存路径
+	Interval int    `yaml:"interval"`        // 更新间隔（秒）
+	Proxy    string `yaml:"proxy,omitempty"` // 经由代理组下载（避免直连 GitHub 失败）
+}
+
+// clashDefaultFakeIPFilter fake-ip 模式下必须回落真实 IP 的本地、校时与系统探测域名。
+var clashDefaultFakeIPFilter = []string{
+	"*.lan",
+	"*.local",
+	"*.localhost",
+	"*.arpa",
+	"time.*.com",
+	"ntp.*.com",
+	"+.pool.ntp.org",
+	"localhost.ptlogin2.qq.com",
+	"*.msftconnecttest.com",
+	"*.msftncsi.com",
 }
 
 // clashDNS mihomo dns 配置。
 type clashDNS struct {
-	Enable         bool          `yaml:"enable"`
-	DefaultNameser []string      `yaml:"default-nameserver"`
-	Nameserver     []string      `yaml:"nameserver"`
-	NameserverPol  yaml.MapSlice `yaml:"nameserver-policy,omitempty"`
+	Enable             bool          `yaml:"enable"`
+	EnhancedMode       string        `yaml:"enhanced-mode"`
+	FakeIPRange        string        `yaml:"fake-ip-range"`
+	FakeIPFilter       []string      `yaml:"fake-ip-filter"`
+	DefaultNameser     []string      `yaml:"default-nameserver"`
+	ProxyServerNameser []string      `yaml:"proxy-server-nameserver"`
+	DirectNameser      []string      `yaml:"direct-nameserver"`
+	Nameserver         []string      `yaml:"nameserver"`
+	NameserverPol      yaml.MapSlice `yaml:"nameserver-policy,omitempty"`
 }
 
 // clashDNSOf 把面板 DNS 配置映射为 mihomo dns 段；未启用返回 nil。
-func clashDNSOf(d *singbox.DNSConfig) *clashDNS {
+func clashDNSOf(d *singbox.DNSConfig, proxyGroup string) *clashDNS {
 	if d == nil || !d.Enabled || len(d.Servers) == 0 {
 		return nil
 	}
-	byTag := make(map[string]string, len(d.Servers))
-	all := make([]string, 0, len(d.Servers))
-	for _, s := range d.Servers {
-		byTag[s.Tag] = clashDNSServer(s)
-		all = append(all, clashDNSServer(s))
+	byTag := make(map[string]singbox.DNSServer, len(d.Servers))
+	ruleTargets := make(map[string]bool, len(d.Rules))
+	for _, r := range d.Rules {
+		if r.Server != "" {
+			ruleTargets[r.Server] = true
+		}
 	}
-	out := &clashDNS{Enable: true, Nameserver: all}
+	out := &clashDNS{
+		Enable:       true,
+		EnhancedMode: "fake-ip",
+		FakeIPRange:  "198.18.0.1/16",
+		FakeIPFilter: append([]string(nil), clashDefaultFakeIPFilter...),
+	}
 	// default-nameserver 必须是 IP 型明文解析器，用于解析 DoH 域名本身
 	for _, s := range d.Servers {
+		byTag[s.Tag] = s
 		if (s.Type == singbox.DNSTypeUDP || s.Type == singbox.DNSTypeTCP) &&
 			net.ParseIP(strings.Trim(s.Server, "[]")) != nil {
 			out.DefaultNameser = append(out.DefaultNameser, clashDNSServer(s))
@@ -128,27 +157,58 @@ func clashDNSOf(d *singbox.DNSConfig) *clashDNS {
 	if len(out.DefaultNameser) == 0 {
 		out.DefaultNameser = []string{"223.5.5.5", "119.29.29.29"}
 	}
+	// 代理服务器域名与直连出站域名同用直连明文 DNS，防止解析节点地址死锁与国内流量误用远程 DNS
+	out.ProxyServerNameser = append([]string(nil), out.DefaultNameser...)
+	out.DirectNameser = append([]string(nil), out.DefaultNameser...)
+
 	if d.Final != "" {
-		if server, ok := byTag[d.Final]; ok {
-			out.Nameserver = []string{server}
+		if srv, ok := byTag[d.Final]; ok {
+			out.Nameserver = []string{clashDNSServerAddr(srv, proxyGroup, true)}
+		}
+	}
+	if len(out.Nameserver) == 0 {
+		for _, s := range d.Servers {
+			out.Nameserver = append(out.Nameserver, clashDNSServerAddr(s, proxyGroup, !ruleTargets[s.Tag]))
 		}
 	}
 	// nameserver-policy 必须是 YAML mapping（域名模式 -> 服务器列表），保持先到优先并去重
 	seenPolicy := make(map[string]bool)
 	for _, r := range d.Rules {
-		server, ok := byTag[r.Server]
+		srv, ok := byTag[r.Server]
 		if !ok {
 			continue
 		}
+		serverAddr := clashDNSServerAddr(srv, proxyGroup, false)
 		for _, domain := range clashDomainPatterns(r) {
 			if seenPolicy[domain] {
 				continue
 			}
 			seenPolicy[domain] = true
-			out.NameserverPol = append(out.NameserverPol, yaml.MapItem{Key: domain, Value: []string{server}})
+			out.NameserverPol = append(out.NameserverPol, yaml.MapItem{Key: domain, Value: []string{serverAddr}})
 		}
 	}
 	return out
+}
+
+// clashDNSServerAddr 生成带出站路由标记的 mihomo DNS 服务器地址串；
+// 显式指定 Detour 时附带 #detour，否则远程加密 DNS（DoH/DoH3/DoT）按需经代理组转发。
+func clashDNSServerAddr(s singbox.DNSServer, proxyGroup string, routeRemoteViaProxy bool) string {
+	base := clashDNSServer(s)
+	if s.Type == singbox.DNSTypeLocal {
+		return base
+	}
+	if s.Detour != "" {
+		detour := clashOutbound(s.Detour)
+		if !strings.ContainsAny(detour, "#&") {
+			return base + "#" + detour
+		}
+		return base
+	}
+	if routeRemoteViaProxy && proxyGroup != "" && !strings.ContainsAny(proxyGroup, "#&") &&
+		(s.Type == singbox.DNSTypeHTTPS || s.Type == singbox.DNSTypeH3 || s.Type == singbox.DNSTypeTLS) {
+		return base + "#" + proxyGroup
+	}
+	return base
 }
 
 // clashDNSServer 把单个 DNS 服务器映射为 mihomo 的服务器地址串。
@@ -401,7 +461,12 @@ func clashRulesOf(r singbox.RuleEntry) ([]string, *singbox.RuleSetSource) {
 		if r.RuleSet == nil {
 			return nil, nil
 		}
-		return []string{"RULE-SET," + r.RuleSet.Tag + "," + outbound}, r.RuleSet
+		line := "RULE-SET," + r.RuleSet.Tag + "," + outbound
+		// ipcidr 规则集在 fake-ip 模式下应跳过前置本地解析，避免海外域名误判直连
+		if r.RuleSet.MihomoBehavior == "ipcidr" {
+			line += ",no-resolve"
+		}
+		return []string{line}, r.RuleSet
 	}
 	var lines []string
 	for _, v := range singbox.SplitRuleValue(r.Value) {

@@ -14,6 +14,7 @@ import {
   UTag,
   defineTableColumns,
   message,
+  vLoading,
 } from '@veltra/desktop'
 import { shallowRef } from 'vue'
 
@@ -36,6 +37,7 @@ const emit = defineEmits<{
 }>()
 
 const moving = shallowRef(false)
+const deletingId = shallowRef(0)
 
 const columns = defineTableColumns([
   { key: 'sort', name: '排序', width: 124, align: 'center' },
@@ -87,12 +89,15 @@ const { rowEnabled, togglingId, toggle: handleToggle } = useEnabledOverride(
 )
 
 async function handleDelete(row: RuleRecord): Promise<void> {
+  deletingId.value = row.id
   try {
     await deleteRule(row.id)
     message.success('规则已删除')
     emit('changed')
   } catch {
     // 错误已由请求封装统一提示
+  } finally {
+    deletingId.value = 0
   }
 }
 
@@ -123,56 +128,58 @@ function openEdit(row: RuleRecord): void {
     </u-card-header>
     <u-card-content>
       <!-- 不用 text-ellipsis：它会给含按钮的操作列也挂悬浮提示；只在匹配条件单元格内自行截断 -->
-      <u-table :columns="columns" :data="rules" row-key="id" stripe>
-        <template #empty>
-          <EmptyState
-            v-if="!loading"
-            title="暂无规则"
-            description="规则决定什么流量走哪个出站。可先在「兜底与模板」页签应用预设模板一键生成常用规则（会覆盖现有），再逐条增改"
-            cta-text="新建规则"
-            @cta="openCreate"
-          />
-        </template>
-        <template #column:sort="{ row: { index } }">
-          <u-button text size="small" :disabled="moving || index === 0" @click="move(index, -1)">上移</u-button>
-          <u-button
-            text
-            size="small"
-            :disabled="moving || index === rules.length - 1"
-            @click="move(index, 1)"
-          >
-            下移
-          </u-button>
-        </template>
-        <template #column:match="{ rowData }">
-          <span
-            class="match-text"
-            :class="{ 'is-off': !rowData.enabled, 'is-ruleset': rowData.matchType === 'rule_set' }"
-            :title="matchText(rowData)"
-          >
-            {{ matchText(rowData) }}
-          </span>
-        </template>
-        <template #column:outbound="{ rowData }">
-          <u-tag :type="rowData.outbound === 'block' ? 'danger' : 'success'">{{ outboundLabel(rowData.outbound) }}</u-tag>
-        </template>
-        <template #column:enabled="{ rowData }">
-          <!-- USwitch 没有 loading，用 disabled 在请求期间挡住重复点击 -->
-          <u-switch
-            size="small"
-            :model-value="rowEnabled(rowData)"
-            :disabled="togglingId === rowData.id"
-            @update:model-value="(v: boolean) => handleToggle(rowData, v)"
-          />
-        </template>
-        <template #column:actions="{ rowData }">
-          <!-- 删除用气泡确认，不在 run 里再叠 messageConfirm，保持一次确认 -->
-          <u-action-group :max="2">
-            <u-action @run="openEdit(rowData)">编辑</u-action>
-            <u-action type="danger" need-confirm @run="handleDelete(rowData)">删除</u-action>
-          </u-action-group>
-        </template>
-      </u-table>
+      <div v-loading="loading" class="table-wrap">
+        <u-table :columns="columns" :data="rules" row-key="id" stripe>
+          <template #empty>
+            <EmptyState
+              v-if="!loading"
+              title="暂无规则"
+              description="规则决定什么流量走哪个出站。可先在「兜底与模板」页签应用预设模板一键生成常用规则（会覆盖现有），再逐条增改"
+              cta-text="新建规则"
+              @cta="openCreate"
+            />
+          </template>
+          <template #column:sort="{ row: { index } }">
+            <u-button text size="small" :disabled="moving || index === 0" @click="move(index, -1)">上移</u-button>
+            <u-button
+              text
+              size="small"
+              :disabled="moving || index === rules.length - 1"
+              @click="move(index, 1)"
+            >
+              下移
+            </u-button>
+          </template>
+          <template #column:match="{ rowData }">
+            <span
+              class="match-text"
+              :class="{ 'is-off': !rowData.enabled, 'is-ruleset': rowData.matchType === 'rule_set' }"
+              :title="matchText(rowData)"
+            >
+              {{ matchText(rowData) }}
+            </span>
+          </template>
+          <template #column:outbound="{ rowData }">
+            <u-tag :type="rowData.outbound === 'block' ? 'danger' : 'success'">{{ outboundLabel(rowData.outbound) }}</u-tag>
+          </template>
+          <template #column:enabled="{ rowData }">
+            <!-- USwitch 没有 loading，用 disabled 在请求期间挡住重复点击 -->
+            <u-switch
+              size="small"
+              :model-value="rowEnabled(rowData)"
+              :disabled="togglingId === rowData.id"
+              @update:model-value="(v: boolean) => handleToggle(rowData, v)"
+            />
+          </template>
+          <template #column:actions="{ rowData }">
+            <!-- 删除用气泡确认，不在 run 里再叠 messageConfirm，保持一次确认 -->
+            <u-action-group :max="2" :loading="deletingId === rowData.id">
+              <u-action @run="openEdit(rowData)">编辑</u-action>
+              <u-action type="danger" need-confirm @run="handleDelete(rowData)">删除</u-action>
+            </u-action-group>
+          </template>
+        </u-table>
+      </div>
     </u-card-content>
   </u-card>
 

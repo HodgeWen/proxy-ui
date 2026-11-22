@@ -495,13 +495,13 @@ func TestRenderSingBoxRoute(t *testing.T) {
 	if cfg.Route.Rules[3]["action"] != "reject" {
 		t.Errorf("拦截规则应映射为 reject: %v", cfg.Route.Rules[3])
 	}
-	// 规则集去重且下载走 direct
+	// 规则集去重且下载优先走代理组
 	if len(cfg.Route.RuleSet) != 2 {
 		t.Fatalf("规则集定义应去重为 2 份: %+v", cfg.Route.RuleSet)
 	}
 	for _, rs := range cfg.Route.RuleSet {
-		if rs.DownloadDetour != "direct" {
-			t.Errorf("规则集 %s 的 download_detour = %q, want direct", rs.Tag, rs.DownloadDetour)
+		if rs.DownloadDetour != "proxy" {
+			t.Errorf("规则集 %s 的 download_detour = %q, want proxy", rs.Tag, rs.DownloadDetour)
 		}
 		if rs.Format != "binary" {
 			t.Errorf("规则集 %s 格式 = %q, want binary", rs.Tag, rs.Format)
@@ -510,15 +510,22 @@ func TestRenderSingBoxRoute(t *testing.T) {
 			t.Errorf("规则集 %s 类型 = %q, want remote", rs.Tag, rs.Type)
 		}
 	}
-	// DNS 段与默认域名解析器
+	// DNS 段、远程 DoH detour 与直连默认域名解析器
 	if cfg.DNS == nil {
-		t.Error("启用 DNS 时应渲染 dns 段")
+		t.Fatal("启用 DNS 时应渲染 dns 段")
 	}
-	if cfg.Route.DefaultDomainResolver == "" {
-		t.Error("应设置 route.default_domain_resolver")
+	dnsServers, _ := cfg.DNS["servers"].([]map[string]any)
+	var cfDetour any
+	for _, srv := range dnsServers {
+		if srv["tag"] == "cf-doh" {
+			cfDetour = srv["detour"]
+		}
 	}
-	if cfg.Route.DefaultDomainResolver != dns.ResolverTag() {
-		t.Errorf("default_domain_resolver = %q, want %q", cfg.Route.DefaultDomainResolver, dns.ResolverTag())
+	if cfDetour != "proxy" {
+		t.Errorf("远程 DoH cf-doh 应设置 detour=proxy, got %v", cfDetour)
+	}
+	if cfg.Route.DefaultDomainResolver != "ali" {
+		t.Errorf("default_domain_resolver 应取直连明文 DNS ali, got %q", cfg.Route.DefaultDomainResolver)
 	}
 }
 
@@ -634,6 +641,45 @@ func TestRenderSingBoxCheckConfig(t *testing.T) {
 	}
 	if err := singbox.New(t.TempDir()).CheckConfig(cfg); err != nil {
 		t.Fatalf("客户端 sing-box 配置应通过内核 CheckConfig 校验: %v", err)
+	}
+
+	// 纯 DoH（remote_doh 预设）场景：自动补 dns-local 并设为 default_domain_resolver，且通过内核校验
+	remoteDoH := singbox.DNSPresets[2].Config
+	remoteDoH.Enabled = true
+	d2, err := Assemble("example.com", specs[:2], groups, rules, "proxy", &remoteDoH)
+	if err != nil {
+		t.Fatalf("remote_doh 组装失败: %v", err)
+	}
+	cfg2, err := RenderSingBox(d2)
+	if err != nil {
+		t.Fatalf("remote_doh 渲染失败: %v", err)
+	}
+	if cfg2.Route.DefaultDomainResolver != "dns-local" {
+		t.Errorf("纯 DoH 预设应合成 dns-local 作为 default_domain_resolver, got %q", cfg2.Route.DefaultDomainResolver)
+	}
+	if err := singbox.New(t.TempDir()).CheckConfig(cfg2); err != nil {
+		t.Fatalf("remote_doh 客户端 sing-box 配置应通过内核 CheckConfig 校验: %v", err)
+	}
+
+	// 域名版 UDP 服务器不可自选为 directTag（防止 domain_resolver 自引用死循环）
+	domainUDP := singbox.DNSConfig{
+		Enabled: true,
+		Servers: []singbox.DNSServer{{Tag: "ali-domain", Type: singbox.DNSTypeUDP, Server: "dns.alidns.com"}},
+		Final:   "ali-domain",
+	}
+	d3, err := Assemble("example.com", specs[:2], groups, rules, "proxy", &domainUDP)
+	if err != nil {
+		t.Fatalf("domainUDP 组装失败: %v", err)
+	}
+	cfg3, err := RenderSingBox(d3)
+	if err != nil {
+		t.Fatalf("domainUDP 渲染失败: %v", err)
+	}
+	if cfg3.Route.DefaultDomainResolver != "dns-local" {
+		t.Errorf("域名版 UDP 不应自选为 default_domain_resolver, got %q", cfg3.Route.DefaultDomainResolver)
+	}
+	if err := singbox.New(t.TempDir()).CheckConfig(cfg3); err != nil {
+		t.Fatalf("domainUDP 客户端 sing-box 配置应通过内核 CheckConfig 校验: %v", err)
 	}
 }
 

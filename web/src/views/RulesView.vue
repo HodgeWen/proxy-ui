@@ -78,14 +78,17 @@ function openRuleSet(ruleSet: RuleSet): void {
   setDialogVisible.value = true
 }
 
-onMounted(async () => {
-  await refresh()
-  try {
-    const final = await getRouteFinal()
-    finalOutbound.value = final.final
-  } catch {
-    // 错误已由请求封装统一提示
-  }
+onMounted(() => {
+  void Promise.all([
+    refresh(),
+    getRouteFinal()
+      .then((res) => {
+        finalOutbound.value = res.final
+      })
+      .catch(() => {
+        // 错误已由请求封装统一提示
+      }),
+  ])
 })
 </script>
 

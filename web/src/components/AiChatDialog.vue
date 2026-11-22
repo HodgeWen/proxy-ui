@@ -4,9 +4,9 @@
      关闭弹框即卸载内容、重置当前对话；无可用供应商时给出直达设置页的引导 -->
 <script setup lang="ts">
 import type { ChatTool, OpenAITransport } from '@veltra/ai'
-import { UAiChat, createOpenAITransport } from '@veltra/ai'
-import { UButton, UDialog, message } from '@veltra/desktop'
+import { UButton, UDialog, message, vLoading } from '@veltra/desktop'
 import { AiChat, TriangleAlert } from '@veltra/icons/normal'
+import type { Component } from 'vue'
 import { shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -26,6 +26,9 @@ const configError = shallowRef('')
 const transport = shallowRef<OpenAITransport | null>(null)
 const model = shallowRef('')
 const tools = shallowRef<ChatTool[]>([])
+/** 按需加载的对话组件本体（打开弹框时才拉取 @veltra/ai chunk） */
+const chatComponent = shallowRef<Component | null>(null)
+let initSeq = 0
 
 const systemPrompt = [
   '你是 proxy-ui（sing-box 代理面板）的 AI 助手，帮助用户查询与修改面板配置、解答代理相关问题。',
@@ -50,33 +53,54 @@ function toChatTool(schema: AiToolSchema): ChatTool {
 }
 
 async function init(): Promise<void> {
+  const seq = ++initSeq
   loading.value = true
   configError.value = ''
+  notReady.value = false
   try {
-    const { providers } = await fetchAITransport()
+    const [aiMod, transportRes, toolSchemas] = await Promise.all([
+      import('@veltra/ai'),
+      fetchAITransport(),
+      fetchAITools(),
+    ])
+    if (seq !== initSeq || !visible.value) return
+    chatComponent.value = aiMod.UAiChat
     // createOpenAITransport 要求每个供应商至少 1 个模型，无模型的供应商不参与对话
-    const usable = providers.filter((provider) => provider.models.length > 0)
+    const usable = transportRes.providers.filter((provider) => provider.models.length > 0)
     if (!usable.length) {
       notReady.value = true
       transport.value = null
+      tools.value = []
       return
     }
     notReady.value = false
-    const t = createOpenAITransport({ providers: usable })
+    const t = aiMod.createOpenAITransport({ providers: usable })
     transport.value = t
     model.value = t.defaultModel
-    tools.value = (await fetchAITools()).map(toChatTool)
+    tools.value = toolSchemas.map(toChatTool)
   } catch (error) {
+    if (seq !== initSeq || !visible.value) return
+    transport.value = null
+    tools.value = []
     configError.value = error instanceof Error ? error.message : String(error)
   } finally {
-    loading.value = false
+    if (seq === initSeq) loading.value = false
   }
 }
 
-/** 每次打开都重新拉取配置（设置页可能刚改过供应商）；关闭即卸载内容、重置会话 */
-watch(visible, (open) => {
-  if (open) void init()
-})
+/** 每次打开（含首次即刻打开）都并发加载对话模块与最新供应商配置；关闭时作废在途请求 */
+watch(
+  visible,
+  (open) => {
+    if (open) {
+      void init()
+    } else {
+      initSeq++
+      loading.value = false
+    }
+  },
+  { immediate: true },
+)
 
 function gotoSettings(): void {
   visible.value = false
@@ -94,7 +118,8 @@ function retry(): void {
     <template #default="{ maximized }">
       <!-- 未就绪三态（加载中/加载失败/无可用供应商）与对话本体占满弹框内容区 -->
       <div
-        v-if="loading || configError || notReady || !transport"
+        v-if="loading || configError || notReady || !transport || !chatComponent"
+        v-loading="loading"
         class="ai-dialog-status"
         :style="{ height: maximized ? '100%' : 'calc(90vh - 82px)' }"
       >
@@ -121,7 +146,8 @@ function retry(): void {
         </template>
       </div>
       <!-- 组件根节点 height: 100%，高度由外层显式给出；内部自带消息滚动 -->
-      <u-ai-chat
+      <component
+        :is="chatComponent"
         v-else
         :transport="transport"
         :tools="tools"

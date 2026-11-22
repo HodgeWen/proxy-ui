@@ -2,17 +2,21 @@ package subscription
 
 import (
 	"fmt"
+	"net"
+	"strings"
 
 	"proxy-ui/internal/singbox"
 )
 
 // RenderSingBox 渲染 sing-box 客户端配置：TUN 入站、节点出站、策略组、DNS、路由规则与远程规则集
-// （走 direct 下载），结尾补 direct 兜底出站。
+// （优先走策略组下载），结尾补 direct 兜底出站。
 func RenderSingBox(d Data) (singbox.Config, error) {
+	proxyGroup := primaryProxyGroup(d)
+	clientDNS, directResolver := singboxClientDNS(d.DNS, proxyGroup)
 	cfg := singbox.Config{
 		Log:          &singbox.LogConfig{Level: "info", Timestamp: true},
 		Experimental: &singbox.Experimental{CacheFile: &singbox.CacheFile{Enabled: true}},
-		DNS:          d.DNS.JSON(),
+		DNS:          clientDNS,
 		Inbounds: []any{
 			map[string]any{
 				"type":         "tun",
@@ -54,18 +58,78 @@ func RenderSingBox(d Data) (singbox.Config, error) {
 		route.Rules = append(route.Rules, rule)
 		if refSet != nil && !seen[refSet.Tag] {
 			seen[refSet.Tag] = true
-			// 客户端规则集走 direct 下载，避免代理未就绪时经代理下载失败
-			refSet.DownloadDetour = "direct"
+			// 客户端规则集优先走策略组下载，无策略组时回退 direct
+			if proxyGroup != "" {
+				refSet.DownloadDetour = proxyGroup
+			} else {
+				refSet.DownloadDetour = "direct"
+			}
 			route.RuleSet = append(route.RuleSet, *refSet)
 		}
 	}
-	if resolver := d.DNS.ResolverTag(); resolver != "" {
-		route.DefaultDomainResolver = resolver
+	if directResolver != "" {
+		route.DefaultDomainResolver = directResolver
 	}
 	if len(route.Rules) > 0 || route.Final != "" || len(route.RuleSet) > 0 || route.DefaultDomainResolver != "" {
 		cfg.Route = route
 	}
 	return cfg, nil
+}
+
+// singboxClientDNS 构造客户端专用 DNS 段，并返回应写入 route.default_domain_resolver 的直连解析器 tag：
+// 为未显式指定 detour 的远程加密 DNS 补齐代理出口，并确保解析节点/DoH 域名的默认解析器始终直连不死锁。
+func singboxClientDNS(d *singbox.DNSConfig, proxyGroup string) (map[string]any, string) {
+	base := d.JSON()
+	if base == nil {
+		return nil, ""
+	}
+	ruleTargets := make(map[string]bool, len(d.Rules))
+	for _, r := range d.Rules {
+		if r.Server != "" {
+			ruleTargets[r.Server] = true
+		}
+	}
+	usedTags := make(map[string]bool, len(d.Servers))
+	directTag := ""
+	for _, s := range d.Servers {
+		usedTags[s.Tag] = true
+		if directTag != "" || s.Detour != "" {
+			continue
+		}
+		// 直连默认解析器必须能无需自身再做域名解析：local 或纯 IP 地址的 udp/tcp
+		if s.Type == singbox.DNSTypeLocal ||
+			((s.Type == singbox.DNSTypeUDP || s.Type == singbox.DNSTypeTCP) &&
+				net.ParseIP(strings.Trim(s.Server, "[]")) != nil) {
+			directTag = s.Tag
+		}
+	}
+	rawServers, _ := base["servers"].([]map[string]any)
+	needSyntheticLocal := directTag == ""
+	if needSyntheticLocal {
+		directTag = "dns-local"
+		for usedTags[directTag] {
+			directTag += "-fallback"
+		}
+	}
+	for i, s := range d.Servers {
+		if i >= len(rawServers) {
+			break
+		}
+		entry := rawServers[i]
+		isRemote := s.Type == singbox.DNSTypeHTTPS || s.Type == singbox.DNSTypeH3 || s.Type == singbox.DNSTypeTLS
+		if s.Detour == "" && proxyGroup != "" && isRemote && (s.Tag == d.Final || !ruleTargets[s.Tag]) {
+			entry["detour"] = proxyGroup
+		}
+		if s.Tag != directTag && s.Type != singbox.DNSTypeLocal && s.Server != "" &&
+			net.ParseIP(strings.Trim(s.Server, "[]")) == nil {
+			entry["domain_resolver"] = directTag
+		}
+	}
+	if needSyntheticLocal {
+		rawServers = append(rawServers, map[string]any{"type": singbox.DNSTypeLocal, "tag": directTag})
+	}
+	base["servers"] = rawServers
+	return base, directTag
 }
 
 // nodeOutboundJSON 把订阅节点映射为 sing-box 客户端出站 JSON 对象。

@@ -13,6 +13,7 @@ import {
   UTableEditor,
   UTip,
   message,
+  vLoading,
 } from '@veltra/desktop'
 import { copy } from '@cat-kit/core'
 import type { TableEditorColumn } from '@veltra/desktop'
@@ -23,7 +24,7 @@ import { getDNS, saveDNS } from '../../api/dns'
 import type { DNSPreset, DNSRule, DNSServer, DNSSettings } from '../../api/dns'
 import { confirmAction } from '../../confirm-action'
 
-const dnsLoading = shallowRef(false)
+const dnsLoading = shallowRef(true)
 const dnsSaving = shallowRef(false)
 const dnsTypes = shallowRef<string[]>([])
 const dnsStrategies = shallowRef<string[]>([])
@@ -76,9 +77,9 @@ const serverTip =
 const ruleTip =
   '规则自上而下匹配：同一行填多个条件时任一命中即生效，多个值用英文逗号分隔（如 qq.com,baidu.com）；未命中任何规则的查询走下方「默认服务器」。'
 
-/** 表格覆盖不到的跨字段问题提示（单元格级问题由 UTableEditor 列校验标出，最终仍以后端 400 为准） */
+/** 表格覆盖不到的跨字段问题提示（首屏加载完成前不报空表误警；单元格级问题由 UTableEditor 列校验标出） */
 const dnsProblems = computed<string[]>(() => {
-  if (!dnsForm.enabled) return []
+  if (dnsLoading.value || !dnsForm.enabled) return []
   const problems: string[] = []
   if (!dnsForm.servers.length) problems.push('启用 DNS 时至少需要一个 DNS 服务器。')
   if (dnsForm.final && !dnsTags.value.includes(dnsForm.final)) problems.push('默认服务器不在现有 tag 中。')
@@ -250,6 +251,7 @@ onMounted(loadDNS)
       </div>
     </u-card-header>
     <u-card-content>
+      <div v-loading="dnsLoading && !dnsTypes.length">
       <div class="settings-row">
         <div class="settings-field">
           <div class="settings-label">启用自定义 DNS</div>
@@ -422,6 +424,7 @@ onMounted(loadDNS)
         <u-button type="primary" :loading="dnsSaving" @click="handleSaveDNS">保存 DNS</u-button>
       </div>
       <p class="hint">保存后立即按新配置重建内核；起不来时自动回到上一份可用配置并提示失败原因。</p>
+      </div>
     </u-card-content>
   </u-card>
 </template>

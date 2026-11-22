@@ -1,6 +1,6 @@
 <!-- 设置页「内核」页签：内置 sing-box 只读状态 + 日志（进入页签拉取并 5s 轮询，离开即停） -->
 <script setup lang="ts">
-import { UButton, UCard, UCardContent, UCardHeader, UTag, message } from '@veltra/desktop'
+import { UButton, UCard, UCardContent, UCardHeader, UTag, message, vLoading } from '@veltra/desktop'
 import { nextTick, onActivated, onDeactivated, onUnmounted, shallowRef, useTemplateRef } from 'vue'
 
 import EmptyState from '../../components/EmptyState.vue'
@@ -11,6 +11,7 @@ import { formatDateTime, formatUptime } from '../../utils/format'
 /** 内置内核的只读运行状态与日志（内核编进面板随面板自动运行，不可启停或换版本） */
 const status = shallowRef<KernelStatus | null>(null)
 const logs = shallowRef<KernelLogLine[]>([])
+const logsLoading = shallowRef(true)
 const logBox = useTemplateRef<HTMLElement>('logBox')
 
 let pollTimer: ReturnType<typeof setInterval> | undefined
@@ -24,12 +25,15 @@ async function refreshStatus(silent = true) {
 }
 
 async function refreshLogs(silent = true) {
+  if (!silent || !logs.value.length) logsLoading.value = true
   try {
     logs.value = await fetchKernelLogs(500)
     await nextTick()
     if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight
   } catch {
     if (!silent) message.error('查询内核日志失败')
+  } finally {
+    logsLoading.value = false
   }
 }
 
@@ -66,8 +70,8 @@ onUnmounted(stopPolling)
     </u-card-header>
     <u-card-content>
       <div class="info-meta">
-        <u-tag :type="status?.running ? 'success' : 'info'">
-          {{ status?.running ? '运行中' : '已停止' }}
+        <u-tag :type="status ? (status.running ? 'success' : 'info') : 'info'">
+          {{ status ? (status.running ? '运行中' : '已停止') : '加载中…' }}
         </u-tag>
         <span>版本：<strong>{{ status?.version || '-' }}</strong></span>
         <span>运行时长：{{ formatUptime(status?.uptimeSeconds) }}</span>
@@ -82,16 +86,18 @@ onUnmounted(stopPolling)
     <u-card-header>
       <div class="card-header-row">
         <span>内核日志</span>
-        <u-button @click="refreshLogs(false)">刷新日志</u-button>
+        <u-button :loading="logsLoading" @click="refreshLogs(false)">刷新日志</u-button>
       </div>
     </u-card-header>
     <u-card-content>
-      <EmptyState v-if="!logs.length" title="暂无内核日志" />
-      <div v-else ref="logBox" class="code-block kernel-log">
-        <div v-for="(item, index) in logs" :key="index" class="kernel-log-line">
-          <span class="kernel-log-time">{{ formatDateTime(item.time) }}</span>
-          <span :class="['kernel-log-stream', `is-${item.stream}`]">{{ item.stream }}</span>
-          <span class="kernel-log-text">{{ item.line }}</span>
+      <div v-loading="logsLoading && !logs.length" class="kernel-log-wrap">
+        <EmptyState v-if="!logsLoading && !logs.length" title="暂无内核日志" />
+        <div v-else-if="logs.length" ref="logBox" class="code-block kernel-log">
+          <div v-for="(item, index) in logs" :key="index" class="kernel-log-line">
+            <span class="kernel-log-time">{{ formatDateTime(item.time) }}</span>
+            <span :class="['kernel-log-stream', `is-${item.stream}`]">{{ item.stream }}</span>
+            <span class="kernel-log-text">{{ item.line }}</span>
+          </div>
         </div>
       </div>
     </u-card-content>
@@ -102,6 +108,10 @@ onUnmounted(stopPolling)
 /* settings-card / hint / card-header-row / info-meta 为 App.vue 全局类 */
 
 /* 日志区：chrome 取全局 code-block，这里只定高度 */
+.kernel-log-wrap {
+  min-height: 120px;
+}
+
 .kernel-log {
   height: 320px;
 }

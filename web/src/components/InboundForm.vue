@@ -19,6 +19,7 @@ import {
   USwitch,
   UTextarea,
   message,
+  vLoading,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
 import type { Component, PropType } from 'vue'
@@ -106,7 +107,10 @@ const editing = shallowRef<Inbound | null>(null)
 const form = reactive<Record<string, unknown>>({})
 const formRef = useTemplateRef<FormExposed>('formRef')
 const certs = shallowRef<Certificate[]>([])
+const certsLoading = shallowRef(false)
+const templateLoading = shallowRef(false)
 const saving = shallowRef(false)
+let loadSeq = 0
 /** TLS 分组默认展开（证书选择是关键配置），高级分组默认折叠 */
 const tlsCollapsed = ref(false)
 const advancedCollapsed = ref(true)
@@ -151,29 +155,38 @@ function templateShells(tpl: Record<string, unknown>): Record<string, unknown> {
   return shells
 }
 
-/** 新建：拉后端模板端点回填连接层默认值（含预生成的 Reality 密钥），端口留空由后端分配随机空闲端口。
-    模板拉取失败时兜底空配置打开弹框，缺省字段由后端保存时补齐（CompleteRealityKeys / SS PSK） */
-async function openCreate(protocol: string): Promise<void> {
+/** 新建：立即打开弹框并给基础默认壳，后端协议模板（含预生成 Reality 密钥）与证书列表并发异步回填。 */
+function openCreate(protocol: string): void {
   const target = protocolDef(protocol)
   if (!target) return
+  const seq = ++loadSeq
   def.value = target
   editing.value = null
   resetForm()
-  let tpl: Record<string, unknown> = {}
-  try {
-    tpl = await fetchInboundTemplate(protocol)
-  } catch {
-    // 兜底：模板拉不到也必须能打开弹框
-  }
-  Object.assign(form, { name: '', listen: '::', listenPort: undefined }, templateShells(tpl))
-  if (target.tls) void reloadCerts()
+  Object.assign(form, { name: '', listen: '::', listenPort: undefined }, templateShells({}))
+  templateLoading.value = true
   visible.value = true
+  const certTask = target.tls ? reloadCerts(seq) : Promise.resolve()
+  const tplTask = fetchInboundTemplate(protocol)
+    .then((tpl) => {
+      if (seq !== loadSeq || !visible.value) return
+      Object.assign(form, templateShells(tpl))
+    })
+    .catch(() => {
+      // 兜底：模板拉不到也可用空壳填写，缺省字段由后端保存时补齐
+    })
+    .finally(() => {
+      if (seq === loadSeq) templateLoading.value = false
+    })
+  void Promise.all([tplTask, certTask])
 }
 
-/** 编辑：回填现有监听与配置 */
+/** 编辑：立即打开并回填现有监听与配置，证书列表并发异步刷新 */
 function openEdit(row: Inbound): void {
   const target = protocolDef(row.protocol)
   if (!target) return
+  const seq = ++loadSeq
+  templateLoading.value = false
   def.value = target
   editing.value = row
   resetForm()
@@ -192,15 +205,19 @@ function openEdit(row: Inbound): void {
   if (currentTls && !currentTls.ech) currentTls.ech = { enabled: false }
   if (row.protocol === 'hysteria2' && !cfg.masquerade) cfg.masquerade = { type: '' }
   Object.assign(form, { name: row.name, listen: row.listen, listenPort: row.listenPort }, cfg)
-  if (target.tls) void reloadCerts()
+  if (target.tls) void reloadCerts(seq)
   visible.value = true
 }
 
-async function reloadCerts(): Promise<void> {
+async function reloadCerts(seq = loadSeq): Promise<void> {
+  certsLoading.value = true
   try {
-    certs.value = await listCerts()
+    const list = await listCerts()
+    if (seq === loadSeq) certs.value = list
   } catch {
     // 静默：证书列表加载失败时选择区为空，表单内已有引导提示
+  } finally {
+    if (seq === loadSeq) certsLoading.value = false
   }
 }
 
@@ -268,7 +285,8 @@ defineExpose({ openCreate, openEdit })
       该端口由本入站下的所有用户共享；用户在「订阅用户」页勾选本入站时自动生成独立凭据，用户名即客户端订阅里的节点名。
     </div>
 
-    <u-form ref="formRef" :model="form" :cols="1" label-width="112px">
+    <div v-loading="templateLoading">
+      <u-form ref="formRef" :model="form" :cols="1" label-width="112px" :disabled="templateLoading">
       <FormGroupCard title="基础配置">
         <u-form-item
           label="名称"
@@ -302,13 +320,13 @@ defineExpose({ openCreate, openEdit })
         title="TLS / 证书"
         :highlight="tlsHighlighted"
       >
-        <!-- 证书引导：没有证书时给出完整引导；已有证书也保留「没有合适的证书」的跳转提示 -->
-        <p v-if="!certs.length" class="tls-empty">
+        <!-- 证书引导：加载期间先不闪空状态；没有证书时给出完整引导；已有证书保留「没有合适的证书」跳转提示 -->
+        <p v-if="!certsLoading && !certs.length" class="tls-empty">
           暂无面板存储证书：可
           <u-button text type="primary" @click="goCerts">前往证书页</u-button>
           一键生成自签或上传/粘贴 PEM，也可把下方「证书引用」切换为服务器本地路径手动填写。
         </p>
-        <p v-else class="tls-empty">
+        <p v-else-if="certs.length" class="tls-empty">
           没有合适的证书？可
           <u-button text type="primary" @click="goCerts">前往证书页</u-button>
           生成自签或上传；证书文件已在服务器上时，把「证书引用」切换为服务器本地路径即可。
@@ -331,10 +349,11 @@ defineExpose({ openCreate, openEdit })
       <div v-if="notes.length" class="form-notes">
         <div v-for="n in notes" :key="n" class="form-note">· {{ n }}</div>
       </div>
-    </u-form>
+      </u-form>
+    </div>
 
-    <!-- 弱配置警示置于表单底部，避免输入时动态增减顶动光标下方的表单控件 -->
-    <div v-if="warnings.length" class="form-warnings">
+    <!-- 弱配置警示置于表单底部，加载期间先不渲染，避免模板未回来前闪现虚假告警 -->
+    <div v-if="!templateLoading && warnings.length" class="form-warnings">
       <div v-for="w in warnings" :key="w.text" class="form-warning">
         <span class="form-warning-text">⚠ {{ w.text }}</span>
         <u-button v-if="w.jump === 'tls'" text type="primary" @click="jumpToTls">去配置 TLS</u-button>
@@ -342,7 +361,7 @@ defineExpose({ openCreate, openEdit })
     </div>
 
     <template #footer="{ close }">
-      <DialogFooter :loading="saving" @cancel="close" @confirm="handleSave" />
+      <DialogFooter :loading="saving" :disabled="templateLoading" @cancel="close" @confirm="handleSave" />
     </template>
   </u-dialog>
 </template>

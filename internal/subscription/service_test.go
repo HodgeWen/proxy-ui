@@ -414,8 +414,8 @@ func TestSubscriptionHeaders(t *testing.T) {
 		t.Fatalf("状态码 = %d: %s", rec.Code, rec.Body.String())
 	}
 	cd := rec.Header().Get("Content-Disposition")
-	if cd != `attachment; filename="alice-phone"` {
-		t.Errorf("ASCII Content-Disposition = %q, want %q", cd, `attachment; filename="alice-phone"`)
+	if cd != "attachment; filename*=UTF-8''alice-phone" {
+		t.Errorf("ASCII Content-Disposition = %q, want %q", cd, "attachment; filename*=UTF-8''alice-phone")
 	}
 	if strings.Contains(cd, "config.yaml") || strings.Contains(cd, "config.json") {
 		t.Errorf("Content-Disposition 不得包含 config.yaml/config.json: %q", cd)
@@ -453,7 +453,7 @@ func TestSubscriptionHeaders(t *testing.T) {
 	// 空备注名回退请求 Host
 	mkToken("tok-empty", "   ", 0, nil)
 	rec = doRequest(t, s, "tok-empty", "clash", "")
-	if cd = rec.Header().Get("Content-Disposition"); cd != `attachment; filename="example.com"` {
+	if cd = rec.Header().Get("Content-Disposition"); cd != "attachment; filename*=UTF-8''example.com" {
 		t.Errorf("空备注应回退到 Host: %q", cd)
 	}
 }

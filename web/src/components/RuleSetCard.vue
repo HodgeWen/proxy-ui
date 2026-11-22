@@ -17,6 +17,7 @@ import {
   UTag,
   defineTableColumns,
   message,
+  vLoading,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
 import { reactive, shallowRef, useTemplateRef } from 'vue'
@@ -66,6 +67,7 @@ function deleteBlockReason(ruleSet: RuleSet): string {
 
 const formVisible = shallowRef(false)
 const saving = shallowRef(false)
+const deletingId = shallowRef(0)
 const editing = shallowRef<RuleSet | null>(null)
 const formRef = useTemplateRef<FormExposed>('formRef')
 const form = reactive({ name: '', description: '' })
@@ -102,12 +104,15 @@ async function handleSave(): Promise<void> {
 async function handleDelete(row: RuleSet): Promise<void> {
   const ok = await confirmAction('删除规则集', `确认删除规则集「${row.name}」及其全部内容项吗？`, true, '删除')
   if (!ok) return
+  deletingId.value = row.id
   try {
     await deleteRuleSet(row.id)
     message.success('规则集已删除')
     emit('changed')
   } catch {
     // 错误已由请求封装统一提示
+  } finally {
+    deletingId.value = 0
   }
 }
 </script>
@@ -121,54 +126,56 @@ async function handleDelete(row: RuleSet): Promise<void> {
       </div>
     </u-card-header>
     <u-card-content>
-      <u-table :columns="columns" :data="ruleSets" row-key="id" stripe>
-        <template #empty>
-          <EmptyState
-            v-if="!loading"
-            title="暂无规则集"
-            description="内置的 anti-ad / geosite-cn / geoip-cn 会在服务启动时自动补齐；也可以自建规则集，先建空集再添加内容项来源"
-            cta-text="新建规则集"
-            @cta="openCreate"
-          />
-        </template>
-        <template #column:name="{ rowData }">
-          <div class="name-cell">
-            <span class="name-text">{{ rowData.name }}</span>
-            <u-tag v-if="rowData.builtin" type="info" size="small">内置</u-tag>
-          </div>
-        </template>
-        <template #column:description="{ rowData }">
-          <span class="dim ellipsis" :title="rowData.description || undefined">
-            {{ rowData.description || '—' }}
-          </span>
-        </template>
-        <template #column:source="{ rowData }">
-          <span v-if="activeSource(rowData) !== null">{{ activeSource(rowData) }}</span>
-          <span v-else class="warn">未配置来源</span>
-        </template>
-        <template #column:usedByRules="{ rowData }">
-          <span :class="{ dim: !rowData.usedByRules }">{{ rowData.usedByRules }}</span>
-        </template>
-        <template #column:itemCount="{ rowData }">
-          {{ rowData.items.length }}
-        </template>
-        <template #column:actions="{ rowData }">
-          <!-- max=3 恰好容纳三项，避免操作被收进「更多」下拉 -->
-          <u-action-group :max="3">
-            <u-action @run="emit('maintain', rowData)">维护内容项</u-action>
-            <u-action @run="openEdit(rowData)">编辑</u-action>
-            <!-- UButton 的 disabled 只加类名、不设原生 disabled，因此 title 仍可悬停显示禁用原因 -->
-            <u-action
-              type="danger"
-              :disabled="!!deleteBlockReason(rowData)"
-              :title="deleteBlockReason(rowData) || undefined"
-              @run="handleDelete(rowData)"
-            >
-              删除
-            </u-action>
-          </u-action-group>
-        </template>
-      </u-table>
+      <div v-loading="loading" class="table-wrap">
+        <u-table :columns="columns" :data="ruleSets" row-key="id" stripe>
+          <template #empty>
+            <EmptyState
+              v-if="!loading"
+              title="暂无规则集"
+              description="内置的 anti-ad / geosite-cn / geoip-cn 会在服务启动时自动补齐；也可以自建规则集，先建空集再添加内容项来源"
+              cta-text="新建规则集"
+              @cta="openCreate"
+            />
+          </template>
+          <template #column:name="{ rowData }">
+            <div class="name-cell">
+              <span class="name-text">{{ rowData.name }}</span>
+              <u-tag v-if="rowData.builtin" type="info" size="small">内置</u-tag>
+            </div>
+          </template>
+          <template #column:description="{ rowData }">
+            <span class="dim ellipsis" :title="rowData.description || undefined">
+              {{ rowData.description || '—' }}
+            </span>
+          </template>
+          <template #column:source="{ rowData }">
+            <span v-if="activeSource(rowData) !== null">{{ activeSource(rowData) }}</span>
+            <span v-else class="warn">未配置来源</span>
+          </template>
+          <template #column:usedByRules="{ rowData }">
+            <span :class="{ dim: !rowData.usedByRules }">{{ rowData.usedByRules }}</span>
+          </template>
+          <template #column:itemCount="{ rowData }">
+            {{ rowData.items.length }}
+          </template>
+          <template #column:actions="{ rowData }">
+            <!-- max=3 恰好容纳三项，避免操作被收进「更多」下拉 -->
+            <u-action-group :max="3" :loading="deletingId === rowData.id">
+              <u-action @run="emit('maintain', rowData)">维护内容项</u-action>
+              <u-action @run="openEdit(rowData)">编辑</u-action>
+              <!-- UButton 的 disabled 只加类名、不设原生 disabled，因此 title 仍可悬停显示禁用原因 -->
+              <u-action
+                type="danger"
+                :disabled="!!deleteBlockReason(rowData)"
+                :title="deleteBlockReason(rowData) || undefined"
+                @run="handleDelete(rowData)"
+              >
+                删除
+              </u-action>
+            </u-action-group>
+          </template>
+        </u-table>
+      </div>
     </u-card-content>
   </u-card>
 

@@ -20,6 +20,7 @@ import {
   UTag,
   defineTableColumns,
   message,
+  vLoading,
 } from '@veltra/desktop'
 import type { FormExposed } from '@veltra/desktop'
 import { computed, reactive, ref, shallowRef, useTemplateRef } from 'vue'
@@ -78,12 +79,15 @@ async function handleDelete(row: PolicyGroup): Promise<void> {
     '删除',
   )
   if (!ok) return
+  deletingId.value = row.id
   try {
     await deletePolicyGroup(row.id)
     message.success('策略组已删除')
     emit('changed')
   } catch {
     // 错误已由请求封装统一提示
+  } finally {
+    deletingId.value = 0
   }
 }
 
@@ -91,6 +95,7 @@ async function handleDelete(row: PolicyGroup): Promise<void> {
 
 const formVisible = shallowRef(false)
 const saving = shallowRef(false)
+const deletingId = shallowRef(0)
 const editing = shallowRef<PolicyGroup | null>(null)
 const formRef = useTemplateRef<FormExposed>('formRef')
 /** 分组卡片默认展开，重开弹框时复位 */
@@ -146,39 +151,41 @@ async function handleSave(): Promise<void> {
       </div>
     </u-card-header>
     <u-card-content>
-      <u-table :columns="columns" :data="groups" row-key="id" stripe>
-        <template #empty>
-          <EmptyState
-            v-if="!loading"
-            title="暂无策略组"
-            description="策略组会随订阅下发，在手机/电脑客户端上呈现为「节点选择 / 自动选择」这类分组；可先在「兜底与模板」页签应用预设模板生成，或新建一个"
-            cta-text="新建策略组"
-            @cta="openCreate"
-          />
-        </template>
-        <template #column:mode="{ rowData }">
-          <u-tag type="info">{{ modeLabel(rowData.mode) }}</u-tag>
-        </template>
-        <template #column:members="{ rowData }">
-          {{ rowData.members.join('，') || '—' }}
-        </template>
-        <template #column:enabled="{ rowData }">
-          <!-- USwitch 没有 loading，用 disabled 在请求期间挡住重复点击 -->
-          <u-switch
-            size="small"
-            :model-value="rowEnabled(rowData)"
-            :disabled="togglingId === rowData.id"
-            @update:model-value="(v: boolean) => handleToggle(rowData, v)"
-          />
-        </template>
-        <template #column:actions="{ rowData }">
-          <u-action-group :max="3">
-            <u-action @run="openEdit(rowData)">编辑</u-action>
-            <!-- 确认交给 messageConfirm（需说明引用影响），不再叠 need-confirm 气泡 -->
-            <u-action type="danger" @run="handleDelete(rowData)">删除</u-action>
-          </u-action-group>
-        </template>
-      </u-table>
+      <div v-loading="loading" class="table-wrap">
+        <u-table :columns="columns" :data="groups" row-key="id" stripe>
+          <template #empty>
+            <EmptyState
+              v-if="!loading"
+              title="暂无策略组"
+              description="策略组会随订阅下发，在手机/电脑客户端上呈现为「节点选择 / 自动选择」这类分组；可先在「兜底与模板」页签应用预设模板生成，或新建一个"
+              cta-text="新建策略组"
+              @cta="openCreate"
+            />
+          </template>
+          <template #column:mode="{ rowData }">
+            <u-tag type="info">{{ modeLabel(rowData.mode) }}</u-tag>
+          </template>
+          <template #column:members="{ rowData }">
+            {{ rowData.members.join('，') || '—' }}
+          </template>
+          <template #column:enabled="{ rowData }">
+            <!-- USwitch 没有 loading，用 disabled 在请求期间挡住重复点击 -->
+            <u-switch
+              size="small"
+              :model-value="rowEnabled(rowData)"
+              :disabled="togglingId === rowData.id"
+              @update:model-value="(v: boolean) => handleToggle(rowData, v)"
+            />
+          </template>
+          <template #column:actions="{ rowData }">
+            <u-action-group :max="3" :loading="deletingId === rowData.id">
+              <u-action @run="openEdit(rowData)">编辑</u-action>
+              <!-- 确认交给 messageConfirm（需说明引用影响），不再叠 need-confirm 气泡 -->
+              <u-action type="danger" @run="handleDelete(rowData)">删除</u-action>
+            </u-action-group>
+          </template>
+        </u-table>
+      </div>
     </u-card-content>
   </u-card>
 

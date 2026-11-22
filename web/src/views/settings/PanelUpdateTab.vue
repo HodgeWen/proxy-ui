@@ -11,7 +11,7 @@ import type { ReleaseVersion } from '../../api/panel'
 /** 面板当前版本与可用版本 */
 const panelVersion = shallowRef('')
 const panelVersions = shallowRef<ReleaseVersion[]>([])
-const panelChecking = shallowRef(false)
+const panelChecking = shallowRef(true)
 const panelUpdating = shallowRef(false)
 /** 面板更新阶段提示（下载替换 / 等待重启恢复） */
 const panelPhase = shallowRef('')
@@ -85,8 +85,8 @@ onActivated(checkPanelUpdate)
     <u-card-header>面板更新</u-card-header>
     <u-card-content>
       <div class="info-meta">
-        <span>当前版本：<strong>{{ panelVersion || '未知' }}</strong></span>
-        <span>最新稳定版：<strong>{{ latestPanel?.tag ?? '未检查' }}</strong></span>
+        <span>当前版本：<strong>{{ panelVersion || (panelChecking ? '检查中…' : '未知') }}</strong></span>
+        <span>最新稳定版：<strong>{{ latestPanel?.tag ?? (panelChecking ? '检查中…' : '未检查') }}</strong></span>
         <u-tag v-if="panelState === 'latest'" type="success">已是最新版</u-tag>
       </div>
       <div class="ops-row">
@@ -104,7 +104,9 @@ onActivated(checkPanelUpdate)
         </u-button>
         <u-button v-else disabled>一键更新</u-button>
       </div>
-      <p v-if="panelState === 'unchecked'" class="hint">尚未获取可用版本，「一键更新」待「检查更新」完成后可用。</p>
+      <p v-if="!panelChecking && panelState === 'unchecked'" class="hint">
+        尚未获取可用版本，「一键更新」待「检查更新」完成后可用。
+      </p>
       <p v-if="panelPhase" class="hint">{{ panelPhase }}</p>
       <p class="hint">更新会替换面板二进制并自动重启进程，数据与配置保留；内核随面板一同升级。</p>
     </u-card-content>

@@ -38,7 +38,7 @@ import { formatBytes, formatDateTime } from '../utils/format'
 // ---------- 列表 ----------
 
 const users = shallowRef<SubscriptionToken[]>([])
-const loading = shallowRef(false)
+const loading = shallowRef(true)
 const actingID = shallowRef(0)
 
 const columns = defineTableColumns([
@@ -296,12 +296,7 @@ onMounted(refresh)
 </template>
 
 <style scoped>
-/* page-header / cell-dim 为 App.vue 全局类 */
-
-.table-wrap {
-  position: relative;
-  min-height: 120px;
-}
+/* page-header / cell-dim / table-wrap 为 App.vue 全局类 */
 
 .card-desc {
   margin: 0 0 12px;
