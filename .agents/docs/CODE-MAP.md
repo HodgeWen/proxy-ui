@@ -28,6 +28,7 @@ proxy-ui/
 │   └── release.sh        # Go 应用公开发版入口脚本（检查、门禁、--dry-run、提交 CHANGELOG 并推送分支与附注 tag）
 └── web/                  # Vue3 SPA（独立 npm 包，bun + Vite）
     ├── dist/             # 前端构建产物（go:embed 嵌入）
+    ├── public/           # 原样拷进构建产物根的静态文件：站点图标 favicon.svg 及其 32px PNG 回退（Safari 不支持 SVG 站点图标）
     └── src/
         ├── api/          # 请求封装与各资源接口（入站/出站/证书/规则+规则集/策略组/订阅用户/统计/内核/DNS/AI/面板更新）
         ├── stores/       # Pinia：auth

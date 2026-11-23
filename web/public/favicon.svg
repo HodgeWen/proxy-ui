@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30">
+  <!-- 站点图标：与侧栏品牌标同款（主色渐变圆角方块 + 终端符号），符号按 16px 标签页放大加粗。
+       渐变是默认主题主色的定值（站点图标读不到主题变量），不随主题切换而变。
+       favicon-32x32.png 是本文件按 32px 渲染的位图回退（Safari 不支持 SVG 站点图标），
+       改动本文件后需用 sips 按 32×32 重新导出 PNG 覆盖该文件 -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3a72ed" />
+      <stop offset="1" stop-color="#1945a4" />
+    </linearGradient>
+  </defs>
+  <rect width="30" height="30" rx="8" fill="url(#g)" />
+  <path
+    d="M12 19h8M4 17l6-6-6-6"
+    transform="translate(4.5 4.5) scale(0.875)"
+    fill="none"
+    stroke="#fff"
+    stroke-width="2.6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>
