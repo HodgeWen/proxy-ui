@@ -461,12 +461,8 @@ func clashRulesOf(r singbox.RuleEntry) ([]string, *singbox.RuleSetSource) {
 		if r.RuleSet == nil {
 			return nil, nil
 		}
-		line := "RULE-SET," + r.RuleSet.Tag + "," + outbound
-		// ipcidr 规则集在 fake-ip 模式下应跳过前置本地解析，避免海外域名误判直连
-		if r.RuleSet.MihomoBehavior == "ipcidr" {
-			line += ",no-resolve"
-		}
-		return []string{line}, r.RuleSet
+		// ipcidr 规则集不加 no-resolve：fake-ip 下只有域名，需解析出真实 IP 才能命中（如国内 IP 直连）
+		return []string{"RULE-SET," + r.RuleSet.Tag + "," + outbound}, r.RuleSet
 	}
 	var lines []string
 	for _, v := range singbox.SplitRuleValue(r.Value) {

@@ -189,11 +189,14 @@ func TestRenderClashStructure(t *testing.T) {
 		t.Errorf("rule-provider 应经由代理组下载: antiAD=%q geoip=%q", antiAD.Proxy, geoip.Proxy)
 	}
 
-	// rules：各匹配方式映射正确（ipcidr 规则集带 no-resolve），最后补 MATCH
+	// rules：各匹配方式映射正确（ipcidr 规则集不带 no-resolve，fake-ip 下需解析域名命中），最后补 MATCH
 	joined := strings.Join(doc.Rules, "\n")
+	if strings.Contains(joined, "RULE-SET,geoip-cn,DIRECT,no-resolve") {
+		t.Errorf("ipcidr 规则集不应带 no-resolve:\n%s", joined)
+	}
 	for _, want := range []string{
 		"RULE-SET,anti-ad,REJECT",
-		"RULE-SET,geoip-cn,DIRECT,no-resolve",
+		"RULE-SET,geoip-cn,DIRECT",
 		"DOMAIN-SUFFIX,a.com,proxy",
 		"DOMAIN-SUFFIX,b.com,proxy",
 		"DOMAIN,exact.com,proxy",
