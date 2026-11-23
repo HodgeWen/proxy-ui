@@ -136,6 +136,9 @@ async function handleSave(): Promise<void> {
     emit('changed')
   } catch {
     // 错误已由请求封装统一提示
+    // 失败也同步一次列表：页面数据可能已过期（AI 劥手或其它标签页建过同名策略组），不同步的话
+    // 用户看不到报错里「已存在」的那个策略组，也无从判断该怎么办
+    emit('changed')
   } finally {
     saving.value = false
   }
