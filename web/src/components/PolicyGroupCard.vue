@@ -74,7 +74,7 @@ const { rowEnabled, togglingId, toggle: handleToggle } = useEnabledOverride(
 async function handleDelete(row: PolicyGroup): Promise<void> {
   const ok = await confirmAction(
     '删除策略组',
-    `确认删除策略组「${row.name}」吗？被规则引用时内核将无法重建，你会看到具体原因。`,
+    `确认删除策略组「${row.name}」吗？被路由规则、其它策略组、兜底出站或 DNS 服务器 detour 引用时无法删除，会提示先改掉这些引用。`,
     true,
     '删除',
   )
@@ -214,7 +214,7 @@ async function handleSave(): Promise<void> {
         <u-form-item
           label="成员出站"
           span="full"
-          tips="成员顺序就是优先级：固定模式默认用首个成员，故障转移优先用靠前的可用成员，自动模式与顺序无关；可选 direct、自定义出站或其它策略组（不可选拦截）。客户端订阅实际使用入站节点、direct 与其它组，自定义出站仅在服务端配置生效"
+          tips="成员顺序就是优先级：固定模式默认用首个成员，故障转移优先用靠前的可用成员，自动模式与顺序无关；可选 direct、自定义出站或其它策略组（不可选拦截）。订阅下发时会按每个用户的实际节点重算成员——自定义出站在客户端并不存在，组内因此没有可用代理出口时会自动换成该用户的节点，所以只选 direct 的组下发后也会包含节点"
         >
           <u-multi-select
             v-model="form.members"

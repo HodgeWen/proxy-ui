@@ -214,6 +214,31 @@ func TestBuildConfigRuleSetDedup(t *testing.T) {
 	}
 }
 
+// TestFindGroupCycle 循环引用检测：自引用、间接环与无环。
+func TestFindGroupCycle(t *testing.T) {
+	// 无环
+	if cycle := FindGroupCycle([]GroupEntry{
+		{Name: "a", Mode: GroupModeAuto, Members: []string{"b", "direct"}},
+		{Name: "b", Mode: GroupModeAuto, Members: []string{"direct"}},
+	}); cycle != nil {
+		t.Errorf("无环应返回 nil: %v", cycle)
+	}
+	// 间接环 a → b → c → a
+	cycle := FindGroupCycle([]GroupEntry{
+		{Name: "a", Mode: GroupModeAuto, Members: []string{"b"}},
+		{Name: "b", Mode: GroupModeAuto, Members: []string{"c"}},
+		{Name: "c", Mode: GroupModeAuto, Members: []string{"a"}},
+	})
+	if len(cycle) < 4 || cycle[0] != "a" || cycle[len(cycle)-1] != "a" {
+		t.Errorf("应返回闭合的环链, got %v", cycle)
+	}
+	// 自引用
+	cycle = FindGroupCycle([]GroupEntry{{Name: "a", Mode: GroupModeAuto, Members: []string{"a"}}})
+	if len(cycle) != 2 || cycle[0] != "a" || cycle[1] != "a" {
+		t.Errorf("自引用应被检测到, got %v", cycle)
+	}
+}
+
 // TestBuildConfigRuleOrder route.rules 按输入顺序生效。
 func TestBuildConfigRuleOrder(t *testing.T) {
 	cfg, err := BuildConfig(nil, nil, &Routing{

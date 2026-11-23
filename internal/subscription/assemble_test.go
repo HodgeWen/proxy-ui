@@ -146,7 +146,7 @@ func TestAssembleNodeTags(t *testing.T) {
 	}
 }
 
-// TestAssembleGroupMemberMapping 策略组成员过滤为可用 tag，全无效时回落全部节点。
+// TestAssembleGroupMemberMapping 策略组成员过滤为可用 tag，组内无代理成员时回落全部节点。
 func TestAssembleGroupMemberMapping(t *testing.T) {
 	specs := []NodeSpec{
 		nodeSpec(t, "n1", singbox.ProtoVLESS, 20001),
@@ -167,9 +167,9 @@ func TestAssembleGroupMemberMapping(t *testing.T) {
 	if len(d.Groups[0].Members) != 1 || d.Groups[0].Members[0] != "n1" {
 		t.Errorf("策略组成员应剔除无效 tag: %+v", d.Groups[0])
 	}
-	// 全无效成员回落为全部节点 tag
+	// 组内没有任何代理成员（客户端不存在这些出站）→ 填充全部节点
 	if len(d.Groups[1].Members) != 2 || d.Groups[1].Members[0] != "n1" || d.Groups[1].Members[1] != "n2" {
-		t.Errorf("无效成员组应回落全部节点: %+v", d.Groups[1])
+		t.Errorf("无代理成员的组应填充全部节点: %+v", d.Groups[1])
 	}
 	// 无兜底设置时取首个策略组
 	if d.Final != "proxy" {
@@ -729,8 +729,8 @@ func TestRenderSingBoxInsecureAndBBR(t *testing.T) {
 	}
 }
 
-// TestAssembleTemplatePlaceholderExpansion 规则模板无自定义出站时用 ["direct"] 占位的 auto/failover 组，
-// 下发订阅且有可用节点时自动填充订阅节点，而 fixed 组保留 direct。
+// TestAssembleTemplatePlaceholderExpansion 模板组在服务端只有 direct 占位（没有自定义出站）时，
+// 下发订阅应填充该用户的节点而不是只剩 DIRECT；三种模式（含固定代理）一致。
 func TestAssembleTemplatePlaceholderExpansion(t *testing.T) {
 	specs := []NodeSpec{
 		nodeSpec(t, "n1", singbox.ProtoVLESS, 20001),
@@ -738,19 +738,332 @@ func TestAssembleTemplatePlaceholderExpansion(t *testing.T) {
 	}
 	groups := []singbox.GroupEntry{
 		{Name: "proxy", Mode: singbox.GroupModeAuto, Members: []string{"direct"}},
-		{Name: "direct-only", Mode: singbox.GroupModeFixed, Members: []string{"direct"}},
+		{Name: "manual", Mode: singbox.GroupModeFixed, Members: []string{"direct"}},
+		{Name: "backup", Mode: singbox.GroupModeFailover, Members: []string{"direct"}},
 	}
 	d, err := Assemble("example.com", specs, groups, nil, "proxy", nil)
 	if err != nil {
 		t.Fatalf("组装失败: %v", err)
 	}
+	if len(d.Groups) != 3 {
+		t.Fatalf("应有 3 个策略组: %+v", d.Groups)
+	}
+	// 自动选择 / 故障转移丢掉 DIRECT（延迟近 0 会夺走整组），固定代理保留它作为可选手动出口
+	wantMembers := [][]string{{"n1", "n2"}, {"n1", "n2", "direct"}, {"n1", "n2"}}
+	for i, name := range []string{"proxy", "manual", "backup"} {
+		got := d.Groups[i].Members
+		if len(got) != len(wantMembers[i]) {
+			t.Fatalf("%s 组成员 = %v, want %v", name, got, wantMembers[i])
+		}
+		for j := range got {
+			if got[j] != wantMembers[i][j] {
+				t.Fatalf("%s 组成员 = %v, want %v", name, got, wantMembers[i])
+			}
+		}
+	}
+}
+
+// TestAssembleFixedGroupKeepsNodes 固定代理组只应「默认选第一个成员」，不能退化成只有 DIRECT。
+func TestAssembleFixedGroupKeepsNodes(t *testing.T) {
+	specs := []NodeSpec{
+		nodeSpec(t, "n1", singbox.ProtoVLESS, 20001),
+		nodeSpec(t, "n2", singbox.ProtoTrojan, 20002),
+	}
+	d, err := Assemble("example.com", specs, []singbox.GroupEntry{
+		{Name: "proxy", Mode: singbox.GroupModeFixed, Members: []string{"direct"}},
+	}, nil, "proxy", nil)
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	cfg, err := RenderSingBox(d)
+	if err != nil {
+		t.Fatalf("渲染失败: %v", err)
+	}
+	group := findOutbound(t, cfg, "proxy")
+	members, _ := group["outbounds"].([]string)
+	if len(members) != 3 || members[0] != "n1" || members[1] != "n2" || members[2] != directTag {
+		t.Fatalf("固定代理组的 outbounds 应为订阅节点 + direct: %v", group)
+	}
+	if group["default"] != "n1" {
+		t.Errorf("固定代理组默认应选首个成员: %v", group["default"])
+	}
+
+	// clash：select 组的 proxies 同样不能只剩 DIRECT
+	raw, err := RenderClash(d)
+	if err != nil {
+		t.Fatalf("渲染 clash 失败: %v", err)
+	}
+	doc := parseClash(t, raw)
+	if len(doc.ProxyGroups) != 1 {
+		t.Fatalf("应有 1 个 proxy-group: %+v", doc.ProxyGroups)
+	}
+	proxyMembers, _ := doc.ProxyGroups[0]["proxies"].([]any)
+	if len(proxyMembers) != 3 || proxyMembers[0] != "n1" || proxyMembers[1] != "n2" || proxyMembers[2] != "DIRECT" {
+		t.Errorf("固定代理组应包含节点并保留 DIRECT: %v", proxyMembers)
+	}
+}
+
+// TestAssembleBreaksGroupCycle 循环引用的策略组必须被打破，否则客户端拒绝加载整份配置。
+func TestAssembleBreaksGroupCycle(t *testing.T) {
+	specs := []NodeSpec{nodeSpec(t, "n1", singbox.ProtoVLESS, 20001)}
+	d, err := Assemble("example.com", specs, []singbox.GroupEntry{
+		{Name: "a", Mode: singbox.GroupModeFixed, Members: []string{"b"}},
+		{Name: "b", Mode: singbox.GroupModeFixed, Members: []string{"a"}},
+	}, nil, "a", nil)
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	if cycle := singbox.FindGroupCycle(d.Groups); cycle != nil {
+		t.Fatalf("订阅不应输出循环引用: %v", cycle)
+	}
 	if len(d.Groups) != 2 {
-		t.Fatalf("应有 2 个策略组: %+v", d.Groups)
+		t.Fatalf("应保留两个策略组: %+v", d.Groups)
 	}
-	if got := d.Groups[0].Members; len(got) != 2 || got[0] != "n1" || got[1] != "n2" {
-		t.Errorf("模板 auto 组应自动填充订阅节点, got %v", got)
+	// 环被打破后，环上那个已无出口的组改用订阅节点（另一个组仍可合法引用它）
+	total := 0
+	for _, g := range d.Groups {
+		for _, m := range g.Members {
+			if m == "n1" {
+				total++
+			}
+		}
 	}
-	if got := d.Groups[1].Members; len(got) != 1 || got[0] != "direct" {
-		t.Errorf("手动 fixed 组含 direct 应保留, got %v", got)
+	if total == 0 {
+		t.Errorf("打破环后应至少有一组回落到订阅节点: %+v", d.Groups)
+	}
+	// 渲染出的客户端配置应能通过内核校验
+	cfg, err := RenderSingBox(d)
+	if err != nil {
+		t.Fatalf("渲染失败: %v", err)
+	}
+	if err := singbox.New(t.TempDir()).CheckConfig(cfg); err != nil {
+		t.Fatalf("客户端配置应通过内核校验: %v", err)
+	}
+}
+
+// TestAssembleAutoGroupNeverMixesDirect 自动选择 / 故障转移组即便显式列了 direct 也不能保留，
+// 否则 DIRECT 延迟近 0 必然夺走整组；固定代理组保留它作为可选手动出口。
+func TestAssembleAutoGroupNeverMixesDirect(t *testing.T) {
+	specs := []NodeSpec{nodeSpec(t, "n1", singbox.ProtoVLESS, 20001)}
+	for _, mode := range []string{singbox.GroupModeAuto, singbox.GroupModeFailover} {
+		d, err := Assemble("example.com", specs, []singbox.GroupEntry{
+			{Name: "proxy", Mode: mode, Members: []string{"n1", "direct"}},
+		}, nil, "proxy", nil)
+		if err != nil {
+			t.Fatalf("%s 组装失败: %v", mode, err)
+		}
+		cfg, err := RenderSingBox(d)
+		if err != nil {
+			t.Fatalf("渲染失败: %v", err)
+		}
+		group := findOutbound(t, cfg, "proxy")
+		members, _ := group["outbounds"].([]string)
+		for _, m := range members {
+			if m == directTag {
+				t.Fatalf("%s 组不应包含 direct: %v", mode, members)
+			}
+		}
+		if len(members) != 1 || members[0] != "n1" {
+			t.Errorf("%s 组应只含节点: %v", mode, members)
+		}
+	}
+
+	// 固定组保留 direct（手动切换有意义）
+	d, err := Assemble("example.com", specs, []singbox.GroupEntry{
+		{Name: "manual", Mode: singbox.GroupModeFixed, Members: []string{"n1", "direct"}},
+	}, nil, "manual", nil)
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	cfg, err := RenderSingBox(d)
+	if err != nil {
+		t.Fatalf("渲染失败: %v", err)
+	}
+	group := findOutbound(t, cfg, "manual")
+	members, _ := group["outbounds"].([]string)
+	if len(members) != 2 || members[1] != directTag {
+		t.Errorf("固定组应保留 direct: %v", members)
+	}
+}
+
+// TestAssembleDNSDetourRemapped 指向服务端专属出站的 DNS detour 在客户端必须回落到代理组，
+// 否则客户端 DNS 指向不存在的 tag。
+func TestAssembleDNSDetourRemapped(t *testing.T) {
+	specs := []NodeSpec{nodeSpec(t, "n1", singbox.ProtoVLESS, 20001)}
+	dns := &singbox.DNSConfig{
+		Enabled: true,
+		Servers: []singbox.DNSServer{
+			{Tag: "ali", Type: singbox.DNSTypeUDP, Server: "223.5.5.5"},
+			{Tag: "doh", Type: singbox.DNSTypeHTTPS, Server: "1.1.1.1", Detour: "hk-socks"},
+		},
+		Final: "doh",
+	}
+	d, err := Assemble("example.com", specs, []singbox.GroupEntry{
+		{Name: "proxy", Mode: singbox.GroupModeAuto, Members: []string{"n1"}},
+	}, nil, "proxy", dns)
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	cfg, err := RenderSingBox(d)
+	if err != nil {
+		t.Fatalf("渲染失败: %v", err)
+	}
+	if err := singbox.New(t.TempDir()).CheckConfig(cfg); err != nil {
+		t.Fatalf("客户端配置应通过内核校验: %v", err)
+	}
+	servers, _ := cfg.DNS["servers"].([]map[string]any)
+	for _, srv := range servers {
+		if srv["tag"] == "doh" && srv["detour"] != "proxy" {
+			t.Errorf("服务端专属 detour 应回落到代理组, got %v", srv["detour"])
+		}
+	}
+	// clash 侧同样回落到代理组
+	raw, err := RenderClash(d)
+	if err != nil {
+		t.Fatalf("渲染 clash 失败: %v", err)
+	}
+	if strings.Contains(string(raw), "#hk-socks") {
+		t.Errorf("clash DNS 不应引用客户端不存在的出站:\n%s", raw)
+	}
+}
+
+// TestAssembleGroupNameCollidesWithNode 策略组与节点同名时不能产出重复 tag（含改名后撞名）。
+func TestAssembleGroupNameCollidesWithNode(t *testing.T) {
+	specs := []NodeSpec{nodeSpec(t, "proxy", singbox.ProtoVLESS, 20001)}
+	cases := [][]singbox.GroupEntry{
+		{{Name: "proxy", Mode: singbox.GroupModeFixed, Members: []string{"direct"}}},
+		{{Name: "inner", Mode: singbox.GroupModeFixed, Members: []string{"direct"}},
+			{Name: "proxy", Mode: singbox.GroupModeAuto, Members: []string{"inner"}}},
+		// 改名后的 proxy-group 与已有组名撞车
+		{{Name: "proxy", Mode: singbox.GroupModeAuto, Members: []string{"proxy-group"}},
+			{Name: "proxy-group", Mode: singbox.GroupModeFixed, Members: []string{"direct"}}},
+	}
+	for i, groups := range cases {
+		d, err := Assemble("example.com", specs, groups, nil, "proxy", nil)
+		if err != nil {
+			t.Fatalf("case %d 组装失败: %v", i, err)
+		}
+		if d.Final == "proxy" {
+			t.Errorf("case %d 兜底出站应指向改名后的组: %q", i, d.Final)
+		}
+		cfg, err := RenderSingBox(d)
+		if err != nil {
+			t.Fatalf("case %d 渲染失败: %v", i, err)
+		}
+		if err := singbox.New(t.TempDir()).CheckConfig(cfg); err != nil {
+			t.Fatalf("case %d 客户端配置应通过内核校验（tag 不得重复）: %v", i, err)
+		}
+	}
+}
+
+// TestAssembleKeepsRealGroupDetour 指向客户端真实存在的策略组的 DNS detour 不应被改写。
+func TestAssembleKeepsRealGroupDetour(t *testing.T) {
+	specs := []NodeSpec{nodeSpec(t, "n1", singbox.ProtoVLESS, 20001)}
+	dns := &singbox.DNSConfig{
+		Enabled: true,
+		Servers: []singbox.DNSServer{
+			{Tag: "ali", Type: singbox.DNSTypeUDP, Server: "223.5.5.5"},
+			{Tag: "doh", Type: singbox.DNSTypeHTTPS, Server: "1.1.1.1", Detour: "manual"},
+		},
+		Final: "doh",
+	}
+	d, err := Assemble("example.com", specs, []singbox.GroupEntry{
+		{Name: "manual", Mode: singbox.GroupModeFixed, Members: []string{"n1"}},
+		{Name: "proxy", Mode: singbox.GroupModeAuto, Members: []string{"n1"}},
+	}, nil, "proxy", dns)
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	cfg, err := RenderSingBox(d)
+	if err != nil {
+		t.Fatalf("渲染失败: %v", err)
+	}
+	servers, _ := cfg.DNS["servers"].([]map[string]any)
+	for _, srv := range servers {
+		if srv["tag"] == "doh" && srv["detour"] != "manual" {
+			t.Errorf("指向真实策略组的 detour 应保留, got %v", srv["detour"])
+		}
+	}
+	raw, err := RenderClash(d)
+	if err != nil {
+		t.Fatalf("渲染 clash 失败: %v", err)
+	}
+	if !strings.Contains(string(raw), "#manual") {
+		t.Errorf("clash 应保留真实策略组 detour:\n%s", raw)
+	}
+}
+
+// TestAssembleGroupRenameFollowsReferences 组与节点重名被改名后，规则与兜底出站必须跟着指向新名，
+// 不能静默落到别的组上。
+func TestAssembleGroupRenameFollowsReferences(t *testing.T) {
+	specs := []NodeSpec{nodeSpec(t, "proxy", singbox.ProtoVLESS, 20001)}
+	rules := []singbox.RuleEntry{
+		{MatchType: singbox.MatchDomain, MatchMethod: singbox.MethodSuffix, Value: "x.com", Outbound: "proxy"},
+	}
+	d, err := Assemble("example.com", specs, []singbox.GroupEntry{
+		{Name: "first", Mode: singbox.GroupModeAuto, Members: []string{"direct"}},
+		{Name: "proxy", Mode: singbox.GroupModeFixed, Members: []string{"direct"}},
+	}, rules, "proxy", nil)
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	if len(d.Groups) != 2 || d.Groups[1].Name == "proxy" {
+		t.Fatalf("重名组应被改名: %+v", d.Groups)
+	}
+	renamedName := d.Groups[1].Name
+	if d.Rules[0].Outbound != renamedName {
+		t.Errorf("规则应跟随改名后的组, got %q want %q", d.Rules[0].Outbound, renamedName)
+	}
+	if d.Final != renamedName {
+		t.Errorf("兜底出站应跟随改名后的组, got %q want %q", d.Final, renamedName)
+	}
+	if d.Final == "first" {
+		t.Error("兜底出站不应静默落到另一个组上")
+	}
+}
+
+// TestAssembleFinalNeverBlock 兜底出站为拦截时不能写进 route.final / MATCH（内核没有 block 出站）。
+func TestAssembleFinalNeverBlock(t *testing.T) {
+	specs := []NodeSpec{nodeSpec(t, "n1", singbox.ProtoVLESS, 20001)}
+	groups := []singbox.GroupEntry{{Name: "proxy", Mode: singbox.GroupModeAuto, Members: []string{"n1"}}}
+	d, err := Assemble("example.com", specs, groups, nil, singbox.OutboundBlock, nil)
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	if d.Final != "proxy" {
+		t.Errorf("拦截动作不能作为兜底出站, got %q", d.Final)
+	}
+
+	// 无策略组时回落到 direct
+	d, err = Assemble("example.com", nil, nil, nil, singbox.OutboundBlock, nil)
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	if d.Final != "direct" {
+		t.Errorf("无可用策略组时兜底应为 direct, got %q", d.Final)
+	}
+}
+
+// TestAssembleNoCustomOutboundMembers 服务端自有出站（自定义出站）在客户端不存在，
+// 只由它组成的组必须换成该用户的节点，否则客户端该组无可用出口。
+func TestAssembleNoCustomOutboundMembers(t *testing.T) {
+	specs := []NodeSpec{nodeSpec(t, "n1", singbox.ProtoVLESS, 20001)}
+	rules := []singbox.RuleEntry{
+		{MatchType: singbox.MatchDomain, MatchMethod: singbox.MethodSuffix, Value: "x.com", Outbound: "hk-socks"},
+	}
+	d, err := Assemble("example.com", specs, []singbox.GroupEntry{
+		{Name: "proxy", Mode: singbox.GroupModeAuto, Members: []string{"hk-socks"}},
+	}, rules, "hk-socks", nil)
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	if len(d.Groups[0].Members) != 1 || d.Groups[0].Members[0] != "n1" {
+		t.Errorf("仅含自定义出站的组应换成订阅节点: %+v", d.Groups[0])
+	}
+	if d.Rules[0].Outbound != "proxy" {
+		t.Errorf("指向客户端不存在出站的规则应回落到代理组, got %q", d.Rules[0].Outbound)
+	}
+	if d.Final != "proxy" {
+		t.Errorf("指向客户端不存在出站的兜底应回落到代理组, got %q", d.Final)
 	}
 }

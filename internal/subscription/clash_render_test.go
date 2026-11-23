@@ -302,6 +302,16 @@ func TestRenderClashNoDNS(t *testing.T) {
 	}
 }
 
+// clashTestTags 测试用客户端出站 tag 集合：节点、策略组与 DIRECT 都算可用。
+func clashTestTags(names ...string) map[string]bool {
+	tags := map[string]bool{directTag: true}
+	for _, n := range names {
+		tags[n] = true
+	}
+	tags["proxy"] = true
+	return tags
+}
+
 // TestClashDNSOf DNS 服务器映射到 mihomo 地址串。
 func TestClashDNSOf(t *testing.T) {
 	cfg := &singbox.DNSConfig{
@@ -316,7 +326,7 @@ func TestClashDNSOf(t *testing.T) {
 		Rules: []singbox.DNSRule{{DomainSuffix: "cn", Server: "udp"}},
 		Final: "doh",
 	}
-	out := clashDNSOf(cfg, "proxy")
+	out := clashDNSOf(cfg, "proxy", clashTestTags())
 	if out == nil {
 		t.Fatal("启用时不应返回 nil")
 	}
@@ -328,14 +338,14 @@ func TestClashDNSOf(t *testing.T) {
 		t.Errorf("final 指定时远程 DoH nameserver 应附带 #proxy: %v", out.Nameserver)
 	}
 	// 无 proxyGroup 时不追加 #proxy；显式指定 Detour 时优先保留
-	if noGroup := clashDNSOf(cfg, ""); len(noGroup.Nameserver) != 1 || noGroup.Nameserver[0] != "https://1.1.1.1/dns-query" {
+	if noGroup := clashDNSOf(cfg, "", clashTestTags()); len(noGroup.Nameserver) != 1 || noGroup.Nameserver[0] != "https://1.1.1.1/dns-query" {
 		t.Errorf("无 proxyGroup 时不应追加 #: %v", noGroup.Nameserver)
 	}
 	explicitDetour := clashDNSOf(&singbox.DNSConfig{
 		Enabled: true,
 		Servers: []singbox.DNSServer{{Tag: "doh", Type: singbox.DNSTypeHTTPS, Server: "1.1.1.1", Detour: "direct"}},
 		Final:   "doh",
-	}, "proxy")
+	}, "proxy", clashTestTags())
 	if len(explicitDetour.Nameserver) != 1 || explicitDetour.Nameserver[0] != "https://1.1.1.1/dns-query#DIRECT" {
 		t.Errorf("显式 Detour=direct 应映射为 #DIRECT: %v", explicitDetour.Nameserver)
 	}
@@ -365,7 +375,7 @@ func TestClashDNSOf(t *testing.T) {
 			{DomainSuffix: "cn,qq.com", Server: "a"},
 			{DomainSuffix: "cn", Server: "b"},
 		},
-	}, "proxy")
+	}, "proxy", clashTestTags())
 	if len(dupPolicy.NameserverPol) != 2 {
 		t.Errorf("重复域名应去重为 2 项, got %+v", dupPolicy.NameserverPol)
 	}
@@ -377,7 +387,7 @@ func TestClashDNSOf(t *testing.T) {
 	domainUDP := clashDNSOf(&singbox.DNSConfig{
 		Enabled: true,
 		Servers: []singbox.DNSServer{{Tag: "u", Type: singbox.DNSTypeUDP, Server: "dns.alidns.com"}},
-	}, "proxy")
+	}, "proxy", clashTestTags())
 	if len(domainUDP.DefaultNameser) == 0 || domainUDP.DefaultNameser[0] != "223.5.5.5" {
 		t.Errorf("非 IP UDP 服务器不应放入 default-nameserver, got %v", domainUDP.DefaultNameser)
 	}
@@ -387,13 +397,13 @@ func TestClashDNSOf(t *testing.T) {
 		Enabled: true,
 		Servers: []singbox.DNSServer{{Tag: "doh", Type: singbox.DNSTypeHTTPS, Server: "1.1.1.1"}},
 	}
-	fallback := clashDNSOf(onlyDoH, "proxy")
+	fallback := clashDNSOf(onlyDoH, "proxy", clashTestTags())
 	if len(fallback.DefaultNameser) == 0 {
 		t.Error("无明文服务器时 default-nameserver 应给出兜底值")
 	}
 
 	// 未启用返回 nil
-	if clashDNSOf(nil, "proxy") != nil || clashDNSOf(&singbox.DNSConfig{Enabled: false}, "proxy") != nil {
+	if clashDNSOf(nil, "proxy", clashTestTags()) != nil || clashDNSOf(&singbox.DNSConfig{Enabled: false}, "proxy", clashTestTags()) != nil {
 		t.Error("未启用时应返回 nil")
 	}
 }

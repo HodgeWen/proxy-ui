@@ -31,6 +31,7 @@ func RenderClash(d Data) ([]byte, error) {
 	}
 	providers := map[string]singbox.RuleSetSource{}
 	var providerOrder []string
+	clientTags := clientOutboundTags(d)
 	for _, r := range d.Rules {
 		lines, provider := clashRulesOf(r)
 		if provider != nil {
@@ -55,7 +56,7 @@ func RenderClash(d Data) ([]byte, error) {
 		}
 		cfg.RuleProviders = append(cfg.RuleProviders, yaml.MapItem{Key: tag, Value: entry})
 	}
-	if dns := clashDNSOf(d.DNS, proxyGroup); dns != nil {
+	if dns := clashDNSOf(d.DNS, proxyGroup, clientTags); dns != nil {
 		cfg.DNS = dns
 	}
 	out, err := yaml.Marshal(cfg)
@@ -129,7 +130,8 @@ type clashDNS struct {
 }
 
 // clashDNSOf 把面板 DNS 配置映射为 mihomo dns 段；未启用返回 nil。
-func clashDNSOf(d *singbox.DNSConfig, proxyGroup string) *clashDNS {
+// clientTags 为客户端配置里实际存在的出站 tag（节点、策略组与 DIRECT），用于判定 detour 是否可用。
+func clashDNSOf(d *singbox.DNSConfig, proxyGroup string, clientTags map[string]bool) *clashDNS {
 	if d == nil || !d.Enabled || len(d.Servers) == 0 {
 		return nil
 	}
@@ -163,12 +165,12 @@ func clashDNSOf(d *singbox.DNSConfig, proxyGroup string) *clashDNS {
 
 	if d.Final != "" {
 		if srv, ok := byTag[d.Final]; ok {
-			out.Nameserver = []string{clashDNSServerAddr(srv, proxyGroup, true)}
+			out.Nameserver = []string{clashDNSServerAddr(srv, proxyGroup, true, clientTags)}
 		}
 	}
 	if len(out.Nameserver) == 0 {
 		for _, s := range d.Servers {
-			out.Nameserver = append(out.Nameserver, clashDNSServerAddr(s, proxyGroup, !ruleTargets[s.Tag]))
+			out.Nameserver = append(out.Nameserver, clashDNSServerAddr(s, proxyGroup, !ruleTargets[s.Tag], clientTags))
 		}
 	}
 	// nameserver-policy 必须是 YAML mapping（域名模式 -> 服务器列表），保持先到优先并去重
@@ -178,7 +180,7 @@ func clashDNSOf(d *singbox.DNSConfig, proxyGroup string) *clashDNS {
 		if !ok {
 			continue
 		}
-		serverAddr := clashDNSServerAddr(srv, proxyGroup, false)
+		serverAddr := clashDNSServerAddr(srv, proxyGroup, false, clientTags)
 		for _, domain := range clashDomainPatterns(r) {
 			if seenPolicy[domain] {
 				continue
@@ -191,14 +193,22 @@ func clashDNSOf(d *singbox.DNSConfig, proxyGroup string) *clashDNS {
 }
 
 // clashDNSServerAddr 生成带出站路由标记的 mihomo DNS 服务器地址串；
-// 显式指定 Detour 时附带 #detour，否则远程加密 DNS（DoH/DoH3/DoT）按需经代理组转发。
-func clashDNSServerAddr(s singbox.DNSServer, proxyGroup string, routeRemoteViaProxy bool) string {
+// 显式指定 Detour 时附带 #detour（该 tag 在客户端不存在时回落到代理组），
+// 否则远程加密 DNS（DoH/DoH3/DoT）按需经代理组转发。
+func clashDNSServerAddr(s singbox.DNSServer, proxyGroup string, routeRemoteViaProxy bool, clientTags map[string]bool) string {
 	base := clashDNSServer(s)
 	if s.Type == singbox.DNSTypeLocal {
 		return base
 	}
 	if s.Detour != "" {
 		detour := clashOutbound(s.Detour)
+		// 服务端专属出站在客户端并不存在，只有真实存在的 tag 才照原样输出
+		if !clientTags[s.Detour] {
+			if proxyGroup == "" || strings.ContainsAny(proxyGroup, "#&") {
+				return base
+			}
+			detour = proxyGroup
+		}
 		if !strings.ContainsAny(detour, "#&") {
 			return base + "#" + detour
 		}

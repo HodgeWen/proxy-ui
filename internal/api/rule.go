@@ -14,6 +14,7 @@ import (
 
 	"proxy-ui/internal/ai"
 	"proxy-ui/internal/db"
+	"proxy-ui/internal/singbox"
 )
 
 // maxRulePatternLen 单个匹配值（含正则）的最大长度。
@@ -152,6 +153,13 @@ func (a *API) HandleRuleSetEnabled(c *gin.Context) {
 		Fail(c, http.StatusNotFound, "规则不存在")
 		return
 	}
+	// 启用时要校验出站仍在：规则停用期间出站可能已被删除，直接放行会留下不可用的配置
+	if req.Enabled {
+		if err := a.validateOutboundTag(rule.Outbound); err != nil {
+			Fail(c, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
 	if err := a.db.Model(&rule).Update("enabled", req.Enabled).Error; err != nil {
 		Fail(c, http.StatusInternalServerError, "更新规则状态失败: "+err.Error())
 		return
@@ -230,9 +238,13 @@ func (a *API) applyRuleReq(rule *db.Rule, req ruleReq) error {
 	if req.RuleSetID != 0 {
 		rule.RuleSetID = req.RuleSetID
 	}
-	if req.Outbound != "" {
+	// 只在本次请求给出出站或把规则重新启用时校验：否则「出站后来被停用」的历史规则连停用
+	// 或改匹配值都做不了，用户就没有出口去修它了
+	outboundChanged := req.Outbound != ""
+	if outboundChanged {
 		rule.Outbound = req.Outbound
 	}
+	reEnabled := req.Enabled != nil && *req.Enabled
 	if req.Enabled != nil {
 		rule.Enabled = *req.Enabled
 	}
@@ -281,7 +293,32 @@ func (a *API) applyRuleReq(rule *db.Rule, req ruleReq) error {
 	if rule.Outbound == "" {
 		return fmt.Errorf("出站不能为空")
 	}
+	// 规则出站只存 tag：新给出的出站、以及本次要把规则重新启用，都要校验出站仍在，
+	// 否则悬空引用会拖到内核重建才失败（停用期间出站可能已被删除）
+	if outboundChanged || reEnabled {
+		if err := a.validateOutboundTag(rule.Outbound); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// validateOutboundTag 校验规则动作 tag：block、direct，或启用中的自定义出站 / 策略组。
+func (a *API) validateOutboundTag(tag string) error {
+	if tag == singbox.OutboundBlock || tag == db.OutboundTypeDirect {
+		return nil
+	}
+	var outboundDup int64
+	a.db.Model(&db.Outbound{}).Where("name = ? AND enabled = ?", tag, true).Count(&outboundDup)
+	if outboundDup > 0 {
+		return nil
+	}
+	var groupDup int64
+	a.db.Model(&db.PolicyGroup{}).Where("name = ? AND enabled = ?", tag, true).Count(&groupDup)
+	if groupDup > 0 {
+		return nil
+	}
+	return fmt.Errorf("出站 %s 不存在或已停用（可选 block、direct 或启用中的出站 / 策略组）", tag)
 }
 
 // ruleToView 规则记录转视图（补规则集名称）。
@@ -314,11 +351,38 @@ func (a *API) HandleRouteFinalSet(c *gin.Context) {
 		return
 	}
 	final := strings.TrimSpace(req.Final)
+	if err := a.validateRouteFinal(final); err != nil {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err := a.setSetting(db.SettingRouteFinal, final); err != nil {
 		Fail(c, http.StatusInternalServerError, "保存兜底出站失败: "+err.Error())
 		return
 	}
 	a.applyThenOK(c, finalResp{Final: final})
+}
+
+// validateRouteFinal 校验兜底出站取值：空串表示内核默认（首个出站），否则必须是 direct、
+// 启用中的自定义出站或启用中的策略组。block 不能作为兜底——拦截动作没有同名出站，内核
+// 会因 route.final 指向不存在的出站而启动失败。
+func (a *API) validateRouteFinal(final string) error {
+	if final == "" || final == db.OutboundTypeDirect {
+		return nil
+	}
+	if final == singbox.OutboundBlock {
+		return fmt.Errorf("拦截（block）不能作为兜底出站：它是规则动作而非出站，请选择 direct、出站或策略组")
+	}
+	var outboundDup int64
+	a.db.Model(&db.Outbound{}).Where("name = ? AND enabled = ?", final, true).Count(&outboundDup)
+	if outboundDup > 0 {
+		return nil
+	}
+	var groupDup int64
+	a.db.Model(&db.PolicyGroup{}).Where("name = ? AND enabled = ?", final, true).Count(&groupDup)
+	if groupDup > 0 {
+		return nil
+	}
+	return fmt.Errorf("兜底出站 %s 不存在（可选 direct、启用中的出站或策略组）", final)
 }
 
 // ---------- 路由规则 AI 工具 ----------
@@ -402,7 +466,7 @@ func (a *API) registerRuleAITools() {
 	})
 	a.registerModify(ai.Tool{
 		Name:        "set_route_final",
-		Description: "设置兜底出站（未命中任何路由规则的流量走向）；final 为出站 tag：direct、block、策略组或自定义出站，空串恢复内核默认",
+		Description: "设置兜底出站（未命中任何路由规则的流量走向）；final 为出站 tag：direct、策略组或自定义出站（不能是 block，它不是出站），空串恢复内核默认",
 		Parameters: toolParams(map[string]any{
 			"final": toolProp("string", "出站 tag，空串表示内核默认（首个出站）"),
 		}, "final"),
@@ -412,6 +476,9 @@ func (a *API) registerRuleAITools() {
 				return nil, err
 			}
 			final := strings.TrimSpace(req.Final)
+			if err := a.validateRouteFinal(final); err != nil {
+				return nil, err
+			}
 			if err := a.setSetting(db.SettingRouteFinal, final); err != nil {
 				return nil, fmt.Errorf("保存兜底出站失败: %w", err)
 			}

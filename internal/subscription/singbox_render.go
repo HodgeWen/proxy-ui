@@ -12,7 +12,7 @@ import (
 // （优先走策略组下载），结尾补 direct 兜底出站。
 func RenderSingBox(d Data) (singbox.Config, error) {
 	proxyGroup := primaryProxyGroup(d)
-	clientDNS, directResolver := singboxClientDNS(d.DNS, proxyGroup)
+	clientDNS, directResolver := singboxClientDNS(d.DNS, proxyGroup, clientOutboundTags(d))
 	cfg := singbox.Config{
 		Log:          &singbox.LogConfig{Level: "info", Timestamp: true},
 		Experimental: &singbox.Experimental{CacheFile: &singbox.CacheFile{Enabled: true}},
@@ -76,9 +76,22 @@ func RenderSingBox(d Data) (singbox.Config, error) {
 	return cfg, nil
 }
 
+// clientOutboundTags 客户端配置里实际存在的出站 tag 集合（节点、策略组与 direct）。
+// DNS detour 只有在集合里时才原样保留。
+func clientOutboundTags(d Data) map[string]bool {
+	tags := map[string]bool{directTag: true}
+	for _, n := range d.Nodes {
+		tags[n.Tag] = true
+	}
+	for _, g := range d.Groups {
+		tags[g.Name] = true
+	}
+	return tags
+}
+
 // singboxClientDNS 构造客户端专用 DNS 段，并返回应写入 route.default_domain_resolver 的直连解析器 tag：
 // 为未显式指定 detour 的远程加密 DNS 补齐代理出口，并确保解析节点/DoH 域名的默认解析器始终直连不死锁。
-func singboxClientDNS(d *singbox.DNSConfig, proxyGroup string) (map[string]any, string) {
+func singboxClientDNS(d *singbox.DNSConfig, proxyGroup string, clientTags map[string]bool) (map[string]any, string) {
 	base := d.JSON()
 	if base == nil {
 		return nil, ""
@@ -117,6 +130,11 @@ func singboxClientDNS(d *singbox.DNSConfig, proxyGroup string) (map[string]any, 
 		}
 		entry := rawServers[i]
 		isRemote := s.Type == singbox.DNSTypeHTTPS || s.Type == singbox.DNSTypeH3 || s.Type == singbox.DNSTypeTLS
+		// 显式 detour 若指向服务端专属出站（客户端没有这个 tag），下发后远程 DNS 无法工作、
+		// 甚至被客户端拒绝加载，因此仅在这种情况下回落到代理组；指向真实存在的组则尊重原选择。
+		if s.Detour != "" && !clientTags[s.Detour] && proxyGroup != "" {
+			entry["detour"] = proxyGroup
+		}
 		if s.Detour == "" && proxyGroup != "" && isRemote && (s.Tag == d.Final || !ruleTargets[s.Tag]) {
 			entry["detour"] = proxyGroup
 		}

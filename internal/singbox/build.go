@@ -1,6 +1,10 @@
 package singbox
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+	"strings"
+)
 
 // CertResolver 把面板存储证书 ID 解析为证书/私钥绝对路径（含存在性校验，由 api 提供）。
 type CertResolver func(certID uint) (certPath, keyPath string, err error)
@@ -150,40 +154,98 @@ func applyRouting(cfg *Config, routing *Routing) error {
 	return nil
 }
 
-// detectGroupCycle 以 DFS 检测策略组间循环引用。
-func detectGroupCycle(groups []GroupEntry) error {
-	members := map[string][]string{}
+// FindGroupCycle 返回第一条策略组循环引用链（组名按引用顺序排列，末尾重复环上起点以闭合）；
+// 无循环返回 nil。内核与客户端都会拒绝加载循环引用的组，配置生成与订阅下发均需据此清理。
+func FindGroupCycle(groups []GroupEntry) []string {
+	members := make(map[string][]string, len(groups))
 	for _, g := range groups {
 		members[g.Name] = g.Members
 	}
 	const visiting, done = 1, 2
-	state := map[string]int{}
-	var visit func(name string) error
-	visit = func(name string) error {
+	state := make(map[string]int, len(groups))
+	var path []string
+	var cycle []string
+	var visit func(name string) bool
+	visit = func(name string) bool {
 		state[name] = visiting
+		path = append(path, name)
 		for _, m := range members[name] {
 			if _, isGroup := members[m]; !isGroup {
 				continue
 			}
 			switch state[m] {
 			case visiting:
-				return fmt.Errorf("策略组 %s 与 %s 存在循环引用", name, m)
+				cycle = append(append([]string(nil), path[slices.Index(path, m):]...), m)
+				return true
 			case done:
 				continue
 			}
-			if err := visit(m); err != nil {
-				return err
+			if visit(m) {
+				return true
 			}
 		}
+		path = path[:len(path)-1]
 		state[name] = done
-		return nil
+		return false
 	}
 	for _, g := range groups {
-		if state[g.Name] == 0 {
-			if err := visit(g.Name); err != nil {
-				return err
+		if state[g.Name] != 0 {
+			continue
+		}
+		if visit(g.Name) {
+			return cycle
+		}
+	}
+	return nil
+}
+
+// BreakGroupCycles 剔除策略组之间闭合循环的成员引用（保留其余成员与声明顺序），
+// 返回可被内核与客户端加载的组列表；无循环时原样返回。订阅渲染用它兜住历史脏数据：
+// 写入侧已拦截循环，但旧库里可能已经存在。
+func BreakGroupCycles(groups []GroupEntry) []GroupEntry {
+	out := make([]GroupEntry, len(groups))
+	copy(out, groups)
+	for {
+		cycle := FindGroupCycle(out)
+		if cycle == nil {
+			return out
+		}
+		// 剔除环上最后一条边（cycle[len-2] → cycle[len-1]），即闭合环的那条引用
+		from, to := cycle[len(cycle)-2], cycle[len(cycle)-1]
+		if from == to { // 自引用：剔除自身成员
+			for i := range out {
+				if out[i].Name != from {
+					continue
+				}
+				out[i].Members = removeMember(out[i].Members, to)
+				break
+			}
+			continue
+		}
+		for i := range out {
+			if out[i].Name == from {
+				out[i].Members = removeMember(out[i].Members, to)
+				break
 			}
 		}
+	}
+}
+
+// removeMember 从成员列表剔除指定 tag（返回新切片）。
+func removeMember(members []string, tag string) []string {
+	out := make([]string, 0, len(members))
+	for _, m := range members {
+		if m != tag {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// detectGroupCycle 以 DFS 检测策略组间循环引用。
+func detectGroupCycle(groups []GroupEntry) error {
+	if cycle := FindGroupCycle(groups); cycle != nil {
+		return fmt.Errorf("策略组 %s 存在循环引用", strings.Join(cycle, " → "))
 	}
 	return nil
 }

@@ -86,7 +86,7 @@ const { rowEnabled, togglingId, toggle: handleToggle } = useEnabledOverride(
 async function handleDelete(row: Outbound): Promise<void> {
   const ok = await confirmAction(
     '删除出站',
-    `确认删除出站「${row.name}」吗？被规则引用时内核将无法重建，你会看到具体原因。`,
+    `确认删除出站「${row.name}」吗？被路由规则、策略组成员、兜底出站或 DNS 服务器 detour 引用时无法删除，会提示先改掉这些引用。`,
     true,
     '删除',
   )

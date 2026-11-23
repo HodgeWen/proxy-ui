@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,9 @@ type ruleTemplate struct {
 	Name        string `json:"name"`        // 名称
 	Description string `json:"description"` // 说明
 }
+
+// templateGroupName 模板生成的策略组名（供路由规则与兜底出站引用）。
+const templateGroupName = "proxy"
 
 // ruleTemplates 预设模板列表；proxy 组成员取全部启用自定义出站（无则兜底 direct）。
 var ruleTemplates = []ruleTemplate{
@@ -63,7 +67,7 @@ func (a *API) HandleRuleTemplateApply(c *gin.Context) {
 	switch tpl.ID {
 	case "cn-direct-adblock", "global-proxy-adblock":
 		groups = append(groups, db.PolicyGroup{
-			Name: "proxy", Mode: singbox.GroupModeAuto, Members: marshalMembers(members), Enabled: true,
+			Name: templateGroupName, Mode: singbox.GroupModeAuto, Members: marshalMembers(members), Enabled: true,
 		})
 		rules = append(rules, db.Rule{
 			MatchType: db.RuleMatchRuleSet, RuleSetID: setIDs[singbox.AntiADTag],
@@ -102,6 +106,13 @@ func (a *API) HandleRuleTemplateApply(c *gin.Context) {
 			}
 		}
 		for i := range groups {
+			// 走同一套校验：模板也会写出策略组，不能绕过成员/同名规则（例如已存在名为 proxy 的
+			// 自定义出站时，模板组会与它同名并引用自身，整份配置再也起不来）
+			if err := a.applyGroupReq(tx, &groups[i], groupReq{
+				Name: groups[i].Name, Mode: groups[i].Mode, Members: groupEntryOf(groups[i]).Members,
+			}, 0); err != nil {
+				return fmt.Errorf("模板策略组不合法: %w", err)
+			}
 			if err := tx.Create(&groups[i]).Error; err != nil {
 				return err
 			}
@@ -133,10 +144,18 @@ func (a *API) ruleSetIDsByName(names ...string) (map[string]uint, error) {
 	return ids, nil
 }
 
-// proxyMembers 收集启用中的自定义出站 tag 作为策略组成员；无自定义出站时兜底 direct。
+// proxyMembers 收集启用中的自定义出站 tag 作为策略组成员；没有自定义出站时以 direct 兜底。
+//
+// 这里的成员是「服务端出站 tag」：内核要求策略组至少有一个成员，而没有自定义出站时
+// direct 就是服务端唯一的出口，所以写 direct 是服务端配置的正确表达，不是占位垃圾数据。
+// 客户端订阅里没有这些自定义出站，成员会按该订阅用户的实际节点重算（见 subscription.Assemble）。
+//
+// 排除名为 proxy 的出站：模板生成的策略组也叫 proxy，同 tag 会出现「组引用自身」与
+// 「组与出站同名」，整份配置直接起不来。
 func (a *API) proxyMembers() []string {
 	var outbounds []db.Outbound
-	a.db.Where("enabled = ? AND type <> ?", true, db.OutboundTypeDirect).Order("id").Find(&outbounds)
+	a.db.Where("enabled = ? AND type <> ? AND name <> ?", true, db.OutboundTypeDirect, templateGroupName).
+		Order("id").Find(&outbounds)
 	members := make([]string, 0, len(outbounds))
 	for _, ob := range outbounds {
 		members = append(members, ob.Name)

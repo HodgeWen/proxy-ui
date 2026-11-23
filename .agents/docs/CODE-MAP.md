@@ -10,7 +10,7 @@ proxy-ui/
 ├── embed.go              # //go:embed all:web/dist 嵌入前端构建产物
 ├── internal/
 │   ├── server/           # Gin 路由装配、会话中间件与统一守卫、SPA 静态资源回退；构造内置内核管理器与统计采集注入 api，注册匿名订阅端点 /sub/:token
-│   ├── api/              # REST handlers：鉴权（一次性设置码/登录限流/改密吊销会话）；内核只读状态与日志 + 热应用编排（applyKernelConfig / applyThenOK，所有写 handler 复用；失败置 pendingChanges 供状态接口带出）；面板自更新；实时速率与按用户累计流量；入站 CRUD（随机端口分配，视图只带用户数；用户统一由订阅勾选生成；协议默认值 template 端点）；订阅用户（配额/到期/勾选入站/重置链接/清零流量/双格式配置预览）；出站/证书；规则集与规则（两层模型）/策略组/兜底出站/预设模板；DNS；AI（工具与 REST 共用各资源 createXxx/updateXxx/deleteXxx 编排）
+│   ├── api/              # REST handlers：鉴权（一次性设置码/登录限流/改密吊销会话）；内核只读状态与日志 + 热应用编排（applyKernelConfig / applyThenOK，所有写 handler 复用；失败置 pendingChanges 供状态接口带出）；面板自更新；实时速率与按用户累计流量；入站 CRUD（随机端口分配，视图只带用户数；用户统一由订阅勾选生成；协议默认值 template 端点）；订阅用户（配额/到期/勾选入站/重置链接/清零流量/双格式配置预览）；出站/证书；规则集与规则（两层模型）/策略组/兜底出站/预设模板（tag 引用一致性：出站与策略组改名级联规则 / 组成员 / 兜底 / DNS detour，删除或停用被引用项拒绝，成员与循环引用在保存处校验）；DNS；AI（工具与 REST 共用各资源 createXxx/updateXxx/deleteXxx 编排）
 │   ├── db/               # SQLite（glebarez+GORM）连接、全量模型、启动自动迁移与旧 schema 检测重建（PRAGMA user_version 不符则整库重建为空库）
 │   ├── singbox/          # 内置内核：连接层配置模型与协议映射、多用户凭据生成与 users 渲染、路由规则与规则集、DNS 模型与预设、配置聚合（BuildConfig）、进程内实例生命周期（manager.go：Start 失败回滚 lastGood、Apply 配置未变则跳过重建、统计端口按实例动态分配）、v2ray 统计采集（差分内存聚合、5 秒单事务批量落库、失败重试不丢数，stats.go / statsclient.go）
 │   ├── subscription/     # 订阅导出：按 token 取用户在各入站的身份→客户端节点、策略组/规则映射、sing-box 与 mihomo 双格式渲染（含 DNS 段与 rule-providers）、配额/到期拒绝、匿名端点、面板内预览（按订阅用户 ID，跳过校验）
@@ -31,9 +31,9 @@ proxy-ui/
     └── src/
         ├── api/          # 请求封装与各资源接口（入站/出站/证书/规则+规则集/策略组/订阅用户/统计/内核/DNS/AI/面板更新）
         ├── stores/       # Pinia：auth
-        ├── views/        # 向导（一次性设置码）/登录/仪表盘（内核只读状态、实时速率、按用户累计流量、pendingChanges 黄条）/入站（列表，用户数只读）/出站/证书（一键自签、上传/粘贴 PEM、路径引用，到期倒计时）/规则（按对象分四 tab：路由规则/规则集/策略组/兜底与模板）/订阅用户（配额用量；链接弹框按格式分 tab 带各自二维码；双格式配置预览弹框）/设置（拆分为 settings/ 六个平级 tab：主题/账号/内核/面板更新/AI/DNS，UTableEditor 编辑 DNS 行）
-        ├── settings/     # 设置页六个 tab 组件（ThemeTab/AccountTab/KernelTab/PanelUpdateTab/AiTab/DnsTab）及 AI 弹框（AiProviderDialog/AiModelDialog/AiImportDialog）
-        ├── components/   # AppLayout、AiChatDialog（顶栏 AI 助手近全屏对话弹框）、EmptyState、FormGroupCard、InboundForm、OutboundEditorDialog、RuleListCard、RuleSetCard、RuleSetDialog、RuleEditDialog、PolicyGroupCard、FinalTemplatesCard、SubscriptionLinksDialog、SubscriptionEditorDialog、SubscriptionPreviewDialog（sing-box/mihomo 双格式只读预览）、DialogFooter
+        ├── views/        # 向导（一次性设置码）/登录/仪表盘（内核只读状态 + 按需打开的日志弹框、实时速率、按用户累计流量、pendingChanges 黄条）/入站（列表，用户数只读）/出站/证书（一键自签、上传/粘贴 PEM、路径引用，到期倒计时）/规则（按对象分四 tab：路由规则/规则集/策略组/兜底与模板）/订阅用户（配额用量；链接弹框按格式分 tab 带各自二维码；双格式配置预览弹框）/设置（拆分为 settings/ 五个平级 tab：主题/账号/面板更新/AI/DNS，UTableEditor 编辑 DNS 行）
+        ├── settings/     # 设置页五个 tab 组件（ThemeTab/AccountTab/PanelUpdateTab/AiTab/DnsTab）及 AI 弹框（AiProviderDialog/AiModelDialog/AiImportDialog）
+        ├── components/   # AppLayout、AiChatDialog（顶栏 AI 助手近全屏对话弹框）、EmptyState、FormGroupCard、InboundForm、OutboundEditorDialog、RuleListCard、RuleSetCard、RuleSetDialog、RuleEditDialog、PolicyGroupCard、FinalTemplatesCard、SubscriptionLinksDialog、SubscriptionEditorDialog、SubscriptionPreviewDialog（sing-box/mihomo 双格式只读预览）、KernelLogDialog（仪表盘内核日志，仅打开期间轮询）、DialogFooter
         ├── composables/  # useEnabledOverride（USwitch 失败不下刷 workaround，多列表/卡片共用）
         ├── utils/        # format.ts（formatBytes/formatUptime/formatDateTime）、clipboard.ts（copyText）
         ├── inbound-schema.ts # 七协议字段 schema 与弱配置警示（默认值经 template 端点取后端单一来源）
