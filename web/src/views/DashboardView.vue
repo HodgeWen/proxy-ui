@@ -1,4 +1,4 @@
-<!-- 仪表盘：内核只读状态（运行状态 / 版本 / 运行时长）、实时速率概览、按用户累计流量 -->
+<!-- 仪表盘：内核只读状态（运行状态 / 版本 / 运行时长，按需打开日志弹框）、实时速率概览、按用户累计流量 -->
 <script setup lang="ts">
 import {
   UAlert,
@@ -20,6 +20,7 @@ import type { KernelStatus } from '../api/kernel'
 import { fetchRealtimeStats, fetchUserTraffic } from '../api/stats'
 import type { RealtimeStats, UserTrafficRow } from '../api/stats'
 import EmptyState from '../components/EmptyState.vue'
+import KernelLogDialog from '../components/KernelLogDialog.vue'
 import { protocolDef } from '../inbound-schema'
 import { formatBytes, formatUptime } from '../utils/format'
 
@@ -28,6 +29,7 @@ const router = useRouter()
 // ---------- 内核状态（只读） ----------
 
 const status = shallowRef<KernelStatus | null>(null)
+const logVisible = shallowRef(false)
 
 async function refreshStatus() {
   try {
@@ -74,7 +76,13 @@ async function refreshTraffic() {
   }
 }
 
-// ---------- 轮询 ----------
+// ---------- 轮询（页面不可见时跳过，省请求与渲染） ----------
+
+function whenVisible(fn: () => Promise<void>) {
+  return () => {
+    if (!document.hidden) void fn()
+  }
+}
 
 const timers: ReturnType<typeof setInterval>[] = []
 
@@ -83,9 +91,9 @@ onMounted(() => {
   void refreshRealtime()
   void refreshTraffic()
   timers.push(
-    setInterval(() => void refreshStatus(), 2000),
-    setInterval(() => void refreshRealtime(), 1000),
-    setInterval(() => void refreshTraffic(), 15000),
+    setInterval(whenVisible(refreshStatus), 2000),
+    setInterval(whenVisible(refreshRealtime), 1000),
+    setInterval(whenVisible(refreshTraffic), 15000),
   )
 })
 
@@ -106,7 +114,12 @@ function formatRate(n: number): string {
     </u-alert>
 
     <u-card class="dash-card">
-      <u-card-header>内核状态</u-card-header>
+      <u-card-header>
+        <div class="card-header-row">
+          <span>内核状态</span>
+          <u-button @click="logVisible = true">查看日志</u-button>
+        </div>
+      </u-card-header>
       <u-card-content>
         <div class="kernel-meta">
           <u-tag :type="status ? (status.running ? 'success' : 'info') : 'info'">
@@ -182,6 +195,8 @@ function formatRate(n: number): string {
         </div>
       </u-card-content>
     </u-card>
+
+    <KernelLogDialog v-model:visible="logVisible" />
   </div>
 </template>
 

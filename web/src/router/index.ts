@@ -68,7 +68,7 @@ export const router = createRouter({
           path: 'settings',
           name: 'settings',
           component: SettingsView,
-          meta: { title: '设置', subtitle: '外观、账号、内核与面板更新、AI 供应商' },
+          meta: { title: '设置', subtitle: '外观、账号、面板更新、AI 供应商、DNS' },
         },
       ],
     },
