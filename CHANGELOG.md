@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.7 (2026-11-25)
+
+### 变更
+
+- 订阅与面板预览导出的客户端节点名称改为直接使用入站名称（如 `vless-main`、`vless-main-ipv6`），不再附加订阅用户名前缀；服务端入站用户标识与按用户流量统计保持不变
+- 浏览器直接访问订阅链接 `/sub/:token` 时改为内联展示配置文本（Clash 格式返回 `text/plain`，sing-box 保持 `application/json`）而不再强制触发文件下载；代理客户端拉取仍保持附件响应头与原有 `Content-Type`
+
+### 修复
+
+- 修复部分安卓客户端导入订阅后名称回退显示为默认名（如 `clashsub`）的问题：`Content-Disposition` 现同时输出无引号 `filename=` 与 RFC 5987 `filename*=`
+- 修复 AsteriskBOX 等客户端导入 sing-box 订阅时因域名型 IPv6 节点携带外部 DNS 标签报错 `domain resolver not found` 的问题，并在全局 DNS 为 `ipv4_only` 且存在域名型 IPv6 节点时自动放开客户端 DNS 策略为 `prefer_ipv4`
+- 修复 AsteriskBOX 等客户端导入 Clash（mihomo）订阅时因节点级 `ip-version` 字段导致 IPv6 节点导入失败的问题
+
 ## 0.1.6 (2026-11-25)
 
 ### 新增
