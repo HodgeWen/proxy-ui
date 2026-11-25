@@ -1,9 +1,14 @@
 <!-- 订阅 IPv6 节点入口配置卡：填写公网 IPv6 或纯 AAAA 域名后，订阅自动为 :: 双栈入站追加 -ipv6 节点 -->
 <script setup lang="ts">
-import { UButton, UCard, UCardContent, UCardHeader, UInput, UTag, message } from '@veltra/desktop'
+import { UButton, UCard, UCardContent, UCardHeader, UIcon, UInput, UTag, UTip, message } from '@veltra/desktop'
+import { QuestionFilled } from '@veltra/icons/normal'
 import { onMounted, shallowRef } from 'vue'
 
 import { getSubscriptionSettings, saveSubscriptionSettings } from '../api/subscription'
+
+const tipStyle = { maxWidth: '380px', lineHeight: '1.6' }
+const ipv6EntryTip =
+  '同一双栈入站下，主节点使用订阅链接里的域名/IP，-ipv6 节点使用此处填写的 IPv6 入口；填裸 IPv6 地址时 TLS SNI 会自动回落为主域名，泛域名证书校验不受影响。推荐做法：主域名只保留 A 记录（覆盖泛域名 AAAA）、此处填服务器公网 IPv6 裸地址、「设置 → DNS」解析策略选 ipv4_only，即可让 sing-box 与 Clash 客户端均走 IPv6 连服务器、而服务端出站严格保持纯 IPv4 防风控。'
 
 const loading = shallowRef(true)
 const saving = shallowRef(false)
@@ -49,6 +54,9 @@ onMounted(load)
       <div class="card-header-row">
         <div class="header-title">
           <span>IPv6 节点入口</span>
+          <u-tip :content="ipv6EntryTip" direction="bottom" alignment="start" :style="tipStyle">
+            <u-icon :size="14" class="tip-icon"><QuestionFilled /></u-icon>
+          </u-tip>
           <u-tag size="small" :type="savedIPv6 ? 'success' : 'info'">
             {{ savedIPv6 ? '已启用' : '未启用' }}
           </u-tag>
@@ -93,6 +101,12 @@ onMounted(load)
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.tip-icon {
+  color: var(--u-text-color-second);
+  cursor: help;
+  flex-shrink: 0;
 }
 
 .desc {

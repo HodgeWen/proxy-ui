@@ -382,13 +382,9 @@ func clashGroupOf(g singbox.GroupEntry) clashProxyGroup {
 // clashProxyOf 把订阅节点映射为 clash proxy。
 func clashProxyOf(n Node, defaultServer string) (clashProxy, error) {
 	server := nodeServer(n, defaultServer)
-	sniHost := fallbackSNI(server, defaultServer)
 	p := clashProxy{Name: n.Tag, Server: server, Port: n.Port, UDP: true}
 	sni := func(t singbox.TLSConfig) string {
-		if t.ServerName != "" {
-			return t.ServerName
-		}
-		return sniHost
+		return resolveClientSNI(t.ServerName, server, defaultServer)
 	}
 	switch c := n.Config.(type) {
 	case *singbox.VLESSConfig:

@@ -713,6 +713,61 @@ func TestRenderClashIPv6Support(t *testing.T) {
 	if !docMixed.IPv6 || !docMixed.DNS.IPv6 {
 		t.Errorf("存在 IPv6 域名节点时应强制开启 ipv6 与 dns.ipv6: top=%v dns=%v", docMixed.IPv6, docMixed.DNS.IPv6)
 	}
+
+	// 4. ipv4_only + 裸 IPv6 节点：顶层 ipv6: true 允许直连裸 IPv6 入口，同时 dns.ipv6 保持 false（目标流量纯 IPv4）
+	dLiteralV4, err := Assemble("proxy.example.com", []NodeSpec{baseSpec, v6LiteralSpec}, nil, nil, "", &dnsV4Only)
+	if err != nil {
+		t.Fatalf("ipv4_only + 裸 IPv6 组装失败: %v", err)
+	}
+	rawLiteralV4, err := RenderClash(dLiteralV4)
+	if err != nil {
+		t.Fatalf("ipv4_only + 裸 IPv6 渲染失败: %v", err)
+	}
+	docLiteralV4 := parseClash(t, rawLiteralV4)
+	if !docLiteralV4.IPv6 {
+		t.Error("存在裸 IPv6 节点时顶层 ipv6 应为 true")
+	}
+	if docLiteralV4.DNS.IPv6 || docLiteralV4.DNS.FakeIPRange6 != "" {
+		t.Errorf("ipv4_only + 裸 IPv6 节点时 dns.ipv6 应保持 false 且不写 fake-ip-range6: %+v", docLiteralV4.DNS)
+	}
+	pLit := findProxy(t, docLiteralV4, "n1-ipv6-literal")
+	if pLit["server"] != "2001:db8::1" || pLit["sni"] != "proxy.example.com" {
+		t.Errorf("裸 IPv6 节点参数不符: %v", pLit)
+	}
+
+	// 5. 泛域名证书（ServerName = "*.example.com"）：主节点与裸 IPv6 节点的 sni/servername 均回落具体主域名
+	wildcardTrojanCfg, _ := json.Marshal(&singbox.TrojanConfig{
+		TLS: singbox.TLSConfig{Enabled: true, CertMode: singbox.CertModeManaged, CertID: 1, ServerName: "*.example.com"},
+	})
+	wildcardVLESSCfg, _ := json.Marshal(&singbox.VLESSConfig{
+		TLS: singbox.TLSConfig{Enabled: true, CertMode: singbox.CertModeManaged, CertID: 1, ServerName: "*.example.com"},
+	})
+	tSpec := baseSpec
+	tSpec.Tag = "t-wild"
+	tSpec.Config = string(wildcardTrojanCfg)
+	tSpecV6 := v6LiteralSpec
+	tSpecV6.Tag = "t-wild-ipv6"
+	tSpecV6.Config = string(wildcardTrojanCfg)
+	tSpecV6.VariantOf = "t-wild"
+	vSpec := nodeSpec(t, "v-wild", singbox.ProtoVLESS, 20002)
+	vSpec.Config = string(wildcardVLESSCfg)
+	dWild, err := Assemble("proxy.example.com", []NodeSpec{tSpec, tSpecV6, vSpec}, nil, nil, "", &dnsV4Only)
+	if err != nil {
+		t.Fatalf("泛域名 Clash 组装失败: %v", err)
+	}
+	rawWild, err := RenderClash(dWild)
+	if err != nil {
+		t.Fatalf("泛域名 Clash 渲染失败: %v", err)
+	}
+	docWild := parseClash(t, rawWild)
+	for _, name := range []string{"t-wild", "t-wild-ipv6"} {
+		if got := findProxy(t, docWild, name)["sni"]; got != "proxy.example.com" {
+			t.Errorf("%s sni = %v, want proxy.example.com", name, got)
+		}
+	}
+	if got := findProxy(t, docWild, "v-wild")["servername"]; got != "proxy.example.com" {
+		t.Errorf("v-wild servername = %v, want proxy.example.com", got)
+	}
 }
 
 // TestRenderClashFormatAndOrder 校验 clash/mihomo YAML 顶层顺序（dns 在顶部）与标准 2 空格序列缩进。

@@ -166,7 +166,6 @@ func singboxClientDNS(d *singbox.DNSConfig, proxyGroup string, clientTags map[st
 // 避免提取出站时脱离 dns 段引发 domain resolver not found。
 func nodeOutboundJSON(n Node, defaultServer string) (map[string]any, error) {
 	server := nodeServer(n, defaultServer)
-	sni := fallbackSNI(server, defaultServer)
 	ob := map[string]any{"tag": n.Tag, "server": server, "server_port": n.Port}
 	switch c := n.Config.(type) {
 	case *singbox.VLESSConfig:
@@ -191,7 +190,7 @@ func nodeOutboundJSON(n Node, defaultServer string) (map[string]any, error) {
 				},
 			}
 		} else {
-			if tls := clientTLS(c.TLS, sni, false, n.Insecure); tls != nil {
+			if tls := clientTLS(c.TLS, server, defaultServer, false, n.Insecure); tls != nil {
 				ob["tls"] = tls
 			}
 		}
@@ -211,7 +210,7 @@ func nodeOutboundJSON(n Node, defaultServer string) (map[string]any, error) {
 		if c.BBRProfile != "" && c.BBRProfile != singbox.BBRProfileStandard {
 			ob["bbr_profile"] = c.BBRProfile
 		}
-		ob["tls"] = clientTLS(c.TLS, sni, true, n.Insecure)
+		ob["tls"] = clientTLS(c.TLS, server, defaultServer, true, n.Insecure)
 	case *singbox.TUICConfig:
 		ob["type"] = singbox.ProtoTUIC
 		ob["uuid"] = n.Cred.UUID
@@ -219,7 +218,7 @@ func nodeOutboundJSON(n Node, defaultServer string) (map[string]any, error) {
 		if c.CongestionControl != "" {
 			ob["congestion_control"] = c.CongestionControl
 		}
-		tls := clientTLS(c.TLS, sni, true, n.Insecure)
+		tls := clientTLS(c.TLS, server, defaultServer, true, n.Insecure)
 		if _, ok := tls["alpn"]; !ok {
 			tls["alpn"] = []string{"h3"}
 		}
@@ -227,11 +226,11 @@ func nodeOutboundJSON(n Node, defaultServer string) (map[string]any, error) {
 	case *singbox.AnyTLSConfig:
 		ob["type"] = singbox.ProtoAnyTLS
 		ob["password"] = n.Cred.Password
-		ob["tls"] = clientTLS(c.TLS, sni, true, n.Insecure)
+		ob["tls"] = clientTLS(c.TLS, server, defaultServer, true, n.Insecure)
 	case *singbox.TrojanConfig:
 		ob["type"] = singbox.ProtoTrojan
 		ob["password"] = n.Cred.Password
-		if tls := clientTLS(c.TLS, sni, false, n.Insecure); tls != nil {
+		if tls := clientTLS(c.TLS, server, defaultServer, false, n.Insecure); tls != nil {
 			ob["tls"] = tls
 		}
 	case *singbox.VMessConfig:
@@ -242,7 +241,7 @@ func nodeOutboundJSON(n Node, defaultServer string) (map[string]any, error) {
 			path = "/"
 		}
 		ob["transport"] = map[string]any{"type": "ws", "path": path}
-		if tls := clientTLS(c.TLS, sni, false, n.Insecure); tls != nil {
+		if tls := clientTLS(c.TLS, server, defaultServer, false, n.Insecure); tls != nil {
 			ob["tls"] = tls
 		}
 	case *singbox.ShadowsocksConfig:
@@ -265,17 +264,15 @@ func nodeOutboundJSON(n Node, defaultServer string) (map[string]any, error) {
 	return ob, nil
 }
 
-// clientTLS 渲染客户端 TLS 对象；SNI 未配置时用服务器地址兜底。
+// clientTLS 渲染客户端 TLS 对象；SNI 未配置或为通配符时用具体主域名兜底。
 // forceEnabled 用于必须 TLS 的协议，未启用且不强制时返回 nil；insecure 用于自签证书跳过校验。
-func clientTLS(t singbox.TLSConfig, server string, forceEnabled, insecure bool) map[string]any {
+func clientTLS(t singbox.TLSConfig, server, defaultServer string, forceEnabled, insecure bool) map[string]any {
 	if !t.Enabled && !forceEnabled {
 		return nil
 	}
-	tls := map[string]any{"enabled": true}
-	if t.ServerName != "" {
-		tls["server_name"] = t.ServerName
-	} else {
-		tls["server_name"] = server
+	tls := map[string]any{
+		"enabled":     true,
+		"server_name": resolveClientSNI(t.ServerName, server, defaultServer),
 	}
 	if len(t.ALPN) > 0 {
 		tls["alpn"] = t.ALPN

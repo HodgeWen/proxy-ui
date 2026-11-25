@@ -1173,4 +1173,57 @@ func TestAssembleAndRenderIPv6Variants(t *testing.T) {
 	if err := singbox.New(t.TempDir()).CheckConfig(cfg3); err != nil {
 		t.Fatalf("ipv4_only + 域名 IPv6 配置应通过内核 CheckConfig 校验: %v", err)
 	}
+
+	// 4. 全局 DNS 策略为 ipv4_only 且附加节点为裸 IPv6 地址时：客户端 dns.strategy 保持 ipv4_only（目标流量纯 IPv4 防风控），
+	// 同时裸 IPv6 节点直连不受 DNS 策略阻断且通过内核校验
+	d4, err := Assemble("proxy.example.com", specsLiteral, []singbox.GroupEntry{
+		{Name: "proxy", Mode: singbox.GroupModeAuto, Members: []string{"n1"}},
+	}, nil, "proxy", &dnsV4Only)
+	if err != nil {
+		t.Fatalf("ipv4_only + 裸 IPv6 组装失败: %v", err)
+	}
+	cfg4, err := RenderSingBox(d4)
+	if err != nil {
+		t.Fatalf("ipv4_only + 裸 IPv6 渲染失败: %v", err)
+	}
+	if cfg4.DNS["strategy"] != singbox.StrategyIPv4Only {
+		t.Errorf("裸 IPv6 节点下 ipv4_only 不应放开: strategy = %v, want %q", cfg4.DNS["strategy"], singbox.StrategyIPv4Only)
+	}
+	obLiteral4 := findOutbound(t, cfg4, "n1-ipv6")
+	if obLiteral4["server"] != "2001:db8::1" {
+		t.Errorf("裸 IPv6 节点 server = %v, want 2001:db8::1", obLiteral4["server"])
+	}
+	if tls4, _ := obLiteral4["tls"].(map[string]any); tls4["server_name"] != "proxy.example.com" {
+		t.Errorf("裸 IPv6 节点 SNI 应回落到具体主域名 proxy.example.com, got %v", tls4["server_name"])
+	}
+	if err := singbox.New(t.TempDir()).CheckConfig(cfg4); err != nil {
+		t.Fatalf("ipv4_only + 裸 IPv6 配置应通过内核 CheckConfig 校验: %v", err)
+	}
+
+	// 5. 入站显式填写通配符证书名（*.example.com）时：客户端 SNI 不得含 *，主节点与裸 IPv6 节点均回落具体主域名
+	wildcardTLSRaw, _ := json.Marshal(&singbox.TrojanConfig{
+		TLS: singbox.TLSConfig{Enabled: true, CertMode: singbox.CertModeManaged, CertID: 1, ServerName: "*.example.com"},
+	})
+	specsWildcard := []NodeSpec{
+		{Tag: "w1", Protocol: singbox.ProtoTrojan, Port: 20001, Config: string(wildcardTLSRaw), CredJSON: string(credRaw)},
+		{Tag: "w1-ipv6", Server: "2001:db8::1", IPv6: true, VariantOf: "w1", Protocol: singbox.ProtoTrojan, Port: 20001, Config: string(wildcardTLSRaw), CredJSON: string(credRaw)},
+	}
+	d5, err := Assemble("proxy.example.com", specsWildcard, nil, nil, "", &dnsV4Only)
+	if err != nil {
+		t.Fatalf("泛域名 SNI 组装失败: %v", err)
+	}
+	cfg5, err := RenderSingBox(d5)
+	if err != nil {
+		t.Fatalf("泛域名 SNI 渲染失败: %v", err)
+	}
+	for _, tag := range []string{"w1", "w1-ipv6"} {
+		ob := findOutbound(t, cfg5, tag)
+		tls5, _ := ob["tls"].(map[string]any)
+		if tls5["server_name"] != "proxy.example.com" {
+			t.Errorf("节点 %s 通配符 SNI 应回落为 proxy.example.com, got %v", tag, tls5["server_name"])
+		}
+	}
+	if err := singbox.New(t.TempDir()).CheckConfig(cfg5); err != nil {
+		t.Fatalf("泛域名 SNI 回落配置应通过内核 CheckConfig 校验: %v", err)
+	}
 }

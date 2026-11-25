@@ -2,6 +2,7 @@ package subscription
 
 import (
 	"fmt"
+	"strings"
 
 	"proxy-ui/internal/singbox"
 )
@@ -299,4 +300,26 @@ func fallbackSNI(server, defaultServer string) string {
 		return defaultServer
 	}
 	return server
+}
+
+// resolveClientSNI 计算客户端 TLS SNI：
+// 优先使用入站显式配置的非通配符 server_name；
+// 若未配置或包含通配符（如 *.example.com，TLS SNI 不允许含 *），
+// 则回落到具体的域名型节点地址或订阅主域名（可匹配泛域名证书），
+// 仅在两端均为裸 IP 且配置了 *.domain 时剥离 *. 兜底。
+func resolveClientSNI(configured, server, defaultServer string) string {
+	configured = strings.TrimSpace(configured)
+	if configured != "" && !strings.Contains(configured, "*") {
+		return configured
+	}
+	fallback := fallbackSNI(server, defaultServer)
+	if isDomain(fallback) && !strings.Contains(fallback, "*") {
+		return fallback
+	}
+	if strings.HasPrefix(configured, "*.") {
+		if base := strings.TrimPrefix(configured, "*."); base != "" && !strings.Contains(base, "*") {
+			return base
+		}
+	}
+	return fallback
 }

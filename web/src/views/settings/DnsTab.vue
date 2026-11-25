@@ -11,6 +11,7 @@ import {
   USelect,
   USwitch,
   UTableEditor,
+  UIcon,
   UTip,
   message,
   vLoading,
@@ -44,9 +45,37 @@ const selectedPresetId = shallowRef('')
 
 const typeOptions = computed(() => dnsTypes.value.map((type) => ({ label: type, value: type })))
 
+const tipStyle = { maxWidth: '360px', lineHeight: '1.6' }
+
+const STRATEGY_META: Record<string, { label: string; desc: string }> = {
+  '': {
+    label: '不指定（内核默认）',
+    desc: '不显式写入 strategy，由 sing-box 按系统网络偏好决定；Clash 订阅保持双栈开启。',
+  },
+  prefer_ipv4: {
+    label: 'prefer_ipv4（优先 IPv4）',
+    desc: '同时查询 A 与 AAAA，优先返回 IPv4，无 IPv4 时回落 IPv6；兼顾兼容与双栈，日常最稳妥。',
+  },
+  prefer_ipv6: {
+    label: 'prefer_ipv6（优先 IPv6）',
+    desc: '同时查询 A 与 AAAA，优先返回 IPv6，无 IPv6 时回落 IPv4；适合双栈网络、缓解 IPv4 晚高峰拥堵。',
+  },
+  ipv4_only: {
+    label: 'ipv4_only（仅 IPv4）',
+    desc: '只查 A 记录、禁用 IPv6 解析。若想客户端经裸 IPv6 入口连服务器、同时服务端出站严格走 IPv4 防风控，选此项即可（仅填了域名型 IPv6 入口时才会放开 AAAA 解析）。',
+  },
+  ipv6_only: {
+    label: 'ipv6_only（仅 IPv6）',
+    desc: '只查 AAAA 记录；仅适用于纯 IPv6 环境，访问纯 IPv4 站点会解析失败。',
+  },
+}
+
 const strategyOptions = computed(() => [
-  { label: '不指定（内核默认）', value: '' },
-  ...dnsStrategies.value.map((strategy) => ({ label: strategy, value: strategy })),
+  { label: STRATEGY_META[''].label, value: '' },
+  ...dnsStrategies.value.map((strategy) => ({
+    label: STRATEGY_META[strategy]?.label ?? strategy,
+    value: strategy,
+  })),
 ])
 
 const presetOptions = computed(() => dnsPresets.value.map((preset) => ({ label: preset.name, value: preset.id })))
@@ -72,6 +101,8 @@ const duplicateTags = computed(() => {
 /** 长说明收敛进 tooltip 的文案（原页面分节大段文字） */
 const dnsScopeTip =
   'DNS 决定「域名解析成哪个 IP、由哪台服务器来解析」。这份配置会同时写进服务端 sing-box 自身（面板所在服务器出网解析）与下发给客户端的订阅，改一次两端行为一致。国内域名走国内 DNS、其余走 DoH 之类分流可兼顾速度与防污染；把查询 detour 到代理出站还能避开本地运营商的 DNS 劫持。'
+const strategyTip =
+  '控制服务端 sing-box 与下发订阅的默认域名解析偏好（影响访问目标域名，以及 sing-box 解析域名型节点地址）。prefer_ipv4 / prefer_ipv6 会同时查 A 与 AAAA 并按偏好排序、失败自动回落；ipv4_only / ipv6_only 则只查单栈记录。注意：sing-box 直接按该策略执行；Clash（mihomo）仅有 ipv6 开关，除 ipv4_only（且无 IPv6 节点入口）外均开启双栈。'
 const serverTip =
   'tag 是规则与默认服务器引用它的名字，必须非空且唯一；类型 udp / tcp 为明文查询（可能被劫持污染），tls / https / h3 为加密查询（DoT / DoH / DoH3，防污染推荐），local 使用系统本地解析、不需要地址与端口；地址国内推荐 223.5.5.5、加密推荐 1.1.1.1；端口留空按类型取默认（53 / 853 / 443）；「经由出站」留空直连查询，填出站 tag 则由该出站代发（走代理防污染时用）。'
 const ruleTip =
@@ -243,8 +274,8 @@ onMounted(loadDNS)
       <div class="card-header-row">
         <span class="card-title">
           DNS
-          <u-tip :content="dnsScopeTip" direction="bottom" alignment="start">
-            <QuestionFilled class="tip-icon" />
+          <u-tip :content="dnsScopeTip" direction="bottom" alignment="start" :style="tipStyle">
+            <u-icon :size="14" class="tip-icon"><QuestionFilled /></u-icon>
           </u-tip>
         </span>
         <u-button size="small" :loading="dnsLoading" @click="loadDNS">重新加载</u-button>
@@ -261,7 +292,12 @@ onMounted(loadDNS)
           </div>
         </div>
         <div v-if="dnsForm.enabled" class="settings-field">
-          <div class="settings-label">解析策略</div>
+          <div class="settings-label">
+            <span>解析策略</span>
+            <u-tip :content="strategyTip" direction="bottom" alignment="start" :style="tipStyle">
+              <u-icon :size="14" class="tip-icon"><QuestionFilled /></u-icon>
+            </u-tip>
+          </div>
           <div class="settings-body">
             <u-select
               v-model="dnsForm.strategy"
@@ -269,7 +305,12 @@ onMounted(loadDNS)
               :clearable="false"
               class="settings-input"
             />
-            <div class="settings-desc">优先返回 IPv4 还是 IPv6；拿不准选「不指定」，由内核按系统偏好决定。</div>
+            <div class="settings-desc">
+              {{
+                STRATEGY_META[dnsForm.strategy]?.desc ??
+                '优先返回 IPv4 还是 IPv6；拿不准选「不指定」，由内核按系统偏好决定。'
+              }}
+            </div>
           </div>
         </div>
         <div v-if="dnsForm.enabled" class="settings-field">
@@ -305,8 +346,8 @@ onMounted(loadDNS)
           <div class="editor-head">
             <div class="editor-title">
               DNS 服务器
-              <u-tip :content="serverTip" direction="bottom" alignment="start">
-                <QuestionFilled class="tip-icon" />
+              <u-tip :content="serverTip" direction="bottom" alignment="start" :style="tipStyle">
+                <u-icon :size="14" class="tip-icon"><QuestionFilled /></u-icon>
               </u-tip>
             </div>
           </div>
@@ -370,8 +411,8 @@ onMounted(loadDNS)
           <div class="editor-head">
             <div class="editor-title">
               分流规则
-              <u-tip :content="ruleTip" direction="bottom" alignment="start">
-                <QuestionFilled class="tip-icon" />
+              <u-tip :content="ruleTip" direction="bottom" alignment="start" :style="tipStyle">
+                <u-icon :size="14" class="tip-icon"><QuestionFilled /></u-icon>
               </u-tip>
             </div>
           </div>
@@ -449,6 +490,9 @@ onMounted(loadDNS)
 }
 
 .settings-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   width: 118px;
   flex-shrink: 0;
   line-height: 28px;
@@ -478,10 +522,9 @@ onMounted(loadDNS)
 }
 
 .tip-icon {
-  width: 13px;
-  height: 13px;
   color: var(--u-text-color-second);
   cursor: help;
+  flex-shrink: 0;
 }
 
 /* 预设行：下拉选预设 + 应用按钮 */

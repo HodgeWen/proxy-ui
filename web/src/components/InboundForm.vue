@@ -73,11 +73,11 @@ const SchemaField = defineComponent({
         modelValue: d.type === 'multiselect' ? current ?? [] : current,
         'onUpdate:modelValue': (value: unknown) => {
           o(props.model).set(d.field, value)
-          // 选定面板证书后自动带出服务器名称：SNI 需与证书域名匹配，直接取证书主域名
+          // 选定面板证书后自动带出服务器名称：SNI 需与具体域名匹配，通配符证书跳过（避免下发 *.domain 非法 SNI）
           if (d.field === 'tls.certId' && value) {
             const cert = props.certs.find((c) => c.id === value)
             const domain = cert?.commonName || cert?.domains?.[0]
-            if (domain) o(props.model).set('tls.serverName', domain)
+            if (domain && !domain.includes('*')) o(props.model).set('tls.serverName', domain)
           }
         },
       }
