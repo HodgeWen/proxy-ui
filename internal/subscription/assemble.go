@@ -15,6 +15,8 @@ const directTag = "direct"
 // Node 订阅节点：该订阅用户在某入站下的身份（共享入站端口）。
 type Node struct {
 	Tag      string             // 节点 tag（用户名）
+	Server   string             // 独立服务器地址（空则沿用订阅主地址 Data.Server）
+	IPv6     bool               // 是否为附加 IPv6 节点
 	Protocol string             // 入站协议
 	Port     int                // 入站端口（同入站下所有用户共享）
 	Config   any                // singbox.ParseInboundConfig 解析的连接层配置
@@ -44,12 +46,15 @@ type Data struct {
 
 // NodeSpec 订阅组装输入的节点条目。
 type NodeSpec struct {
-	Tag      string // 节点 tag（用户名）
-	Protocol string // 入站协议
-	Port     int    // 入站端口
-	Config   string // 连接层配置 JSON
-	CredJSON string // 该用户凭据 JSON
-	Insecure bool   // 是否跳过 TLS 证书校验（自签证书场景）
+	Tag       string // 节点 tag（用户名）
+	Server    string // 独立服务器地址（空则使用订阅主地址）
+	IPv6      bool   // 是否为附加 IPv6 节点
+	VariantOf string // 若为某主节点的派生副本，记为主节点 Tag（策略组显式引用主节点时自动带上）
+	Protocol  string // 入站协议
+	Port      int    // 入站端口
+	Config    string // 连接层配置 JSON
+	CredJSON  string // 该用户凭据 JSON
+	Insecure  bool   // 是否跳过 TLS 证书校验（自签证书场景）
 }
 
 // Assemble 组装订阅数据：节点解析为客户端节点，策略组成员与规则/兜底出站映射为
@@ -57,6 +62,7 @@ type NodeSpec struct {
 func Assemble(server string, nodes []NodeSpec, groups []singbox.GroupEntry, rules []singbox.RuleEntry, final string, dns *singbox.DNSConfig) (Data, error) {
 	d := Data{Server: server, DNS: dns}
 	nodeTags := make([]string, 0, len(nodes))
+	variantsByBase := make(map[string][]string)
 	for _, n := range nodes {
 		cfg, err := singbox.ParseInboundConfig(n.Protocol, n.Config)
 		if err != nil {
@@ -67,9 +73,12 @@ func Assemble(server string, nodes []NodeSpec, groups []singbox.GroupEntry, rule
 			return Data{}, fmt.Errorf("节点 %s: %w", n.Tag, err)
 		}
 		d.Nodes = append(d.Nodes, Node{
-			Tag: n.Tag, Protocol: n.Protocol, Port: n.Port, Config: cfg, Cred: cred, Insecure: n.Insecure,
+			Tag: n.Tag, Server: n.Server, IPv6: n.IPv6, Protocol: n.Protocol, Port: n.Port, Config: cfg, Cred: cred, Insecure: n.Insecure,
 		})
 		nodeTags = append(nodeTags, n.Tag)
+		if n.VariantOf != "" {
+			variantsByBase[n.VariantOf] = append(variantsByBase[n.VariantOf], n.Tag)
+		}
 	}
 
 	nodeSet := make(map[string]bool, len(nodeTags))
@@ -105,6 +114,15 @@ func Assemble(server string, nodes []NodeSpec, groups []singbox.GroupEntry, rule
 			switch {
 			case nodeSet[m]:
 				hasProxyExit = true
+				seen[m] = true
+				members = append(members, m)
+				for _, v := range variantsByBase[m] {
+					if !seen[v] && nodeSet[v] {
+						seen[v] = true
+						members = append(members, v)
+					}
+				}
+				continue
 			case m == directTag:
 				explicitDirect = true
 			case allowGroup(m):
@@ -261,4 +279,24 @@ func primaryProxyGroup(d Data) string {
 		return d.Groups[0].Name
 	}
 	return ""
+}
+
+// nodeServer 返回节点实际使用的服务器地址；节点未指定独立 Server 时沿用订阅主地址。
+func nodeServer(n Node, defaultServer string) string {
+	if n.Server != "" {
+		return n.Server
+	}
+	return defaultServer
+}
+
+// fallbackSNI 未显式配置 tls.ServerName 时返回兜底 SNI：
+// 优先用域名形式的节点地址，其次用域名形式的订阅主地址，避免裸 IPv6 写入 SNI 破坏域名证书校验。
+func fallbackSNI(server, defaultServer string) string {
+	if isDomain(server) {
+		return server
+	}
+	if isDomain(defaultServer) {
+		return defaultServer
+	}
+	return server
 }

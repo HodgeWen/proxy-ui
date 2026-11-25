@@ -106,7 +106,12 @@ async function handleDelete(row: Outbound): Promise<void> {
 function endpointOf(row: Outbound): string {
   const cfg = (row.config ?? {}) as Record<string, unknown>
   if (row.type === 'direct') return '内置直连出站'
-  if (typeof cfg.server === 'string') return `${cfg.server}${typeof cfg.server_port === 'number' ? ':' + cfg.server_port : ''}`
+  if (typeof cfg.server === 'string' && cfg.server) {
+    const port = typeof cfg.server_port === 'number' ? cfg.server_port : 0
+    if (!port) return cfg.server
+    const host = cfg.server.includes(':') && !cfg.server.startsWith('[') ? `[${cfg.server}]` : cfg.server
+    return `${host}:${port}`
+  }
   return '—'
 }
 

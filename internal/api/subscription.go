@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/netip"
+	"slices"
 	"strings"
 	"time"
 
@@ -48,6 +51,17 @@ type previewResp struct {
 	Content string `json:"content"` // 渲染内容
 }
 
+// subscriptionSettingsView 订阅全局设置视图（附加 IPv6 入口与本机探测地址）。
+type subscriptionSettingsView struct {
+	ServerIPv6    string   `json:"serverIpv6"`    // 订阅附加 IPv6 节点入口（空为关闭）
+	DetectedIPv6s []string `json:"detectedIpv6s"` // 本机网卡探测到的公网 IPv6 地址
+}
+
+// subscriptionSettingsReq 更新订阅全局设置请求。
+type subscriptionSettingsReq struct {
+	ServerIPv6 string `json:"serverIpv6"` // 订阅附加 IPv6 节点入口（空为关闭）
+}
+
 // tokenReq 创建/更新订阅用户请求；指针字段缺省表示不修改。
 type tokenReq struct {
 	Name              *string    `json:"name"`              // 备注
@@ -65,6 +79,26 @@ func (a *API) HandleSubscriptionGet(c *gin.Context) {
 		return
 	}
 	OK(c, views)
+}
+
+// HandleSubscriptionSettingsGet GET /api/subscription/settings 查询订阅附加 IPv6 入口设置与本机公网 IPv6 探测结果。
+func (a *API) HandleSubscriptionSettingsGet(c *gin.Context) {
+	OK(c, a.subscriptionSettings())
+}
+
+// HandleSubscriptionSettingsSet PUT /api/subscription/settings 保存订阅附加 IPv6 入口（只影响订阅导出，不重建内核）。
+func (a *API) HandleSubscriptionSettingsSet(c *gin.Context) {
+	var req subscriptionSettingsReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "参数错误: "+err.Error())
+		return
+	}
+	view, err := a.saveSubscriptionSettings(req.ServerIPv6)
+	if err != nil {
+		Fail(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	OK(c, view)
 }
 
 // HandleTokenPreview GET /api/subscription/tokens/:id/preview?format=sing-box|mihomo
@@ -551,10 +585,89 @@ func randToken() string {
 	return base64.RawURLEncoding.EncodeToString(buf)
 }
 
+// subscriptionSettings 读取当前订阅 IPv6 入口设置与本机公网 IPv6 探测地址。
+func (a *API) subscriptionSettings() subscriptionSettingsView {
+	return subscriptionSettingsView{
+		ServerIPv6:    a.getSetting(db.SettingServerIPv6),
+		DetectedIPv6s: detectPublicIPv6s(),
+	}
+}
+
+// saveSubscriptionSettings 校验并保存订阅 IPv6 入口设置（不触发内核重建）。
+func (a *API) saveSubscriptionSettings(raw string) (subscriptionSettingsView, error) {
+	normalized, err := subscription.NormalizeIPv6Host(raw)
+	if err != nil {
+		return subscriptionSettingsView{}, err
+	}
+	if err := a.setSetting(db.SettingServerIPv6, normalized); err != nil {
+		return subscriptionSettingsView{}, fmt.Errorf("保存 IPv6 入口设置失败: %w", err)
+	}
+	return subscriptionSettingsView{
+		ServerIPv6:    normalized,
+		DetectedIPv6s: detectPublicIPv6s(),
+	}, nil
+}
+
+// detectPublicIPv6s 探测本机网卡上的全局单播公网 IPv6 地址（排除回环、链路本地、ULA 私网与 IPv4 映射）。
+func detectPublicIPv6s() []string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return []string{}
+	}
+	seen := make(map[netip.Addr]bool)
+	out := []string{}
+	for _, item := range addrs {
+		var addr netip.Addr
+		switch v := item.(type) {
+		case *net.IPNet:
+			if parsed, ok := netip.AddrFromSlice(v.IP); ok {
+				addr = parsed
+			}
+		case *net.IPAddr:
+			if parsed, ok := netip.AddrFromSlice(v.IP); ok {
+				addr = parsed
+			}
+		}
+		addr = addr.WithZone("")
+		if !addr.IsValid() || !addr.Is6() || addr.Is4In6() || !addr.IsGlobalUnicast() || addr.IsPrivate() {
+			continue
+		}
+		if seen[addr] {
+			continue
+		}
+		seen[addr] = true
+		out = append(out, addr.String())
+	}
+	slices.Sort(out)
+	return out
+}
+
 // ---------- 订阅用户 AI 工具 ----------
 
 // registerTokenAITools 注册订阅用户相关的查询与写操作 AI 工具。
 func (a *API) registerTokenAITools() {
+	a.ai.Register(ai.Tool{
+		Name:        "get_subscription_settings",
+		Description: "查询订阅附加 IPv6 入口设置（serverIpv6）以及本机网卡探测到的公网 IPv6 地址列表（detectedIpv6s）",
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{}},
+		Exec: func(_ context.Context, _ json.RawMessage) (any, error) {
+			return a.subscriptionSettings(), nil
+		},
+	})
+	a.ai.Register(ai.Tool{
+		Name:        "set_subscription_settings",
+		Description: "设置订阅附加 IPv6 节点入口（填公网 IPv6 地址或纯 AAAA 域名，空串关闭；保存后订阅自动为双栈入站追加 -ipv6 节点，无需重建内核）",
+		Parameters: toolParams(map[string]any{
+			"serverIpv6": toolProp("string", "公网 IPv6 地址或纯 AAAA 域名，空串关闭"),
+		}, "serverIpv6"),
+		Exec: func(_ context.Context, args json.RawMessage) (any, error) {
+			var req subscriptionSettingsReq
+			if err := decodeToolArgs(args, &req); err != nil {
+				return nil, err
+			}
+			return a.saveSubscriptionSettings(req.ServerIPv6)
+		},
+	})
 	a.ai.Register(ai.Tool{
 		Name:        "list_subscription_tokens",
 		Description: "列出全部订阅用户（含匿名 token、名称、配额、已用流量、到期时间、停用状态与各自节点）",

@@ -21,6 +21,7 @@ type Setting struct {
 const (
 	SettingRouteFinal = "route_final" // 未命中规则的兜底出站 tag，空用内核默认
 	SettingDNS        = "dns_config"  // DNS 配置（JSON，结构见 singbox.DNSConfig）
+	SettingServerIPv6 = "server_ipv6" // 订阅附加 IPv6 节点入口（纯 IPv6 地址或纯 AAAA 域名，空为关闭）
 )
 
 // Inbound 入站：内核里真实的监听（协议 + 监听地址/端口 + TLS/Reality/混淆等连接层参数）。

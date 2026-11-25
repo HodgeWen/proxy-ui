@@ -14,13 +14,30 @@ import (
 // mihomo 规则集缓存目录（客户端本地相对路径）。
 const mihomoRuleSetDir = "./ruleset/"
 
-// RenderClash 渲染 mihomo(clash.meta) 客户端配置（YAML）：proxies、proxy-groups、rules、
-// rule-providers 与 dns。
+// RenderClash 渲染 mihomo(clash.meta) 客户端配置（YAML）：ipv6、dns、proxies、proxy-groups、
+// rule-providers 与 rules（标准 2 空格序列缩进）。
 func RenderClash(d Data) ([]byte, error) {
-	cfg := clashConfig{}
+	hasIPv6Node := false
+	hasIPv6DomainNode := false
+	for _, n := range d.Nodes {
+		if !n.IPv6 {
+			continue
+		}
+		hasIPv6Node = true
+		if isDomain(nodeServer(n, d.Server)) {
+			hasIPv6DomainNode = true
+		}
+	}
+	dnsStrategy := ""
+	if d.DNS != nil && d.DNS.Enabled {
+		dnsStrategy = d.DNS.Strategy
+	}
+	cfg := clashConfig{
+		IPv6: hasIPv6Node || dnsStrategy != singbox.StrategyIPv4Only,
+	}
 	proxyGroup := primaryProxyGroup(d)
 	for _, n := range d.Nodes {
-		p, err := clashProxyOf(n, d.Server)
+		p, err := clashProxyOf(n, d.Server, dnsStrategy)
 		if err != nil {
 			return nil, err
 		}
@@ -56,10 +73,10 @@ func RenderClash(d Data) ([]byte, error) {
 		}
 		cfg.RuleProviders = append(cfg.RuleProviders, yaml.MapItem{Key: tag, Value: entry})
 	}
-	if dns := clashDNSOf(d.DNS, proxyGroup, clientTags); dns != nil {
+	if dns := clashDNSOf(d.DNS, proxyGroup, clientTags, hasIPv6DomainNode); dns != nil {
 		cfg.DNS = dns
 	}
-	out, err := yaml.Marshal(cfg)
+	out, err := yaml.MarshalWithOptions(cfg, yaml.Indent(2), yaml.IndentSequence(true))
 	if err != nil {
 		return nil, fmt.Errorf("序列化 clash 配置失败: %w", err)
 	}
@@ -84,11 +101,12 @@ func clashProviderExt(url string) string {
 
 // clashConfig mihomo 配置结构（字段顺序即输出顺序）。
 type clashConfig struct {
+	IPv6          bool              `yaml:"ipv6"`
+	DNS           *clashDNS         `yaml:"dns,omitempty"`
 	Proxies       []clashProxy      `yaml:"proxies"`
 	ProxyGroups   []clashProxyGroup `yaml:"proxy-groups"`
 	RuleProviders yaml.MapSlice     `yaml:"rule-providers,omitempty"`
 	Rules         []string          `yaml:"rules"`
-	DNS           *clashDNS         `yaml:"dns,omitempty"`
 }
 
 // clashRuleProvider 远程规则源定义。
@@ -119,8 +137,10 @@ var clashDefaultFakeIPFilter = []string{
 // clashDNS mihomo dns 配置。
 type clashDNS struct {
 	Enable             bool          `yaml:"enable"`
+	IPv6               bool          `yaml:"ipv6"`
 	EnhancedMode       string        `yaml:"enhanced-mode"`
 	FakeIPRange        string        `yaml:"fake-ip-range"`
+	FakeIPRange6       string        `yaml:"fake-ip-range6,omitempty"`
 	FakeIPFilter       []string      `yaml:"fake-ip-filter"`
 	DefaultNameser     []string      `yaml:"default-nameserver"`
 	ProxyServerNameser []string      `yaml:"proxy-server-nameserver"`
@@ -131,7 +151,7 @@ type clashDNS struct {
 
 // clashDNSOf 把面板 DNS 配置映射为 mihomo dns 段；未启用返回 nil。
 // clientTags 为客户端配置里实际存在的出站 tag（节点、策略组与 DIRECT），用于判定 detour 是否可用。
-func clashDNSOf(d *singbox.DNSConfig, proxyGroup string, clientTags map[string]bool) *clashDNS {
+func clashDNSOf(d *singbox.DNSConfig, proxyGroup string, clientTags map[string]bool, forceIPv6 bool) *clashDNS {
 	if d == nil || !d.Enabled || len(d.Servers) == 0 {
 		return nil
 	}
@@ -142,11 +162,16 @@ func clashDNSOf(d *singbox.DNSConfig, proxyGroup string, clientTags map[string]b
 			ruleTargets[r.Server] = true
 		}
 	}
+	enableIPv6 := forceIPv6 || d.Strategy != singbox.StrategyIPv4Only
 	out := &clashDNS{
 		Enable:       true,
+		IPv6:         enableIPv6,
 		EnhancedMode: "fake-ip",
 		FakeIPRange:  "198.18.0.1/16",
 		FakeIPFilter: append([]string(nil), clashDefaultFakeIPFilter...),
+	}
+	if enableIPv6 {
+		out.FakeIPRange6 = "fc00::/18"
 	}
 	// default-nameserver 必须是 IP 型明文解析器，用于解析 DoH 域名本身
 	for _, s := range d.Servers {
@@ -296,6 +321,7 @@ type clashProxy struct {
 	Type              string            `yaml:"type"`
 	Server            string            `yaml:"server"`
 	Port              int               `yaml:"port"`
+	IPVersion         string            `yaml:"ip-version,omitempty"`
 	UUID              string            `yaml:"uuid,omitempty"`
 	AlterID           *int              `yaml:"alterId,omitempty"`
 	Password          string            `yaml:"password,omitempty"`
@@ -355,13 +381,27 @@ func clashGroupOf(g singbox.GroupEntry) clashProxyGroup {
 }
 
 // clashProxyOf 把订阅节点映射为 clash proxy。
-func clashProxyOf(n Node, server string) (clashProxy, error) {
+func clashProxyOf(n Node, defaultServer, dnsStrategy string) (clashProxy, error) {
+	server := nodeServer(n, defaultServer)
+	sniHost := fallbackSNI(server, defaultServer)
 	p := clashProxy{Name: n.Tag, Server: server, Port: n.Port, UDP: true}
+	if n.IPv6 {
+		p.IPVersion = "ipv6"
+	} else if isDomain(server) {
+		switch dnsStrategy {
+		case singbox.StrategyPreferIPv6:
+			p.IPVersion = "ipv6-prefer"
+		case singbox.StrategyIPv6Only:
+			p.IPVersion = "ipv6"
+		case singbox.StrategyIPv4Only:
+			p.IPVersion = "ipv4"
+		}
+	}
 	sni := func(t singbox.TLSConfig) string {
 		if t.ServerName != "" {
 			return t.ServerName
 		}
-		return server
+		return sniHost
 	}
 	switch c := n.Config.(type) {
 	case *singbox.VLESSConfig:
@@ -490,7 +530,11 @@ func clashRulesOf(r singbox.RuleEntry) ([]string, *singbox.RuleSetSource) {
 				line = "DOMAIN-REGEX," + v + "," + outbound
 			}
 		case singbox.MatchIP:
-			line = "IP-CIDR," + v + "," + outbound + ",no-resolve"
+			ruleType := "IP-CIDR"
+			if strings.Contains(v, ":") {
+				ruleType = "IP-CIDR6"
+			}
+			line = ruleType + "," + v + "," + outbound + ",no-resolve"
 		}
 		if line != "" {
 			lines = append(lines, line)

@@ -58,9 +58,10 @@ type DNSRule struct {
 
 // DNS 预设 ID。
 const (
-	DNSPresetDirect    = "direct"     // 全部走本地/运营商 DNS（最简单，易被污染）
-	DNSPresetAntiPoll  = "anti_poll"  // 国内域名走国内 DNS、其余走 DoH（防污染）
-	DNSPresetRemoteDoH = "remote_doh" // 全部走 DoH（隐私优先）
+	DNSPresetDirect        = "direct"      // 全部走本地/运营商 DNS（最简单，易被污染）
+	DNSPresetAntiPoll      = "anti_poll"   // 国内域名走国内 DNS、其余走 DoH（防污染）
+	DNSPresetRemoteDoH     = "remote_doh"  // 全部走 DoH（隐私优先）
+	DNSPresetDualStackIPv6 = "prefer_ipv6" // 国内外分流且优先 IPv6 解析
 )
 
 // DNSPreset DNS 预设定义：一键填充 Servers/Rules/Final。
@@ -105,6 +106,22 @@ var DNSPresets = []DNSPreset{
 			Strategy: StrategyPreferIPv4,
 			Servers:  []DNSServer{{Tag: "cf-doh", Type: DNSTypeHTTPS, Server: "1.1.1.1", ServerPort: 443, Path: "/dns-query"}},
 			Final:    "cf-doh",
+		},
+	},
+	{
+		ID: DNSPresetDualStackIPv6, Name: "双栈 IPv6 优先",
+		Description: "国内外分流且优先使用 IPv6 解析，适合具备双栈网络、缓解 IPv4 晚高峰拥堵的场景",
+		Config: DNSConfig{
+			Strategy: StrategyPreferIPv6,
+			Servers: []DNSServer{
+				{Tag: "ali", Type: DNSTypeUDP, Server: "223.5.5.5", ServerPort: 53},
+				{Tag: "cf-doh", Type: DNSTypeHTTPS, Server: "1.1.1.1", ServerPort: 443, Path: "/dns-query"},
+			},
+			Rules: []DNSRule{
+				{DomainSuffix: "cn", Server: "ali"},
+				{DomainSuffix: "qq.com,baidu.com,taobao.com,jd.com,bilibili.com", Server: "ali"},
+			},
+			Final: "cf-doh",
 		},
 	},
 }

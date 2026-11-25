@@ -126,6 +126,8 @@ func New(opt Options) *gin.Engine {
 	g.GET("/dns", a.HandleDNSGet)
 	g.PUT("/dns", a.HandleDNSSet)
 	g.GET("/subscription", a.HandleSubscriptionGet)
+	g.GET("/subscription/settings", a.HandleSubscriptionSettingsGet)
+	g.PUT("/subscription/settings", a.HandleSubscriptionSettingsSet)
 	g.POST("/subscription/tokens", a.HandleTokenCreate)
 	g.GET("/subscription/tokens/:id/preview", a.HandleTokenPreview)
 	g.PUT("/subscription/tokens/:id", a.HandleTokenUpdate)

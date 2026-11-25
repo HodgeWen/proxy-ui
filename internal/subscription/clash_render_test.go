@@ -14,6 +14,7 @@ import (
 
 // clashConfigDoc 反序列化后的 clash 配置（断言用）。
 type clashConfigDoc struct {
+	IPv6          bool             `yaml:"ipv6"`
 	Proxies       []map[string]any `yaml:"proxies"`
 	ProxyGroups   []map[string]any `yaml:"proxy-groups"`
 	RuleProviders map[string]struct {
@@ -28,8 +29,10 @@ type clashConfigDoc struct {
 	Rules []string `yaml:"rules"`
 	DNS   struct {
 		Enable        bool                `yaml:"enable"`
+		IPv6          bool                `yaml:"ipv6"`
 		EnhancedMode  string              `yaml:"enhanced-mode"`
 		FakeIPRange   string              `yaml:"fake-ip-range"`
+		FakeIPRange6  string              `yaml:"fake-ip-range6"`
 		FakeIPFilter  []string            `yaml:"fake-ip-filter"`
 		Nameserver    []string            `yaml:"nameserver"`
 		DefaultNS     []string            `yaml:"default-nameserver"`
@@ -326,7 +329,7 @@ func TestClashDNSOf(t *testing.T) {
 		Rules: []singbox.DNSRule{{DomainSuffix: "cn", Server: "udp"}},
 		Final: "doh",
 	}
-	out := clashDNSOf(cfg, "proxy", clashTestTags())
+	out := clashDNSOf(cfg, "proxy", clashTestTags(), false)
 	if out == nil {
 		t.Fatal("启用时不应返回 nil")
 	}
@@ -338,14 +341,14 @@ func TestClashDNSOf(t *testing.T) {
 		t.Errorf("final 指定时远程 DoH nameserver 应附带 #proxy: %v", out.Nameserver)
 	}
 	// 无 proxyGroup 时不追加 #proxy；显式指定 Detour 时优先保留
-	if noGroup := clashDNSOf(cfg, "", clashTestTags()); len(noGroup.Nameserver) != 1 || noGroup.Nameserver[0] != "https://1.1.1.1/dns-query" {
+	if noGroup := clashDNSOf(cfg, "", clashTestTags(), false); len(noGroup.Nameserver) != 1 || noGroup.Nameserver[0] != "https://1.1.1.1/dns-query" {
 		t.Errorf("无 proxyGroup 时不应追加 #: %v", noGroup.Nameserver)
 	}
 	explicitDetour := clashDNSOf(&singbox.DNSConfig{
 		Enabled: true,
 		Servers: []singbox.DNSServer{{Tag: "doh", Type: singbox.DNSTypeHTTPS, Server: "1.1.1.1", Detour: "direct"}},
 		Final:   "doh",
-	}, "proxy", clashTestTags())
+	}, "proxy", clashTestTags(), false)
 	if len(explicitDetour.Nameserver) != 1 || explicitDetour.Nameserver[0] != "https://1.1.1.1/dns-query#DIRECT" {
 		t.Errorf("显式 Detour=direct 应映射为 #DIRECT: %v", explicitDetour.Nameserver)
 	}
@@ -375,7 +378,7 @@ func TestClashDNSOf(t *testing.T) {
 			{DomainSuffix: "cn,qq.com", Server: "a"},
 			{DomainSuffix: "cn", Server: "b"},
 		},
-	}, "proxy", clashTestTags())
+	}, "proxy", clashTestTags(), false)
 	if len(dupPolicy.NameserverPol) != 2 {
 		t.Errorf("重复域名应去重为 2 项, got %+v", dupPolicy.NameserverPol)
 	}
@@ -387,7 +390,7 @@ func TestClashDNSOf(t *testing.T) {
 	domainUDP := clashDNSOf(&singbox.DNSConfig{
 		Enabled: true,
 		Servers: []singbox.DNSServer{{Tag: "u", Type: singbox.DNSTypeUDP, Server: "dns.alidns.com"}},
-	}, "proxy", clashTestTags())
+	}, "proxy", clashTestTags(), false)
 	if len(domainUDP.DefaultNameser) == 0 || domainUDP.DefaultNameser[0] != "223.5.5.5" {
 		t.Errorf("非 IP UDP 服务器不应放入 default-nameserver, got %v", domainUDP.DefaultNameser)
 	}
@@ -397,13 +400,13 @@ func TestClashDNSOf(t *testing.T) {
 		Enabled: true,
 		Servers: []singbox.DNSServer{{Tag: "doh", Type: singbox.DNSTypeHTTPS, Server: "1.1.1.1"}},
 	}
-	fallback := clashDNSOf(onlyDoH, "proxy", clashTestTags())
+	fallback := clashDNSOf(onlyDoH, "proxy", clashTestTags(), false)
 	if len(fallback.DefaultNameser) == 0 {
 		t.Error("无明文服务器时 default-nameserver 应给出兜底值")
 	}
 
 	// 未启用返回 nil
-	if clashDNSOf(nil, "proxy", clashTestTags()) != nil || clashDNSOf(&singbox.DNSConfig{Enabled: false}, "proxy", clashTestTags()) != nil {
+	if clashDNSOf(nil, "proxy", clashTestTags(), false) != nil || clashDNSOf(&singbox.DNSConfig{Enabled: false}, "proxy", clashTestTags(), false) != nil {
 		t.Error("未启用时应返回 nil")
 	}
 }
@@ -609,5 +612,163 @@ func TestClashDNSServerIPv6(t *testing.T) {
 				t.Errorf("clashDNSServer(%+v) = %q, want %q", tt.srv, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestRenderClashIPv6Support 校验 mihomo 顶层 ipv6、dns.ipv6、fake-ip-range6、ip-version 与 IP-CIDR6。
+func TestRenderClashIPv6Support(t *testing.T) {
+	baseSpec := nodeSpec(t, "n1", singbox.ProtoTrojan, 20001)
+	v6Spec := baseSpec
+	v6Spec.Tag = "n1-ipv6"
+	v6Spec.Server = "v6.example.com"
+	v6Spec.IPv6 = true
+	v6Spec.VariantOf = "n1"
+
+	rules := []singbox.RuleEntry{
+		{MatchType: singbox.MatchIP, MatchMethod: singbox.MethodCIDR, Value: "10.0.0.0/8,2001:db8::/32", Outbound: "direct"},
+	}
+
+	// 1. 双栈 IPv6 优先策略 + 附加 IPv6 域名节点
+	dnsPreferV6 := singbox.DNSPresets[3].Config
+	dnsPreferV6.Enabled = true
+	d, err := Assemble("example.com", []NodeSpec{baseSpec, v6Spec}, nil, rules, "", &dnsPreferV6)
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	raw, err := RenderClash(d)
+	if err != nil {
+		t.Fatalf("渲染 clash 失败: %v", err)
+	}
+	doc := parseClash(t, raw)
+	if !doc.IPv6 {
+		t.Error("顶层应输出 ipv6: true")
+	}
+	if !doc.DNS.IPv6 || doc.DNS.FakeIPRange6 != "fc00::/18" {
+		t.Errorf("dns 应输出 ipv6: true 与 fake-ip-range6: %+v", doc.DNS)
+	}
+	pMain := findProxy(t, doc, "n1")
+	if pMain["ip-version"] != "ipv6-prefer" {
+		t.Errorf("prefer_ipv6 下域名主节点 ip-version = %v, want ipv6-prefer", pMain["ip-version"])
+	}
+	pV6 := findProxy(t, doc, "n1-ipv6")
+	if pV6["ip-version"] != "ipv6" || pV6["server"] != "v6.example.com" {
+		t.Errorf("IPv6 附加节点应输出 ip-version: ipv6: %v", pV6)
+	}
+	joined := strings.Join(doc.Rules, "\n")
+	if !strings.Contains(joined, "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve") {
+		t.Errorf("IPv4 CIDR 应为 IP-CIDR:\n%s", joined)
+	}
+	if !strings.Contains(joined, "IP-CIDR6,2001:db8::/32,DIRECT,no-resolve") {
+		t.Errorf("IPv6 CIDR 应为 IP-CIDR6:\n%s", joined)
+	}
+
+	// 2. ipv4_only 且无 IPv6 节点时：顶层与 dns.ipv6 为 false，域名节点 ip-version 为 ipv4
+	dnsV4Only := singbox.DNSConfig{
+		Enabled:  true,
+		Strategy: singbox.StrategyIPv4Only,
+		Servers:  []singbox.DNSServer{{Tag: "ali", Type: singbox.DNSTypeUDP, Server: "223.5.5.5"}},
+	}
+	dV4, err := Assemble("example.com", []NodeSpec{baseSpec}, nil, nil, "", &dnsV4Only)
+	if err != nil {
+		t.Fatalf("ipv4_only 组装失败: %v", err)
+	}
+	rawV4, err := RenderClash(dV4)
+	if err != nil {
+		t.Fatalf("ipv4_only 渲染失败: %v", err)
+	}
+	docV4 := parseClash(t, rawV4)
+	if docV4.IPv6 || docV4.DNS.IPv6 {
+		t.Errorf("ipv4_only 无 IPv6 节点时 ipv6 应为 false: top=%v dns=%v", docV4.IPv6, docV4.DNS.IPv6)
+	}
+	if p := findProxy(t, docV4, "n1"); p["ip-version"] != "ipv4" {
+		t.Errorf("ipv4_only 域名节点 ip-version = %v, want ipv4", p["ip-version"])
+	}
+
+	// 3. 即使策略是 ipv4_only，存在 IPv6 域名节点时仍须开启顶层 ipv6 与 dns.ipv6 以支持 AAAA 解析
+	dMixed, err := Assemble("example.com", []NodeSpec{baseSpec, v6Spec}, nil, nil, "", &dnsV4Only)
+	if err != nil {
+		t.Fatalf("混合节点组装失败: %v", err)
+	}
+	rawMixed, err := RenderClash(dMixed)
+	if err != nil {
+		t.Fatalf("混合节点渲染失败: %v", err)
+	}
+	docMixed := parseClash(t, rawMixed)
+	if !docMixed.IPv6 || !docMixed.DNS.IPv6 {
+		t.Errorf("存在 IPv6 域名节点时应强制开启 ipv6 与 dns.ipv6: top=%v dns=%v", docMixed.IPv6, docMixed.DNS.IPv6)
+	}
+}
+
+// TestRenderClashFormatAndOrder 校验 clash/mihomo YAML 顶层顺序（dns 在顶部）与标准 2 空格序列缩进。
+func TestRenderClashFormatAndOrder(t *testing.T) {
+	vmessCfg, _ := json.Marshal(&singbox.VMessConfig{
+		WSPath: "/ws",
+		TLS:    singbox.TLSConfig{Enabled: true, ServerName: "vmess.example.com", ALPN: []string{"h2", "http/1.1"}},
+	})
+	vmessCred, _ := json.Marshal(singbox.Credential{UUID: "22222222-2222-2222-2222-222222222222"})
+	specs := []NodeSpec{
+		nodeSpec(t, "n-vless", singbox.ProtoVLESS, 20001),
+		nodeSpec(t, "n-hy2", singbox.ProtoHysteria2, 20002),
+		{Tag: "n-vmess", Protocol: singbox.ProtoVMess, Port: 20003, Config: string(vmessCfg), CredJSON: string(vmessCred)},
+	}
+	adSrc := &singbox.RuleSetSource{
+		Tag: singbox.AntiADTag, URL: singbox.AntiADBuiltinURL,
+		MihomoURL: singbox.AntiADMihomoURL, MihomoBehavior: "domain",
+	}
+	groups := []singbox.GroupEntry{
+		{Name: "proxy", Mode: singbox.GroupModeAuto, Members: []string{"n-vless", "n-hy2", "n-vmess"}},
+	}
+	rules := []singbox.RuleEntry{
+		{MatchType: singbox.MatchRuleSet, RuleSet: adSrc, Outbound: singbox.OutboundBlock},
+		{MatchType: singbox.MatchDomain, MatchMethod: singbox.MethodSuffix, Value: "cn", Outbound: "direct"},
+	}
+	d, err := Assemble("example.com", specs, groups, rules, "proxy", singbox.DefaultDNSConfig())
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	raw, err := RenderClash(d)
+	if err != nil {
+		t.Fatalf("渲染 clash 失败: %v", err)
+	}
+	text := string(raw)
+
+	// 顶层键顺序：ipv6 < dns < proxies < proxy-groups < rule-providers < rules
+	keys := []string{"\nipv6:", "\ndns:", "\nproxies:", "\nproxy-groups:", "\nrule-providers:", "\nrules:"}
+	padded := "\n" + text
+	prev := -1
+	for _, k := range keys {
+		idx := strings.Index(padded, k)
+		if idx < 0 {
+			t.Fatalf("缺少顶层键 %q:\n%s", strings.TrimSpace(k), text)
+		}
+		if idx <= prev {
+			t.Errorf("顶层键顺序错误，%q(%d) 应在上一键(%d) 之后:\n%s", strings.TrimSpace(k), idx, prev, text)
+		}
+		prev = idx
+	}
+
+	// 标准 2 空格序列缩进：无顶格 "- "，且关键序列均以 "  - " 缩进
+	if strings.Contains(padded, "\n- ") {
+		t.Errorf("不应出现未缩进的顶格序列项:\n%s", text)
+	}
+	for _, want := range []string{
+		"dns:\n  enable: true",
+		"  fake-ip-filter:\n    - \"*.lan\"",
+		"  nameserver-policy:\n    +.cn:\n      - 223.5.5.5",
+		"proxies:\n  - name: n-vless",
+		"    alpn:\n      - h3",
+		"proxy-groups:\n  - name: proxy",
+		"    proxies:\n      - n-vless",
+		"rules:\n  - RULE-SET,anti-ad,REJECT",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("缺少标准缩进片段 %q:\n%s", want, text)
+		}
+	}
+
+	// 仍可被 YAML 与 AST 解析
+	_ = parseClash(t, raw)
+	if _, err := parser.ParseBytes(raw, 0); err != nil {
+		t.Fatalf("AST 解析失败: %v\n%s", err, text)
 	}
 }

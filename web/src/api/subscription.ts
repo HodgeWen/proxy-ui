@@ -103,3 +103,19 @@ export function previewSubscription(
 ): Promise<SubscriptionPreview> {
   return request(`/api/subscription/tokens/${id}/preview?format=${format}`, { silent: true })
 }
+
+/** 订阅全局设置：附加 IPv6 入口与本机探测公网 IPv6 列表 */
+export interface SubscriptionSettings {
+  serverIpv6: string
+  detectedIpv6s: string[]
+}
+
+/** 查询订阅 IPv6 入口设置与本机公网 IPv6 探测结果 */
+export function getSubscriptionSettings(): Promise<SubscriptionSettings> {
+  return request('/api/subscription/settings')
+}
+
+/** 保存订阅 IPv6 入口（空串表示关闭；只影响订阅导出，不重建内核） */
+export function saveSubscriptionSettings(serverIpv6: string): Promise<SubscriptionSettings> {
+  return request('/api/subscription/settings', { method: 'PUT', body: { serverIpv6 } })
+}

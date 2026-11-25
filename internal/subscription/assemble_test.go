@@ -1067,3 +1067,78 @@ func TestAssembleNoCustomOutboundMembers(t *testing.T) {
 		t.Errorf("指向客户端不存在出站的兜底应回落到代理组, got %q", d.Final)
 	}
 }
+
+// TestAssembleAndRenderIPv6Variants IPv6 附加节点在策略组自动纳入、域名强制 ipv6_only 解析、
+// 裸 IPv6 节点 SNI 回落主域名，且整体通过 sing-box 内核 CheckConfig 校验。
+func TestAssembleAndRenderIPv6Variants(t *testing.T) {
+	tlsRaw, _ := json.Marshal(&singbox.TrojanConfig{
+		TLS: singbox.TLSConfig{Enabled: true, CertMode: singbox.CertModeManaged, CertID: 1},
+	})
+	credRaw, _ := json.Marshal(singbox.Credential{Password: "secret"})
+
+	// 1. 裸 IPv6 附加节点：TLS 未填 server_name 时 SNI 回落主域名 example.com；显式引用 n1 的策略组自动带上 n1-ipv6
+	specsLiteral := []NodeSpec{
+		{Tag: "n1", Protocol: singbox.ProtoTrojan, Port: 20001, Config: string(tlsRaw), CredJSON: string(credRaw)},
+		{Tag: "n1-ipv6", Server: "2001:db8::1", IPv6: true, VariantOf: "n1", Protocol: singbox.ProtoTrojan, Port: 20001, Config: string(tlsRaw), CredJSON: string(credRaw)},
+	}
+	groups := []singbox.GroupEntry{
+		{Name: "proxy", Mode: singbox.GroupModeAuto, Members: []string{"n1"}},
+	}
+	d, err := Assemble("example.com", specsLiteral, groups, nil, "proxy", singbox.DefaultDNSConfig())
+	if err != nil {
+		t.Fatalf("组装失败: %v", err)
+	}
+	if got := d.Groups[0].Members; len(got) != 2 || got[0] != "n1" || got[1] != "n1-ipv6" {
+		t.Fatalf("显式引用主节点的策略组应自动带上 -ipv6 节点: %v", got)
+	}
+	cfg, err := RenderSingBox(d)
+	if err != nil {
+		t.Fatalf("渲染 sing-box 失败: %v", err)
+	}
+	obLiteral := findOutbound(t, cfg, "n1-ipv6")
+	if obLiteral["server"] != "2001:db8::1" {
+		t.Errorf("IPv6 节点 server = %v, want 2001:db8::1", obLiteral["server"])
+	}
+	if _, hasDR := obLiteral["domain_resolver"]; hasDR {
+		t.Errorf("裸 IPv6 地址节点不应写 domain_resolver: %v", obLiteral)
+	}
+	if tls, _ := obLiteral["tls"].(map[string]any); tls["server_name"] != "example.com" {
+		t.Errorf("裸 IPv6 节点 SNI 应回落到主域名 example.com, got %v", tls["server_name"])
+	}
+	if err := singbox.New(t.TempDir()).CheckConfig(cfg); err != nil {
+		t.Fatalf("裸 IPv6 节点配置应通过内核 CheckConfig 校验: %v", err)
+	}
+
+	// 2. 纯 AAAA 域名附加节点：即使全局 DNS 策略仍为 prefer_ipv4，也写入 domain_resolver strategy=ipv6_only
+	specsDomain := []NodeSpec{
+		nodeSpec(t, "v1", singbox.ProtoVLESS, 20002),
+		func() NodeSpec {
+			sp := nodeSpec(t, "v1-ipv6", singbox.ProtoVLESS, 20002)
+			sp.Server = "v6.example.com"
+			sp.IPv6 = true
+			sp.VariantOf = "v1"
+			return sp
+		}(),
+	}
+	d2, err := Assemble("example.com", specsDomain, []singbox.GroupEntry{
+		{Name: "proxy", Mode: singbox.GroupModeAuto, Members: []string{"v1"}},
+	}, nil, "proxy", singbox.DefaultDNSConfig())
+	if err != nil {
+		t.Fatalf("域名 IPv6 组装失败: %v", err)
+	}
+	cfg2, err := RenderSingBox(d2)
+	if err != nil {
+		t.Fatalf("域名 IPv6 渲染失败: %v", err)
+	}
+	obDomain := findOutbound(t, cfg2, "v1-ipv6")
+	if obDomain["server"] != "v6.example.com" {
+		t.Errorf("域名 IPv6 节点 server = %v, want v6.example.com", obDomain["server"])
+	}
+	dr, _ := obDomain["domain_resolver"].(map[string]any)
+	if dr == nil || dr["server"] != "ali" || dr["strategy"] != singbox.StrategyIPv6Only {
+		t.Errorf("域名 IPv6 节点应输出 domain_resolver(ipv6_only): %v", obDomain["domain_resolver"])
+	}
+	if err := singbox.New(t.TempDir()).CheckConfig(cfg2); err != nil {
+		t.Fatalf("域名 IPv6 节点配置应通过内核 CheckConfig 校验: %v", err)
+	}
+}

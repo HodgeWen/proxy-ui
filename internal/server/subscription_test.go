@@ -565,3 +565,101 @@ func TestSubscriptionSelfSignedCert(t *testing.T) {
 		t.Errorf("自签证书 clash 节点应自动带 skip-cert-verify: true:\n%s", clashBody)
 	}
 }
+
+// TestSubscriptionIPv6Settings 订阅 IPv6 入口设置、校验拒绝、双格式下发与预览、清空恢复。
+func TestSubscriptionIPv6Settings(t *testing.T) {
+	srv, _ := newTestServer(t)
+	client := setupAdmin(t, srv.URL)
+
+	// 查询默认设置
+	code, env := doJSON(t, client, http.MethodGet, srv.URL+"/api/subscription/settings", nil)
+	if code != http.StatusOK {
+		t.Fatalf("查询订阅设置失败: code=%d msg=%s", code, env.Msg)
+	}
+	var initSettings struct {
+		ServerIPv6    string   `json:"serverIpv6"`
+		DetectedIPv6s []string `json:"detectedIpv6s"`
+	}
+	decodeData(t, env, &initSettings)
+	if initSettings.ServerIPv6 != "" {
+		t.Errorf("默认 serverIpv6 应为空, got %q", initSettings.ServerIPv6)
+	}
+	if initSettings.DetectedIPv6s == nil {
+		t.Error("detectedIpv6s 应序列化为数组而非 null")
+	}
+
+	// 非法输入被 400 拒绝
+	for _, bad := range []string{"1.2.3.4", "[2001:db8::1]:443", "v6.example.com:8443"} {
+		if code, _ := doJSON(t, client, http.MethodPut, srv.URL+"/api/subscription/settings", map[string]string{"serverIpv6": bad}); code != http.StatusBadRequest {
+			t.Errorf("非法 serverIpv6 %q 应返回 400, got %d", bad, code)
+		}
+	}
+
+	// 保存规范化的 IPv6 入口
+	code, env = doJSON(t, client, http.MethodPut, srv.URL+"/api/subscription/settings", map[string]string{"serverIpv6": "[2001:0db8::1]"})
+	if code != http.StatusOK {
+		t.Fatalf("保存 serverIpv6 失败: code=%d msg=%s", code, env.Msg)
+	}
+	var saved struct {
+		ServerIPv6 string `json:"serverIpv6"`
+	}
+	decodeData(t, env, &saved)
+	if saved.ServerIPv6 != "2001:db8::1" {
+		t.Errorf("保存后应规范化为 2001:db8::1, got %q", saved.ServerIPv6)
+	}
+
+	// 创建双栈入站 + 仅 IPv4 入站 + 订阅用户
+	inDual := createInbound(t, client, srv.URL, map[string]any{"name": "vless-dual", "protocol": "vless", "listen": "::"})
+	inV4 := createInbound(t, client, srv.URL, map[string]any{"name": "trojan-v4", "protocol": "trojan", "listen": "0.0.0.0"})
+	view := createToken(t, client, srv.URL, map[string]any{
+		"name": "u1", "nodeInbounds": []uint{inDual.ID, inV4.ID},
+	})
+
+	// 拉取 sing-box 订阅：包含 u1-vless-dual 与 u1-vless-dual-ipv6，不包含 u1-trojan-v4-ipv6
+	code, _, sbBody := getSub(t, srv.URL+"/sub/"+view.Token+"?format=singbox", "SFM")
+	if code != http.StatusOK {
+		t.Fatalf("sing-box 订阅失败: code=%d body=%s", code, sbBody)
+	}
+	obs := subOutbounds(t, sbBody)
+	if obs["u1-vless-dual"] == nil || obs["u1-vless-dual-ipv6"] == nil {
+		t.Fatalf("双栈入站应同时生成主节点与 -ipv6 节点: %v", obs)
+	}
+	if obs["u1-vless-dual-ipv6"]["server"] != "2001:db8::1" {
+		t.Errorf("IPv6 节点 server = %v, want 2001:db8::1", obs["u1-vless-dual-ipv6"]["server"])
+	}
+	if obs["u1-trojan-v4-ipv6"] != nil {
+		t.Errorf("仅 IPv4 入站不应生成 -ipv6 节点: %v", obs["u1-trojan-v4-ipv6"])
+	}
+
+	// 拉取 clash 订阅 & 面板内预览：包含 ipv6: true、ip-version: ipv6 与 -ipv6 节点
+	code, _, clashBody := getSub(t, srv.URL+"/sub/"+view.Token+"?format=clash", "clash-verge-rev")
+	if code != http.StatusOK {
+		t.Fatalf("clash 订阅失败: code=%d body=%s", code, clashBody)
+	}
+	for _, want := range []string{"ipv6: true", "u1-vless-dual-ipv6", "ip-version: ipv6"} {
+		if !strings.Contains(clashBody, want) {
+			t.Errorf("clash 订阅缺少 %q:\n%s", want, clashBody)
+		}
+	}
+
+	code, env = doJSON(t, client, http.MethodGet, srv.URL+"/api/subscription/tokens/"+itoa(view.ID)+"/preview?format=mihomo", nil)
+	if code != http.StatusOK {
+		t.Fatalf("预览接口失败: code=%d msg=%s", code, env.Msg)
+	}
+	var preview struct {
+		Content string `json:"content"`
+	}
+	decodeData(t, env, &preview)
+	if !strings.Contains(preview.Content, "u1-vless-dual-ipv6") {
+		t.Errorf("预览内容应包含 -ipv6 节点:\n%s", preview.Content)
+	}
+
+	// 清空 serverIpv6 → 恢复仅下发单节点
+	if code, env := doJSON(t, client, http.MethodPut, srv.URL+"/api/subscription/settings", map[string]string{"serverIpv6": ""}); code != http.StatusOK {
+		t.Fatalf("清空 serverIpv6 失败: code=%d msg=%s", code, env.Msg)
+	}
+	_, _, sbBodyAfter := getSub(t, srv.URL+"/sub/"+view.Token+"?format=singbox", "SFM")
+	if obsAfter := subOutbounds(t, sbBodyAfter); obsAfter["u1-vless-dual-ipv6"] != nil {
+		t.Errorf("清空 serverIpv6 后不应再下发 -ipv6 节点: %v", obsAfter)
+	}
+}

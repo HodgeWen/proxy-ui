@@ -21,6 +21,7 @@ import { onMounted, shallowRef } from 'vue'
 
 import EmptyState from '../components/EmptyState.vue'
 import SubscriptionEditorDialog from '../components/SubscriptionEditorDialog.vue'
+import SubscriptionIPv6Card from '../components/SubscriptionIPv6Card.vue'
 import SubscriptionLinksDialog from '../components/SubscriptionLinksDialog.vue'
 import SubscriptionPreviewDialog from '../components/SubscriptionPreviewDialog.vue'
 import {
@@ -202,6 +203,8 @@ onMounted(refresh)
 </script>
 
 <template>
+  <SubscriptionIPv6Card />
+
   <u-card>
     <u-card-header>
       <div class="page-header">

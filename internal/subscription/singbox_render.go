@@ -28,7 +28,7 @@ func RenderSingBox(d Data) (singbox.Config, error) {
 		},
 	}
 	for _, n := range d.Nodes {
-		ob, err := nodeOutboundJSON(n, d.Server)
+		ob, err := nodeOutboundJSON(n, d.Server, directResolver)
 		if err != nil {
 			return singbox.Config{}, err
 		}
@@ -151,8 +151,16 @@ func singboxClientDNS(d *singbox.DNSConfig, proxyGroup string, clientTags map[st
 }
 
 // nodeOutboundJSON 把订阅节点映射为 sing-box 客户端出站 JSON 对象。
-func nodeOutboundJSON(n Node, server string) (map[string]any, error) {
+func nodeOutboundJSON(n Node, defaultServer, directResolver string) (map[string]any, error) {
+	server := nodeServer(n, defaultServer)
+	sni := fallbackSNI(server, defaultServer)
 	ob := map[string]any{"tag": n.Tag, "server": server, "server_port": n.Port}
+	if n.IPv6 && directResolver != "" && isDomain(server) {
+		ob["domain_resolver"] = map[string]any{
+			"server":   directResolver,
+			"strategy": singbox.StrategyIPv6Only,
+		}
+	}
 	switch c := n.Config.(type) {
 	case *singbox.VLESSConfig:
 		ob["type"] = singbox.ProtoVLESS
@@ -176,7 +184,7 @@ func nodeOutboundJSON(n Node, server string) (map[string]any, error) {
 				},
 			}
 		} else {
-			if tls := clientTLS(c.TLS, server, false, n.Insecure); tls != nil {
+			if tls := clientTLS(c.TLS, sni, false, n.Insecure); tls != nil {
 				ob["tls"] = tls
 			}
 		}
@@ -196,7 +204,7 @@ func nodeOutboundJSON(n Node, server string) (map[string]any, error) {
 		if c.BBRProfile != "" && c.BBRProfile != singbox.BBRProfileStandard {
 			ob["bbr_profile"] = c.BBRProfile
 		}
-		ob["tls"] = clientTLS(c.TLS, server, true, n.Insecure)
+		ob["tls"] = clientTLS(c.TLS, sni, true, n.Insecure)
 	case *singbox.TUICConfig:
 		ob["type"] = singbox.ProtoTUIC
 		ob["uuid"] = n.Cred.UUID
@@ -204,7 +212,7 @@ func nodeOutboundJSON(n Node, server string) (map[string]any, error) {
 		if c.CongestionControl != "" {
 			ob["congestion_control"] = c.CongestionControl
 		}
-		tls := clientTLS(c.TLS, server, true, n.Insecure)
+		tls := clientTLS(c.TLS, sni, true, n.Insecure)
 		if _, ok := tls["alpn"]; !ok {
 			tls["alpn"] = []string{"h3"}
 		}
@@ -212,11 +220,11 @@ func nodeOutboundJSON(n Node, server string) (map[string]any, error) {
 	case *singbox.AnyTLSConfig:
 		ob["type"] = singbox.ProtoAnyTLS
 		ob["password"] = n.Cred.Password
-		ob["tls"] = clientTLS(c.TLS, server, true, n.Insecure)
+		ob["tls"] = clientTLS(c.TLS, sni, true, n.Insecure)
 	case *singbox.TrojanConfig:
 		ob["type"] = singbox.ProtoTrojan
 		ob["password"] = n.Cred.Password
-		if tls := clientTLS(c.TLS, server, false, n.Insecure); tls != nil {
+		if tls := clientTLS(c.TLS, sni, false, n.Insecure); tls != nil {
 			ob["tls"] = tls
 		}
 	case *singbox.VMessConfig:
@@ -227,7 +235,7 @@ func nodeOutboundJSON(n Node, server string) (map[string]any, error) {
 			path = "/"
 		}
 		ob["transport"] = map[string]any{"type": "ws", "path": path}
-		if tls := clientTLS(c.TLS, server, false, n.Insecure); tls != nil {
+		if tls := clientTLS(c.TLS, sni, false, n.Insecure); tls != nil {
 			ob["tls"] = tls
 		}
 	case *singbox.ShadowsocksConfig:

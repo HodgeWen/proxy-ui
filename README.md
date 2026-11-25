@@ -43,6 +43,7 @@ sudo ./scripts/install.sh uninstall                         # 卸载（默认保
 ```nginx
 server {
     listen 443 ssl;
+    listen [::]:443 ssl;
     server_name panel.example.com;
 
     ssl_certificate     /etc/letsencrypt/live/panel.example.com/fullchain.pem;
@@ -80,6 +81,8 @@ panel.example.com {
 2. 「订阅」页新建订阅用户，勾选要下发的入站 —— 面板会在该入站内为此人创建一个独立身份（用户名 `订阅备注-入站名`），各用户共享入站端口但凭据互不相同
 3. 点该用户的「查看订阅」拿链接或扫码；客户端按 User-Agent 自动适配格式：sing-box 客户端拿到 sing-box 配置，clash/mihomo 客户端拿到 clash(mihomo) 配置；也可用 `?format=sing-box|clash` 显式指定。行内「预览」可在 sing-box / mihomo 之间切换查看该用户将拿到的真实配置（忽略配额与到期，只要有启用中的节点）
 4. 任何改动保存后立即生效：面板启动时内核即自动运行，之后每次保存入站 / 用户 / 出站 / 规则 / DNS / 证书都会按新配置重建内核；新配置起不来时会自动回到上一份可用配置，并在保存处给出失败原因（数据已保存，修正后再保存即可）
+
+若服务器具备公网 IPv6 且希望缓解 IPv4 晚高峰拥堵，可在「订阅用户」页顶配置 **IPv6 节点入口**（填服务器公网 IPv6 或纯 AAAA 域名，可一键填入探测到的本机公网 IPv6）：启用后订阅会为监听 `::` 的双栈入站自动额外下发 `-ipv6` 节点并纳入策略组，搭配「设置 → DNS」的「双栈 IPv6 优先」预设即可在 sing-box / mihomo 客户端自动优选或切换 IPv6。
 
 入站下也可以手动建用户（不绑定订阅、无订阅链接），适合临时给某人单独凭据。
 

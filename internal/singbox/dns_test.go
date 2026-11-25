@@ -217,10 +217,19 @@ func TestDNSPresets(t *testing.T) {
 			t.Errorf("预设 %s 缺少 DNS 服务器", p.ID)
 		}
 	}
-	for _, want := range []string{DNSPresetDirect, DNSPresetAntiPoll, DNSPresetRemoteDoH} {
+	for _, want := range []string{DNSPresetDirect, DNSPresetAntiPoll, DNSPresetRemoteDoH, DNSPresetDualStackIPv6} {
 		if !ids[want] {
 			t.Errorf("缺少内置预设 %s", want)
 		}
+	}
+	v6Preset := DNSPresets[len(DNSPresets)-1]
+	if v6Preset.ID != DNSPresetDualStackIPv6 || v6Preset.Config.Strategy != StrategyPreferIPv6 {
+		t.Errorf("双栈 IPv6 优先预设应位于末尾且策略为 prefer_ipv6: %+v", v6Preset)
+	}
+	v6Cfg := v6Preset.Config
+	v6Cfg.Enabled = true
+	if rendered := v6Cfg.JSON(); rendered == nil || rendered["strategy"] != StrategyPreferIPv6 {
+		t.Errorf("双栈 IPv6 优先预设 JSON 渲染不符: %v", rendered)
 	}
 }
 

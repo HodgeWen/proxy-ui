@@ -610,3 +610,115 @@ func TestSelfSignedCertAutoInsecure(t *testing.T) {
 		t.Errorf("clash CA 证书节点不应带 skip-cert-verify: %v", p)
 	}
 }
+
+// TestNormalizeIPv6Host IPv6 入口规范化：支持纯 IPv6（含方括号）/ 纯 AAAA 域名 / 空串，拒绝 IPv4 与带端口。
+func TestNormalizeIPv6Host(t *testing.T) {
+	valid := map[string]string{
+		"":                   "",
+		"  ":                 "",
+		"2001:0db8::1":       "2001:db8::1",
+		"[2001:0db8::1]":     "2001:db8::1",
+		"V6.Example.COM":     "v6.example.com",
+		"ipv6-only.test.org": "ipv6-only.test.org",
+	}
+	for in, want := range valid {
+		got, err := NormalizeIPv6Host(in)
+		if err != nil {
+			t.Errorf("NormalizeIPv6Host(%q) unexpected err: %v", in, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("NormalizeIPv6Host(%q) = %q, want %q", in, got, want)
+		}
+	}
+
+	invalid := []string{
+		"1.2.3.4",
+		"::ffff:192.0.2.1",
+		"[2001:db8::1]:443",
+		"[2001:db8::1",
+		"v6.example.com:443",
+		"https://v6.example.com",
+		"v6.example.com/path",
+		"2001:db8::1/64",
+		"fe80::1%eth0",
+		"bad host",
+		"-bad.example.com",
+		"bad..example.com",
+	}
+	for _, in := range invalid {
+		if got, err := NormalizeIPv6Host(in); err == nil {
+			t.Errorf("NormalizeIPv6Host(%q) 应报错, got %q", in, got)
+		}
+	}
+}
+
+// TestFetchDualStackIPv6Nodes 配置 server_ipv6 后为双栈(::)入站生成 -ipv6 节点，跳过 0.0.0.0 与 127.0.0.1，
+// 且当请求 Host 已是同一个 IPv6 入口时不重复生成。
+func TestFetchDualStackIPv6Nodes(t *testing.T) {
+	s, database := newTestService(t)
+	cfg, _ := singbox.NewTemplateConfig(singbox.ProtoVLESS)
+	rawCfg, _ := json.Marshal(cfg)
+	cred, _ := singbox.NewCredential(singbox.ProtoVLESS)
+	rawCred, _ := json.Marshal(cred)
+
+	inDual := db.Inbound{Name: "vless-dual", Protocol: singbox.ProtoVLESS, Listen: singbox.ListenAll, ListenPort: 12601, Enabled: true, Config: string(rawCfg)}
+	inV4 := db.Inbound{Name: "vless-v4", Protocol: singbox.ProtoVLESS, Listen: singbox.ListenIPv4, ListenPort: 12602, Enabled: true, Config: string(rawCfg)}
+	inLocal := db.Inbound{Name: "vless-local", Protocol: singbox.ProtoVLESS, Listen: singbox.ListenLoopback, ListenPort: 12603, Enabled: true, Config: string(rawCfg)}
+	for _, in := range []*db.Inbound{&inDual, &inV4, &inLocal} {
+		if err := database.Create(in).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tok := db.SubscriptionToken{Token: "dual-tok", Name: "alice"}
+	if err := database.Create(&tok).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []struct {
+		inID uint
+		name string
+	}{
+		{inDual.ID, "alice-dual"},
+		{inV4.ID, "alice-v4"},
+		{inLocal.ID, "alice-local"},
+	} {
+		u := db.InboundUser{InboundID: item.inID, Name: item.name, Credential: string(rawCred), Enabled: true}
+		if err := database.Create(&u).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := database.Create(&db.SubscriptionNode{TokenID: tok.ID, InboundID: item.inID, InboundUserID: u.ID}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := database.Save(&db.Setting{Key: db.SettingServerIPv6, Value: "2001:db8::1"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := s.Fetch("dual-tok", "example.com:8443")
+	if err != nil {
+		t.Fatalf("Fetch 失败: %v", err)
+	}
+	if len(data.Nodes) != 4 {
+		t.Fatalf("应生成 3 个主节点 + 1 个双栈 -ipv6 节点 = 4 个, got %d: %+v", len(data.Nodes), data.Nodes)
+	}
+	if data.Nodes[0].Tag != "alice-dual" || data.Nodes[1].Tag != "alice-dual-ipv6" {
+		t.Fatalf("双栈 -ipv6 节点应紧随主节点之后: %+v", data.Nodes)
+	}
+	if !data.Nodes[1].IPv6 || data.Nodes[1].Server != "2001:db8::1" {
+		t.Errorf("IPv6 节点属性不符: %+v", data.Nodes[1])
+	}
+	if data.Nodes[2].Tag != "alice-v4" || data.Nodes[3].Tag != "alice-local" {
+		t.Errorf("仅 IPv4 与本机反代入站不应生成 -ipv6 节点: %+v", data.Nodes)
+	}
+
+	// 请求 Host 与 server_ipv6 指向同一 IPv6 地址（含未压缩形式与端口）时，不重复生成
+	sameData, err := s.Fetch("dual-tok", "[2001:0db8::1]:8443")
+	if err != nil {
+		t.Fatalf("同 IPv6 Host Fetch 失败: %v", err)
+	}
+	if len(sameData.Nodes) != 3 {
+		t.Errorf("请求 Host 与 server_ipv6 相同时不应重复追加 -ipv6 节点, got %d", len(sameData.Nodes))
+	}
+}

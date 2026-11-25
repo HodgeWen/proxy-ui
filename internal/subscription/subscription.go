@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -167,7 +168,9 @@ func (s *Service) Preview(id uint, requestHost string, format Format) ([]byte, e
 
 // assemble 组装订阅数据（节点、策略组、规则与 DNS），匿名下发与预览共用。
 func (s *Service) assemble(record db.SubscriptionToken, requestHost string) (Data, error) {
-	specs, err := s.nodes(record.ID)
+	primaryHost := hostOnly(requestHost)
+	ipv6Host, _ := NormalizeIPv6Host(getSetting(s.db, db.SettingServerIPv6))
+	specs, err := s.nodes(record.ID, primaryHost, ipv6Host)
 	if err != nil {
 		return Data{}, err
 	}
@@ -202,7 +205,7 @@ func (s *Service) assemble(record db.SubscriptionToken, requestHost string) (Dat
 	if err != nil {
 		return Data{}, err
 	}
-	data, err := Assemble(hostOnly(requestHost), specs, groupEntries, ruleEntries,
+	data, err := Assemble(primaryHost, specs, groupEntries, ruleEntries,
 		getSetting(s.db, db.SettingRouteFinal), dns)
 	if err != nil {
 		return Data{}, err
@@ -242,8 +245,9 @@ func (s *Service) trafficBytes(tokenID uint) (upload, download int64, err error)
 	return row.UploadBytes, row.DownloadBytes, nil
 }
 
-// nodes 组装该用户生效中的节点（入站启用 + 用户启用且未暂停）。
-func (s *Service) nodes(tokenID uint) ([]NodeSpec, error) {
+// nodes 组装该用户生效中的节点（入站启用 + 用户启用且未暂停）；
+// 配置了 ipv6Host 且与主入口不同时，为双栈监听（:: 或空）的入站紧后追加 -ipv6 节点。
+func (s *Service) nodes(tokenID uint, primaryHost, ipv6Host string) ([]NodeSpec, error) {
 	var bindings []db.SubscriptionNode
 	if err := s.db.Where("token_id = ?", tokenID).Order("inbound_id, id").Find(&bindings).Error; err != nil {
 		return nil, err
@@ -281,7 +285,11 @@ func (s *Service) nodes(tokenID uint) ([]NodeSpec, error) {
 		certMeta[c.ID] = c
 	}
 	selfSignedCache := make(map[string]bool)
-	specs := make([]NodeSpec, 0, len(bindings))
+	type baseNode struct {
+		spec      NodeSpec
+		dualStack bool
+	}
+	baseNodes := make([]baseNode, 0, len(bindings))
 	for _, b := range bindings {
 		in, ok := inMeta[b.InboundID]
 		if !ok {
@@ -294,11 +302,43 @@ func (s *Service) nodes(tokenID uint) ([]NodeSpec, error) {
 		if !user.Enabled || user.Suspended {
 			continue
 		}
-		specs = append(specs, NodeSpec{
+		sp := NodeSpec{
 			Tag: user.Name, Protocol: in.Protocol, Port: in.ListenPort,
 			Config: in.Config, CredJSON: user.Credential,
 			Insecure: s.inboundInsecure(in.Protocol, in.Config, certMeta, selfSignedCache),
-		})
+		}
+		dualStack := in.Listen == "" || in.Listen == singbox.ListenAll
+		baseNodes = append(baseNodes, baseNode{spec: sp, dualStack: dualStack})
+	}
+	appendV6 := ipv6Host != "" && !sameServerHost(primaryHost, ipv6Host)
+	if !appendV6 {
+		specs := make([]NodeSpec, 0, len(baseNodes))
+		for _, b := range baseNodes {
+			specs = append(specs, b.spec)
+		}
+		return specs, nil
+	}
+	usedTags := make(map[string]bool, len(baseNodes)*2)
+	for _, b := range baseNodes {
+		usedTags[b.spec.Tag] = true
+	}
+	specs := make([]NodeSpec, 0, len(baseNodes)*2)
+	for _, b := range baseNodes {
+		specs = append(specs, b.spec)
+		if !b.dualStack {
+			continue
+		}
+		tag := b.spec.Tag + "-ipv6"
+		for usedTags[tag] {
+			tag += "-2"
+		}
+		usedTags[tag] = true
+		v6 := b.spec
+		v6.Tag = tag
+		v6.Server = ipv6Host
+		v6.IPv6 = true
+		v6.VariantOf = b.spec.Tag
+		specs = append(specs, v6)
 	}
 	return specs, nil
 }
@@ -451,6 +491,90 @@ func Render(d Data, format Format) ([]byte, error) {
 		}
 		return marshalJSON(cfg)
 	}
+}
+
+// NormalizeIPv6Host 校验并规范化订阅附加 IPv6 入口地址（纯 IPv6 字面量或纯 AAAA 域名，空串表示关闭）。
+func NormalizeIPv6Host(raw string) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(v, " \t\r\n") || strings.Contains(v, "://") || strings.Contains(v, "/") {
+		return "", errors.New("IPv6 入口只能填写纯 IPv6 地址或纯域名，不能包含协议头、路径或空白")
+	}
+	if strings.HasPrefix(v, "[") {
+		if !strings.HasSuffix(v, "]") {
+			return "", errors.New("IPv6 入口地址格式不合法（请勿附带端口）")
+		}
+		inner := v[1 : len(v)-1]
+		addr, err := netip.ParseAddr(inner)
+		if err != nil || !addr.Is6() || addr.Is4In6() || addr.Zone() != "" {
+			return "", errors.New("IPv6 入口方括号内须为合法的纯 IPv6 地址")
+		}
+		return addr.String(), nil
+	}
+	if addr, err := netip.ParseAddr(v); err == nil {
+		if !addr.Is6() || addr.Is4In6() {
+			return "", errors.New("IPv6 入口不能填 IPv4 地址，请填公网 IPv6 地址或纯 AAAA 域名")
+		}
+		if addr.Zone() != "" {
+			return "", errors.New("IPv6 入口地址不能包含网卡作用域")
+		}
+		return addr.String(), nil
+	}
+	if strings.Contains(v, ":") {
+		return "", errors.New("IPv6 地址格式不合法，或域名不能携带端口")
+	}
+	if !validDomainHost(v) {
+		return "", errors.New("IPv6 入口域名格式不合法")
+	}
+	return strings.ToLower(v), nil
+}
+
+// validDomainHost 校验域名主机名格式（点分隔合法 DNS 标签）。
+func validDomainHost(host string) bool {
+	if host == "" || len(host) > 253 {
+		return false
+	}
+	labels := strings.Split(host, ".")
+	for _, label := range labels {
+		if len(label) == 0 || len(label) > 63 {
+			return false
+		}
+		for i := 0; i < len(label); i++ {
+			c := label[i]
+			isAlnum := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+			if isAlnum {
+				continue
+			}
+			if c == '-' && i > 0 && i < len(label)-1 {
+				continue
+			}
+			return false
+		}
+	}
+	return true
+}
+
+// sameServerHost 判断两个服务器入口是否等价（IPv6 地址按规范值比较，域名忽略大小写）。
+func sameServerHost(a, b string) bool {
+	a = strings.TrimSpace(strings.Trim(a, "[]"))
+	b = strings.TrimSpace(strings.Trim(b, "[]"))
+	if a == "" || b == "" {
+		return false
+	}
+	if addrA, errA := netip.ParseAddr(a); errA == nil {
+		if addrB, errB := netip.ParseAddr(b); errB == nil {
+			return addrA == addrB
+		}
+	}
+	return strings.EqualFold(a, b)
+}
+
+// isDomain 判断主机串是否为域名（非空且不能解析为 IP 字面量）。
+func isDomain(s string) bool {
+	trimmed := strings.TrimSpace(strings.Trim(s, "[]"))
+	return trimmed != "" && net.ParseIP(trimmed) == nil
 }
 
 // hostOnly 取 Host 头的主机名部分（去端口，IPv6 兼容）。
