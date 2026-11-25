@@ -615,7 +615,8 @@ func TestClashDNSServerIPv6(t *testing.T) {
 	}
 }
 
-// TestRenderClashIPv6Support 校验 mihomo 顶层 ipv6、dns.ipv6、fake-ip-range6、ip-version 与 IP-CIDR6。
+// TestRenderClashIPv6Support 校验 mihomo 顶层 ipv6、dns.ipv6、fake-ip-range6 与 IP-CIDR6，
+// 且节点不输出 ip-version（避免客户端解析拒绝）。
 func TestRenderClashIPv6Support(t *testing.T) {
 	baseSpec := nodeSpec(t, "n1", singbox.ProtoTrojan, 20001)
 	v6Spec := baseSpec
@@ -623,15 +624,20 @@ func TestRenderClashIPv6Support(t *testing.T) {
 	v6Spec.Server = "v6.example.com"
 	v6Spec.IPv6 = true
 	v6Spec.VariantOf = "n1"
+	v6LiteralSpec := baseSpec
+	v6LiteralSpec.Tag = "n1-ipv6-literal"
+	v6LiteralSpec.Server = "2001:db8::1"
+	v6LiteralSpec.IPv6 = true
+	v6LiteralSpec.VariantOf = "n1"
 
 	rules := []singbox.RuleEntry{
 		{MatchType: singbox.MatchIP, MatchMethod: singbox.MethodCIDR, Value: "10.0.0.0/8,2001:db8::/32", Outbound: "direct"},
 	}
 
-	// 1. 双栈 IPv6 优先策略 + 附加 IPv6 域名节点
+	// 1. 双栈 IPv6 优先策略 + 附加 IPv6 域名/裸地址节点
 	dnsPreferV6 := singbox.DNSPresets[3].Config
 	dnsPreferV6.Enabled = true
-	d, err := Assemble("example.com", []NodeSpec{baseSpec, v6Spec}, nil, rules, "", &dnsPreferV6)
+	d, err := Assemble("example.com", []NodeSpec{baseSpec, v6Spec, v6LiteralSpec}, nil, rules, "", &dnsPreferV6)
 	if err != nil {
 		t.Fatalf("组装失败: %v", err)
 	}
@@ -647,12 +653,22 @@ func TestRenderClashIPv6Support(t *testing.T) {
 		t.Errorf("dns 应输出 ipv6: true 与 fake-ip-range6: %+v", doc.DNS)
 	}
 	pMain := findProxy(t, doc, "n1")
-	if pMain["ip-version"] != "ipv6-prefer" {
-		t.Errorf("prefer_ipv6 下域名主节点 ip-version = %v, want ipv6-prefer", pMain["ip-version"])
+	if _, exists := pMain["ip-version"]; exists {
+		t.Errorf("主节点不应输出 ip-version: %v", pMain)
 	}
 	pV6 := findProxy(t, doc, "n1-ipv6")
-	if pV6["ip-version"] != "ipv6" || pV6["server"] != "v6.example.com" {
-		t.Errorf("IPv6 附加节点应输出 ip-version: ipv6: %v", pV6)
+	if pV6["server"] != "v6.example.com" {
+		t.Errorf("IPv6 域名节点 server = %v, want v6.example.com", pV6["server"])
+	}
+	if _, exists := pV6["ip-version"]; exists {
+		t.Errorf("IPv6 域名节点不应输出 ip-version: %v", pV6)
+	}
+	pV6Literal := findProxy(t, doc, "n1-ipv6-literal")
+	if pV6Literal["server"] != "2001:db8::1" {
+		t.Errorf("裸 IPv6 节点 server = %v, want 2001:db8::1", pV6Literal["server"])
+	}
+	if _, exists := pV6Literal["ip-version"]; exists {
+		t.Errorf("裸 IPv6 地址节点不应输出 ip-version: %v", pV6Literal)
 	}
 	joined := strings.Join(doc.Rules, "\n")
 	if !strings.Contains(joined, "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve") {
@@ -662,7 +678,7 @@ func TestRenderClashIPv6Support(t *testing.T) {
 		t.Errorf("IPv6 CIDR 应为 IP-CIDR6:\n%s", joined)
 	}
 
-	// 2. ipv4_only 且无 IPv6 节点时：顶层与 dns.ipv6 为 false，域名节点 ip-version 为 ipv4
+	// 2. ipv4_only 且无 IPv6 节点时：顶层与 dns.ipv6 为 false，且不输出 ip-version
 	dnsV4Only := singbox.DNSConfig{
 		Enabled:  true,
 		Strategy: singbox.StrategyIPv4Only,
@@ -680,8 +696,8 @@ func TestRenderClashIPv6Support(t *testing.T) {
 	if docV4.IPv6 || docV4.DNS.IPv6 {
 		t.Errorf("ipv4_only 无 IPv6 节点时 ipv6 应为 false: top=%v dns=%v", docV4.IPv6, docV4.DNS.IPv6)
 	}
-	if p := findProxy(t, docV4, "n1"); p["ip-version"] != "ipv4" {
-		t.Errorf("ipv4_only 域名节点 ip-version = %v, want ipv4", p["ip-version"])
+	if p := findProxy(t, docV4, "n1"); p["ip-version"] != nil {
+		t.Errorf("ipv4_only 域名节点不应输出 ip-version, got %v", p["ip-version"])
 	}
 
 	// 3. 即使策略是 ipv4_only，存在 IPv6 域名节点时仍须开启顶层 ipv6 与 dns.ipv6 以支持 AAAA 解析

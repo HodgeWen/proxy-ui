@@ -176,9 +176,12 @@ func TestSubscriptionNodeCreation(t *testing.T) {
 		t.Errorf("Content-Disposition 应含订阅名 alice 且不含 config.json: %q", cd)
 	}
 	outbounds := subOutbounds(t, body)
-	node2, ok := outbounds[wantName]
+	node2, ok := outbounds[in.Name]
 	if !ok {
-		t.Fatalf("订阅应包含节点 %s: %v", wantName, outbounds)
+		t.Fatalf("订阅应包含节点 %s: %v", in.Name, outbounds)
+	}
+	if outbounds[wantName] != nil {
+		t.Errorf("订阅节点名不应带订阅用户前缀 %s: %v", wantName, outbounds)
 	}
 	if node2["type"] != "vless" || node2["uuid"] == "" {
 		t.Errorf("订阅节点字段不符: %v", node2)
@@ -320,8 +323,11 @@ func TestSubscriptionSharedInbound(t *testing.T) {
 	if pw, _ := nodeA["password"].(string); !strings.Contains(pw, ":") {
 		t.Errorf("SS-2022 节点密码应为「PSK:用户密钥」，got %q", pw)
 	}
-	if nodeA["tag"] == nodeB["tag"] {
-		t.Errorf("不同订阅用户的节点 tag 不应相同: %v", nodeA["tag"])
+	if alice.Nodes[0].Name == bob.Nodes[0].Name {
+		t.Errorf("不同订阅用户在服务端入站下的用户名不应相同: %q", alice.Nodes[0].Name)
+	}
+	if nodeA["tag"] != in.Name || nodeB["tag"] != in.Name {
+		t.Errorf("不同订阅用户导出的节点 tag 均应为入站名 %q: A=%v B=%v", in.Name, nodeA["tag"], nodeB["tag"])
 	}
 }
 
@@ -523,8 +529,11 @@ func TestSubscriptionWithRuleTemplate(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("拉取 clash 订阅失败: code=%d body=%s", code, body)
 	}
-	if !strings.Contains(body, "tpl-user-vless-tpl") {
-		t.Errorf("订阅应包含节点 tpl-user-vless-tpl:\n%s", body)
+	if !strings.Contains(body, "vless-tpl") {
+		t.Errorf("订阅应包含节点 vless-tpl:\n%s", body)
+	}
+	if strings.Contains(body, "tpl-user-vless-tpl") {
+		t.Errorf("订阅节点名不应带订阅用户前缀 tpl-user-:\n%s", body)
 	}
 	if strings.Contains(body, "proxies:\n  - DIRECT") {
 		t.Errorf("应用模板后 proxy 组不应仅剩 DIRECT:\n%s", body)
@@ -552,7 +561,7 @@ func TestSubscriptionSelfSignedCert(t *testing.T) {
 		t.Fatalf("sing-box 订阅失败: code=%d body=%s", code, sbBody)
 	}
 	obs := subOutbounds(t, sbBody)
-	node := obs["self-user-hy2-self"]
+	node := obs["hy2-self"]
 	if tls, _ := node["tls"].(map[string]any); tls["insecure"] != true {
 		t.Errorf("自签证书 sing-box 节点应自动带 tls.insecure=true: %v", node)
 	}
@@ -615,31 +624,37 @@ func TestSubscriptionIPv6Settings(t *testing.T) {
 		"name": "u1", "nodeInbounds": []uint{inDual.ID, inV4.ID},
 	})
 
-	// 拉取 sing-box 订阅：包含 u1-vless-dual 与 u1-vless-dual-ipv6，不包含 u1-trojan-v4-ipv6
+	// 拉取 sing-box 订阅：包含 vless-dual 与 vless-dual-ipv6，不包含 trojan-v4-ipv6
 	code, _, sbBody := getSub(t, srv.URL+"/sub/"+view.Token+"?format=singbox", "SFM")
 	if code != http.StatusOK {
 		t.Fatalf("sing-box 订阅失败: code=%d body=%s", code, sbBody)
 	}
 	obs := subOutbounds(t, sbBody)
-	if obs["u1-vless-dual"] == nil || obs["u1-vless-dual-ipv6"] == nil {
+	if obs["vless-dual"] == nil || obs["vless-dual-ipv6"] == nil {
 		t.Fatalf("双栈入站应同时生成主节点与 -ipv6 节点: %v", obs)
 	}
-	if obs["u1-vless-dual-ipv6"]["server"] != "2001:db8::1" {
-		t.Errorf("IPv6 节点 server = %v, want 2001:db8::1", obs["u1-vless-dual-ipv6"]["server"])
+	if obs["vless-dual-ipv6"]["server"] != "2001:db8::1" {
+		t.Errorf("IPv6 节点 server = %v, want 2001:db8::1", obs["vless-dual-ipv6"]["server"])
 	}
-	if obs["u1-trojan-v4-ipv6"] != nil {
-		t.Errorf("仅 IPv4 入站不应生成 -ipv6 节点: %v", obs["u1-trojan-v4-ipv6"])
+	if obs["trojan-v4-ipv6"] != nil {
+		t.Errorf("仅 IPv4 入站不应生成 -ipv6 节点: %v", obs["trojan-v4-ipv6"])
 	}
 
-	// 拉取 clash 订阅 & 面板内预览：包含 ipv6: true、ip-version: ipv6 与 -ipv6 节点
+	// 拉取 clash 订阅 & 面板内预览：包含 ipv6: true、-ipv6 节点与裸 IPv6 地址（且裸 IPv6 不输出 ip-version）
 	code, _, clashBody := getSub(t, srv.URL+"/sub/"+view.Token+"?format=clash", "clash-verge-rev")
 	if code != http.StatusOK {
 		t.Fatalf("clash 订阅失败: code=%d body=%s", code, clashBody)
 	}
-	for _, want := range []string{"ipv6: true", "u1-vless-dual-ipv6", "ip-version: ipv6"} {
+	for _, want := range []string{"ipv6: true", "vless-dual-ipv6", "server: 2001:db8::1"} {
 		if !strings.Contains(clashBody, want) {
 			t.Errorf("clash 订阅缺少 %q:\n%s", want, clashBody)
 		}
+	}
+	if strings.Contains(clashBody, "u1-vless-dual") {
+		t.Errorf("clash 节点名不应带订阅用户前缀 u1-:\n%s", clashBody)
+	}
+	if strings.Contains(clashBody, "ip-version: ipv6") {
+		t.Errorf("裸 IPv6 地址节点不应输出 ip-version: ipv6:\n%s", clashBody)
 	}
 
 	code, env = doJSON(t, client, http.MethodGet, srv.URL+"/api/subscription/tokens/"+itoa(view.ID)+"/preview?format=mihomo", nil)
@@ -650,7 +665,7 @@ func TestSubscriptionIPv6Settings(t *testing.T) {
 		Content string `json:"content"`
 	}
 	decodeData(t, env, &preview)
-	if !strings.Contains(preview.Content, "u1-vless-dual-ipv6") {
+	if !strings.Contains(preview.Content, "vless-dual-ipv6") {
 		t.Errorf("预览内容应包含 -ipv6 节点:\n%s", preview.Content)
 	}
 
@@ -659,7 +674,7 @@ func TestSubscriptionIPv6Settings(t *testing.T) {
 		t.Fatalf("清空 serverIpv6 失败: code=%d msg=%s", code, env.Msg)
 	}
 	_, _, sbBodyAfter := getSub(t, srv.URL+"/sub/"+view.Token+"?format=singbox", "SFM")
-	if obsAfter := subOutbounds(t, sbBodyAfter); obsAfter["u1-vless-dual-ipv6"] != nil {
+	if obsAfter := subOutbounds(t, sbBodyAfter); obsAfter["vless-dual-ipv6"] != nil {
 		t.Errorf("清空 serverIpv6 后不应再下发 -ipv6 节点: %v", obsAfter)
 	}
 }

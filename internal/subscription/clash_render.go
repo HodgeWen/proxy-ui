@@ -37,7 +37,7 @@ func RenderClash(d Data) ([]byte, error) {
 	}
 	proxyGroup := primaryProxyGroup(d)
 	for _, n := range d.Nodes {
-		p, err := clashProxyOf(n, d.Server, dnsStrategy)
+		p, err := clashProxyOf(n, d.Server)
 		if err != nil {
 			return nil, err
 		}
@@ -321,7 +321,6 @@ type clashProxy struct {
 	Type              string            `yaml:"type"`
 	Server            string            `yaml:"server"`
 	Port              int               `yaml:"port"`
-	IPVersion         string            `yaml:"ip-version,omitempty"`
 	UUID              string            `yaml:"uuid,omitempty"`
 	AlterID           *int              `yaml:"alterId,omitempty"`
 	Password          string            `yaml:"password,omitempty"`
@@ -381,22 +380,10 @@ func clashGroupOf(g singbox.GroupEntry) clashProxyGroup {
 }
 
 // clashProxyOf 把订阅节点映射为 clash proxy。
-func clashProxyOf(n Node, defaultServer, dnsStrategy string) (clashProxy, error) {
+func clashProxyOf(n Node, defaultServer string) (clashProxy, error) {
 	server := nodeServer(n, defaultServer)
 	sniHost := fallbackSNI(server, defaultServer)
 	p := clashProxy{Name: n.Tag, Server: server, Port: n.Port, UDP: true}
-	if n.IPv6 {
-		p.IPVersion = "ipv6"
-	} else if isDomain(server) {
-		switch dnsStrategy {
-		case singbox.StrategyPreferIPv6:
-			p.IPVersion = "ipv6-prefer"
-		case singbox.StrategyIPv6Only:
-			p.IPVersion = "ipv6"
-		case singbox.StrategyIPv4Only:
-			p.IPVersion = "ipv4"
-		}
-	}
 	sni := func(t singbox.TLSConfig) string {
 		if t.ServerName != "" {
 			return t.ServerName

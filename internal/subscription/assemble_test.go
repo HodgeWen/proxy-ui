@@ -1068,8 +1068,8 @@ func TestAssembleNoCustomOutboundMembers(t *testing.T) {
 	}
 }
 
-// TestAssembleAndRenderIPv6Variants IPv6 附加节点在策略组自动纳入、域名强制 ipv6_only 解析、
-// 裸 IPv6 节点 SNI 回落主域名，且整体通过 sing-box 内核 CheckConfig 校验。
+// TestAssembleAndRenderIPv6Variants IPv6 附加节点在策略组自动纳入、节点不绑定 domain_resolver tag、
+// ipv4_only 下存在域名 IPv6 节点时客户端 DNS 自动放开到 prefer_ipv4、裸 IPv6 节点 SNI 回落主域名，且整体通过内核校验。
 func TestAssembleAndRenderIPv6Variants(t *testing.T) {
 	tlsRaw, _ := json.Marshal(&singbox.TrojanConfig{
 		TLS: singbox.TLSConfig{Enabled: true, CertMode: singbox.CertModeManaged, CertID: 1},
@@ -1109,7 +1109,7 @@ func TestAssembleAndRenderIPv6Variants(t *testing.T) {
 		t.Fatalf("裸 IPv6 节点配置应通过内核 CheckConfig 校验: %v", err)
 	}
 
-	// 2. 纯 AAAA 域名附加节点：即使全局 DNS 策略仍为 prefer_ipv4，也写入 domain_resolver strategy=ipv6_only
+	// 2. 纯 AAAA 域名附加节点：节点出站不绑定 domain_resolver（由 route.default_domain_resolver 兜底），兼容出站提取类客户端
 	specsDomain := []NodeSpec{
 		nodeSpec(t, "v1", singbox.ProtoVLESS, 20002),
 		func() NodeSpec {
@@ -1134,11 +1134,43 @@ func TestAssembleAndRenderIPv6Variants(t *testing.T) {
 	if obDomain["server"] != "v6.example.com" {
 		t.Errorf("域名 IPv6 节点 server = %v, want v6.example.com", obDomain["server"])
 	}
-	dr, _ := obDomain["domain_resolver"].(map[string]any)
-	if dr == nil || dr["server"] != "ali" || dr["strategy"] != singbox.StrategyIPv6Only {
-		t.Errorf("域名 IPv6 节点应输出 domain_resolver(ipv6_only): %v", obDomain["domain_resolver"])
+	if _, hasDR := obDomain["domain_resolver"]; hasDR {
+		t.Errorf("域名 IPv6 节点出站不应绑定 domain_resolver: %v", obDomain["domain_resolver"])
+	}
+	if cfg2.Route == nil || cfg2.Route.DefaultDomainResolver != "ali" {
+		t.Errorf("应由 route.default_domain_resolver 兜底为 ali, got %+v", cfg2.Route)
 	}
 	if err := singbox.New(t.TempDir()).CheckConfig(cfg2); err != nil {
 		t.Fatalf("域名 IPv6 节点配置应通过内核 CheckConfig 校验: %v", err)
+	}
+
+	// 3. 全局 DNS 策略为 ipv4_only 且存在域名 IPv6 节点时：客户端 DNS 自动放开为 prefer_ipv4，保证可解析 AAAA
+	dnsV4Only := singbox.DNSConfig{
+		Enabled:  true,
+		Strategy: singbox.StrategyIPv4Only,
+		Servers:  []singbox.DNSServer{{Tag: "ali", Type: singbox.DNSTypeUDP, Server: "223.5.5.5"}},
+	}
+	d3, err := Assemble("example.com", specsDomain, []singbox.GroupEntry{
+		{Name: "proxy", Mode: singbox.GroupModeAuto, Members: []string{"v1"}},
+	}, nil, "proxy", &dnsV4Only)
+	if err != nil {
+		t.Fatalf("ipv4_only + 域名 IPv6 组装失败: %v", err)
+	}
+	cfg3, err := RenderSingBox(d3)
+	if err != nil {
+		t.Fatalf("ipv4_only + 域名 IPv6 渲染失败: %v", err)
+	}
+	if cfg3.DNS["strategy"] != singbox.StrategyPreferIPv4 {
+		t.Errorf("存在域名 IPv6 节点时客户端 dns.strategy = %v, want %q", cfg3.DNS["strategy"], singbox.StrategyPreferIPv4)
+	}
+	if dnsV4Only.Strategy != singbox.StrategyIPv4Only {
+		t.Errorf("不应修改入参 DNSConfig.Strategy, got %q", dnsV4Only.Strategy)
+	}
+	obDomain3 := findOutbound(t, cfg3, "v1-ipv6")
+	if _, hasDR := obDomain3["domain_resolver"]; hasDR {
+		t.Errorf("ipv4_only 场景下域名 IPv6 节点出站也不应写 domain_resolver: %v", obDomain3)
+	}
+	if err := singbox.New(t.TempDir()).CheckConfig(cfg3); err != nil {
+		t.Fatalf("ipv4_only + 域名 IPv6 配置应通过内核 CheckConfig 校验: %v", err)
 	}
 }

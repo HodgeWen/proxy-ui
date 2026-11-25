@@ -14,7 +14,7 @@ const directTag = "direct"
 
 // Node 订阅节点：该订阅用户在某入站下的身份（共享入站端口）。
 type Node struct {
-	Tag      string             // 节点 tag（用户名）
+	Tag      string             // 节点 tag（入站名，客户端展示名）
 	Server   string             // 独立服务器地址（空则沿用订阅主地址 Data.Server）
 	IPv6     bool               // 是否为附加 IPv6 节点
 	Protocol string             // 入站协议
@@ -46,7 +46,7 @@ type Data struct {
 
 // NodeSpec 订阅组装输入的节点条目。
 type NodeSpec struct {
-	Tag       string // 节点 tag（用户名）
+	Tag       string // 节点 tag（入站名，客户端展示名）
 	Server    string // 独立服务器地址（空则使用订阅主地址）
 	IPv6      bool   // 是否为附加 IPv6 节点
 	VariantOf string // 若为某主节点的派生副本，记为主节点 Tag（策略组显式引用主节点时自动带上）

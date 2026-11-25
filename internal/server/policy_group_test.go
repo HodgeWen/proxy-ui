@@ -58,7 +58,7 @@ func TestFixedGroupSubscriptionIncludesNodes(t *testing.T) {
 	}
 	hasNode := false
 	for _, o := range outbounds {
-		if o == "fixed-user-vless-fixed" {
+		if o == "vless-fixed" {
 			hasNode = true
 		}
 	}
@@ -71,7 +71,7 @@ func TestFixedGroupSubscriptionIncludesNodes(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("拉取 clash 订阅失败: code=%d body=%s", code, clashBody)
 	}
-	if strings.Contains(clashBody, "- DIRECT\n") && !strings.Contains(clashBody, "fixed-user-vless-fixed") {
+	if strings.Contains(clashBody, "- DIRECT\n") && !strings.Contains(clashBody, "vless-fixed") {
 		t.Errorf("clash 固定代理组不应只剩 DIRECT:\n%s", clashBody)
 	}
 }

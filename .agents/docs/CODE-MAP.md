@@ -13,7 +13,7 @@ proxy-ui/
 │   ├── api/              # REST handlers：鉴权（一次性设置码/登录限流/改密吊销会话）；内核只读状态与日志 + 热应用编排（applyKernelConfig / applyThenOK，所有写 handler 复用；失败置 pendingChanges 供状态接口带出）；面板自更新；实时速率与按用户累计流量；入站 CRUD（随机端口分配，视图只带用户数；用户统一由订阅勾选生成；协议默认值 template 端点）；订阅用户（配额/到期/勾选入站/重置链接/清零流量/双格式配置预览）；出站/证书；规则集与规则（两层模型）/策略组/兜底出站/预设模板（tag 引用一致性：出站与策略组改名级联规则 / 组成员 / 兜底 / DNS detour，删除或停用被引用项拒绝，成员与循环引用在保存处校验）；DNS；AI（工具与 REST 共用各资源 createXxx/updateXxx/deleteXxx 编排）
 │   ├── db/               # SQLite（glebarez+GORM）连接、全量模型、启动自动迁移与旧 schema 检测重建（PRAGMA user_version 不符则整库重建为空库）
 │   ├── singbox/          # 内置内核：连接层配置模型与协议映射、多用户凭据生成与 users 渲染、路由规则与规则集、DNS 模型与预设、配置聚合（BuildConfig）、进程内实例生命周期（manager.go：Start 失败回滚 lastGood、Apply 配置未变则跳过重建、统计端口按实例动态分配）、v2ray 统计采集（差分内存聚合、5 秒单事务批量落库、失败重试不丢数，stats.go / statsclient.go）
-│   ├── subscription/     # 订阅导出：按 token 取用户在各入站的身份→客户端节点（含可选 IPv6 入口双栈派生节点）、策略组/规则映射、sing-box 与 mihomo 双格式渲染（含 DNS 段、IPv6/ip-version 与 rule-providers）、配额/到期拒绝、匿名端点、面板内预览（按订阅用户 ID，跳过校验）
+│   ├── subscription/     # 订阅导出：按 token 取用户在各入站的身份→客户端节点（含可选 IPv6 入口双栈派生节点）、策略组/规则映射、sing-box 与 mihomo 双格式渲染（含 DNS 段、IPv6 支持与 rule-providers）、配额/到期拒绝、匿名端点、面板内预览（按订阅用户 ID，跳过校验）
 │   ├── update/           # 面板自身更新：GitHub Releases 版本查询、下载校验、二进制替换与同 PID 重启（内核不再走此模块）
 │   └── ai/               # AI 多供应商/多模型配置存取、上游 /models 拉取、@veltra/ai transport 元数据、按供应商 SSE 对话代理、面板工具注册表
 ├── README.md             # 运行说明：下载、systemd、反代 TLS、首次向导（一次性设置码）、订阅模型、DNS、BBR 手动开启、内核说明、面板更新

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"math/big"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -184,10 +185,10 @@ func TestFetchAssemblesNodes(t *testing.T) {
 		}
 		return u
 	}
-	suspended := mkUser(active3.ID, "alice-suspended", true, true)
+	mkUser(active3.ID, "alice-suspended", true, true)
 	mkUser(disabled.ID, "alice-disabled-inbound", true, false)
 	mkUser(active2.ID, "alice-disabled-user", false, false)
-	ok := mkUser(active.ID, "alice-ok", true, false)
+	mkUser(active.ID, "alice-ok", true, false)
 
 	data, err := s.Fetch("ok-token", "example.com:8443")
 	if err != nil {
@@ -199,10 +200,10 @@ func TestFetchAssemblesNodes(t *testing.T) {
 	if len(data.Nodes) != 1 {
 		t.Fatalf("只应包含启用入站下未暂停的用户: %+v", data.Nodes)
 	}
-	if data.Nodes[0].Tag != ok.Name || data.Nodes[0].Port != active.ListenPort {
+	if data.Nodes[0].Tag != active.Name || data.Nodes[0].Port != active.ListenPort {
 		t.Errorf("节点字段不符: %+v", data.Nodes[0])
 	}
-	if data.Nodes[0].Tag == suspended.Name {
+	if data.Nodes[0].Tag == active3.Name {
 		t.Error("被暂停用户不应出现在订阅中")
 	}
 	// DNS 未设置时用默认国内外分流配置
@@ -414,11 +415,15 @@ func TestSubscriptionHeaders(t *testing.T) {
 		t.Fatalf("状态码 = %d: %s", rec.Code, rec.Body.String())
 	}
 	cd := rec.Header().Get("Content-Disposition")
-	if cd != "attachment; filename*=UTF-8''alice-phone" {
-		t.Errorf("ASCII Content-Disposition = %q, want %q", cd, "attachment; filename*=UTF-8''alice-phone")
+	wantCD := "attachment; filename=alice-phone; filename*=UTF-8''alice-phone"
+	if cd != wantCD {
+		t.Errorf("ASCII Content-Disposition = %q, want %q", cd, wantCD)
 	}
-	if strings.Contains(cd, "config.yaml") || strings.Contains(cd, "config.json") {
-		t.Errorf("Content-Disposition 不得包含 config.yaml/config.json: %q", cd)
+	if strings.Contains(cd, "config.yaml") || strings.Contains(cd, "config.json") || strings.Contains(cd, `"`) {
+		t.Errorf("Content-Disposition 不得包含 config.yaml/config.json 或双引号: %q", cd)
+	}
+	if mt, params, err := mime.ParseMediaType(cd); err != nil || mt != "attachment" || params["filename"] != "alice-phone" {
+		t.Errorf("mime.ParseMediaType(%q) = (%q, %v, %v), want attachment/alice-phone", cd, mt, params, err)
 	}
 	wantPT := "base64:" + base64.StdEncoding.EncodeToString([]byte("alice-phone"))
 	if got := rec.Header().Get("Profile-Title"); got != wantPT {
@@ -431,15 +436,19 @@ func TestSubscriptionHeaders(t *testing.T) {
 		}
 	}
 
-	// 中文名使用 RFC 5987 filename*=UTF-8''...，且不带 config.*
+	// 中文名同时输出无引号 filename= 与 RFC 5987 filename*=UTF-8''...，且不带 config.* / 双引号
 	mkToken("tok-zh", "我的节点", 0, nil)
 	rec = doRequest(t, s, "tok-zh", "sing-box", "SFM")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("状态码 = %d: %s", rec.Code, rec.Body.String())
 	}
 	cd = rec.Header().Get("Content-Disposition")
-	if !strings.HasPrefix(cd, "attachment; filename*=UTF-8''") || strings.Contains(cd, "config.json") {
+	if !strings.Contains(cd, "filename=") || !strings.Contains(cd, "filename*=UTF-8''") ||
+		strings.Contains(cd, "config.json") || strings.Contains(cd, `"`) {
 		t.Errorf("中文 Content-Disposition 不符: %q", cd)
+	}
+	if mt, params, err := mime.ParseMediaType(cd); err != nil || mt != "attachment" || params["filename"] != "我的节点" {
+		t.Errorf("中文 mime.ParseMediaType(%q) = (%q, %v, %v), want 我的节点", cd, mt, params, err)
 	}
 	wantPT = "base64:" + base64.StdEncoding.EncodeToString([]byte("我的节点"))
 	if got := rec.Header().Get("Profile-Title"); got != wantPT {
@@ -450,11 +459,23 @@ func TestSubscriptionHeaders(t *testing.T) {
 		t.Errorf("不限流量无过期时 Subscription-Userinfo = %q, want %q", ui, "upload=0; download=0")
 	}
 
+	// 含空格与括号的订阅名仍保持无双引号且可被 MIME 标准解析
+	mkToken("tok-paren", "my (sub)", 0, nil)
+	rec = doRequest(t, s, "tok-paren", "clash", "")
+	cd = rec.Header().Get("Content-Disposition")
+	if strings.Contains(cd, `"`) {
+		t.Errorf("含空格与括号时 Content-Disposition 不得包含双引号: %q", cd)
+	}
+	if mt, params, err := mime.ParseMediaType(cd); err != nil || mt != "attachment" || params["filename"] != "my (sub)" {
+		t.Errorf("含空格与括号 mime.ParseMediaType(%q) = (%q, %v, %v), want my (sub)", cd, mt, params, err)
+	}
+
 	// 空备注名回退请求 Host
 	mkToken("tok-empty", "   ", 0, nil)
 	rec = doRequest(t, s, "tok-empty", "clash", "")
-	if cd = rec.Header().Get("Content-Disposition"); cd != "attachment; filename*=UTF-8''example.com" {
-		t.Errorf("空备注应回退到 Host: %q", cd)
+	wantEmptyCD := "attachment; filename=example.com; filename*=UTF-8''example.com"
+	if cd = rec.Header().Get("Content-Disposition"); cd != wantEmptyCD {
+		t.Errorf("空备注应回退到 Host: got %q, want %q", cd, wantEmptyCD)
 	}
 }
 
@@ -584,13 +605,13 @@ func TestSelfSignedCertAutoInsecure(t *testing.T) {
 			obs[tag] = ob
 		}
 	}
-	if tls, _ := obs["n-self"]["tls"].(map[string]any); tls["insecure"] != true {
+	if tls, _ := obs["hy-self"]["tls"].(map[string]any); tls["insecure"] != true {
 		t.Errorf("managed 自签证书节点应带 tls.insecure=true: %v", tls)
 	}
-	if tls, _ := obs["n-path"]["tls"].(map[string]any); tls["insecure"] != true {
+	if tls, _ := obs["tr-path"]["tls"].(map[string]any); tls["insecure"] != true {
 		t.Errorf("path 自签证书节点应带 tls.insecure=true: %v", tls)
 	}
-	if tls, _ := obs["n-ca"]["tls"].(map[string]any); tls["insecure"] != nil {
+	if tls, _ := obs["hy-ca"]["tls"].(map[string]any); tls["insecure"] != nil {
 		t.Errorf("CA 签发证书节点不应带 tls.insecure: %v", tls)
 	}
 
@@ -600,13 +621,13 @@ func TestSelfSignedCertAutoInsecure(t *testing.T) {
 		t.Fatalf("clash 状态码 = %d: %s", rec.Code, rec.Body.String())
 	}
 	doc := parseClash(t, rec.Body.Bytes())
-	if p := findProxy(t, doc, "n-self"); p["skip-cert-verify"] != true {
+	if p := findProxy(t, doc, "hy-self"); p["skip-cert-verify"] != true {
 		t.Errorf("clash 自签节点应带 skip-cert-verify=true: %v", p)
 	}
-	if p := findProxy(t, doc, "n-path"); p["skip-cert-verify"] != true {
+	if p := findProxy(t, doc, "tr-path"); p["skip-cert-verify"] != true {
 		t.Errorf("clash path 自签节点应带 skip-cert-verify=true: %v", p)
 	}
-	if p := findProxy(t, doc, "n-ca"); p["skip-cert-verify"] != nil {
+	if p := findProxy(t, doc, "hy-ca"); p["skip-cert-verify"] != nil {
 		t.Errorf("clash CA 证书节点不应带 skip-cert-verify: %v", p)
 	}
 }
@@ -703,13 +724,13 @@ func TestFetchDualStackIPv6Nodes(t *testing.T) {
 	if len(data.Nodes) != 4 {
 		t.Fatalf("应生成 3 个主节点 + 1 个双栈 -ipv6 节点 = 4 个, got %d: %+v", len(data.Nodes), data.Nodes)
 	}
-	if data.Nodes[0].Tag != "alice-dual" || data.Nodes[1].Tag != "alice-dual-ipv6" {
+	if data.Nodes[0].Tag != "vless-dual" || data.Nodes[1].Tag != "vless-dual-ipv6" {
 		t.Fatalf("双栈 -ipv6 节点应紧随主节点之后: %+v", data.Nodes)
 	}
 	if !data.Nodes[1].IPv6 || data.Nodes[1].Server != "2001:db8::1" {
 		t.Errorf("IPv6 节点属性不符: %+v", data.Nodes[1])
 	}
-	if data.Nodes[2].Tag != "alice-v4" || data.Nodes[3].Tag != "alice-local" {
+	if data.Nodes[2].Tag != "vless-v4" || data.Nodes[3].Tag != "vless-local" {
 		t.Errorf("仅 IPv4 与本机反代入站不应生成 -ipv6 节点: %+v", data.Nodes)
 	}
 
@@ -720,5 +741,128 @@ func TestFetchDualStackIPv6Nodes(t *testing.T) {
 	}
 	if len(sameData.Nodes) != 3 {
 		t.Errorf("请求 Host 与 server_ipv6 相同时不应重复追加 -ipv6 节点, got %d", len(sameData.Nodes))
+	}
+}
+
+// TestSubscriptionBrowserInline 浏览器直接访问时内联展示（无 Content-Disposition，Clash 用 text/plain）；
+// 代理客户端仍下发 attachment 响应头与对应配置 Content-Type。
+func TestSubscriptionBrowserInline(t *testing.T) {
+	s, database := newTestService(t)
+	cfg, _ := singbox.NewTemplateConfig(singbox.ProtoVLESS)
+	rawCfg, _ := json.Marshal(cfg)
+	inbound := db.Inbound{Name: "v-in", Protocol: singbox.ProtoVLESS, ListenPort: 12402, Enabled: true, Config: string(rawCfg)}
+	if err := database.Create(&inbound).Error; err != nil {
+		t.Fatal(err)
+	}
+	cred, _ := singbox.NewCredential(singbox.ProtoVLESS)
+	rawCred, _ := json.Marshal(cred)
+	tok := db.SubscriptionToken{Token: "browser-tok", Name: "user1"}
+	if err := database.Create(&tok).Error; err != nil {
+		t.Fatal(err)
+	}
+	u := db.InboundUser{InboundID: inbound.ID, Name: "u-browser", Credential: string(rawCred), Enabled: true}
+	if err := database.Create(&u).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Create(&db.SubscriptionNode{TokenID: tok.ID, InboundID: inbound.ID, InboundUserID: u.ID}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.GET("/sub/:token", s.Handle)
+
+	browserAccept := "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+	browserUA := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36"
+	tests := []struct {
+		name     string
+		format   string
+		accept   string
+		ua       string
+		wantCT   string
+		wantDisp bool
+	}{
+		{
+			name:     "浏览器访问 clash 预览",
+			format:   "clash",
+			accept:   browserAccept,
+			ua:       browserUA,
+			wantCT:   "text/plain; charset=utf-8",
+			wantDisp: false,
+		},
+		{
+			name:     "浏览器访问 sing-box 预览",
+			format:   "sing-box",
+			accept:   browserAccept,
+			ua:       browserUA,
+			wantCT:   "application/json; charset=utf-8",
+			wantDisp: false,
+		},
+		{
+			name:     "浏览器访问默认格式预览",
+			format:   "",
+			accept:   browserAccept,
+			ua:       browserUA,
+			wantCT:   "application/json; charset=utf-8",
+			wantDisp: false,
+		},
+		{
+			name:     "Clash 客户端带 Accept text/html 仍下载",
+			format:   "",
+			accept:   browserAccept,
+			ua:       "ClashMetaForAndroid/2.11.0",
+			wantCT:   "text/yaml; charset=utf-8",
+			wantDisp: true,
+		},
+		{
+			name:     "sing-box 客户端带 Accept text/html 仍下载",
+			format:   "",
+			accept:   browserAccept,
+			ua:       "SFM/1.0 sing-box/1.14.4",
+			wantCT:   "application/json; charset=utf-8",
+			wantDisp: true,
+		},
+		{
+			name:     "AsteriskBOX 客户端带 Accept text/html 仍下载",
+			format:   "clash",
+			accept:   browserAccept,
+			ua:       "AsteriskBOX/1.0",
+			wantCT:   "text/yaml; charset=utf-8",
+			wantDisp: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target := "/sub/browser-tok"
+			if tt.format != "" {
+				target += "?format=" + tt.format
+			}
+			req := httptest.NewRequest(http.MethodGet, target, nil)
+			req.Host = "example.com:8443"
+			if tt.accept != "" {
+				req.Header.Set("Accept", tt.accept)
+			}
+			if tt.ua != "" {
+				req.Header.Set("User-Agent", tt.ua)
+			}
+			rec := httptest.NewRecorder()
+			engine.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("状态码 = %d: %s", rec.Code, rec.Body.String())
+			}
+			if got := rec.Header().Get("Content-Type"); got != tt.wantCT {
+				t.Errorf("Content-Type = %q, want %q", got, tt.wantCT)
+			}
+			cd := rec.Header().Get("Content-Disposition")
+			if tt.wantDisp && cd == "" {
+				t.Error("代理客户端应设置 Content-Disposition")
+			}
+			if !tt.wantDisp && cd != "" {
+				t.Errorf("浏览器预览不应设置 Content-Disposition, got %q", cd)
+			}
+			if rec.Header().Get("Profile-Title") == "" || rec.Header().Get("Subscription-Userinfo") == "" {
+				t.Errorf("应保留 Profile-Title 与 Subscription-Userinfo 响应头: %v", rec.Header())
+			}
+		})
 	}
 }

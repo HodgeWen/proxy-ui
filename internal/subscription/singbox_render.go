@@ -11,8 +11,15 @@ import (
 // RenderSingBox 渲染 sing-box 客户端配置：TUN 入站、节点出站、策略组、DNS、路由规则与远程规则集
 // （优先走策略组下载），结尾补 direct 兜底出站。
 func RenderSingBox(d Data) (singbox.Config, error) {
+	hasIPv6DomainNode := false
+	for _, n := range d.Nodes {
+		if n.IPv6 && isDomain(nodeServer(n, d.Server)) {
+			hasIPv6DomainNode = true
+			break
+		}
+	}
 	proxyGroup := primaryProxyGroup(d)
-	clientDNS, directResolver := singboxClientDNS(d.DNS, proxyGroup, clientOutboundTags(d))
+	clientDNS, directResolver := singboxClientDNS(d.DNS, proxyGroup, clientOutboundTags(d), hasIPv6DomainNode)
 	cfg := singbox.Config{
 		Log:          &singbox.LogConfig{Level: "info", Timestamp: true},
 		Experimental: &singbox.Experimental{CacheFile: &singbox.CacheFile{Enabled: true}},
@@ -28,7 +35,7 @@ func RenderSingBox(d Data) (singbox.Config, error) {
 		},
 	}
 	for _, n := range d.Nodes {
-		ob, err := nodeOutboundJSON(n, d.Server, directResolver)
+		ob, err := nodeOutboundJSON(n, d.Server)
 		if err != nil {
 			return singbox.Config{}, err
 		}
@@ -90,11 +97,15 @@ func clientOutboundTags(d Data) map[string]bool {
 }
 
 // singboxClientDNS 构造客户端专用 DNS 段，并返回应写入 route.default_domain_resolver 的直连解析器 tag：
-// 为未显式指定 detour 的远程加密 DNS 补齐代理出口，并确保解析节点/DoH 域名的默认解析器始终直连不死锁。
-func singboxClientDNS(d *singbox.DNSConfig, proxyGroup string, clientTags map[string]bool) (map[string]any, string) {
+// 为未显式指定 detour 的远程加密 DNS 补齐代理出口，并确保解析节点/DoH 域名的默认解析器始终直连不死锁；
+// 存在域名型 IPv6 节点且原策略为 ipv4_only 时回落为 prefer_ipv4，保证 AAAA 可解析。
+func singboxClientDNS(d *singbox.DNSConfig, proxyGroup string, clientTags map[string]bool, forceIPv6 bool) (map[string]any, string) {
 	base := d.JSON()
 	if base == nil {
 		return nil, ""
+	}
+	if forceIPv6 && d.Strategy == singbox.StrategyIPv4Only {
+		base["strategy"] = singbox.StrategyPreferIPv4
 	}
 	ruleTargets := make(map[string]bool, len(d.Rules))
 	for _, r := range d.Rules {
@@ -151,16 +162,12 @@ func singboxClientDNS(d *singbox.DNSConfig, proxyGroup string, clientTags map[st
 }
 
 // nodeOutboundJSON 把订阅节点映射为 sing-box 客户端出站 JSON 对象。
-func nodeOutboundJSON(n Node, defaultServer, directResolver string) (map[string]any, error) {
+// 节点出站保持自包含、不绑定具体 domain_resolver tag，域名解析交由 route.default_domain_resolver 兜底，
+// 避免提取出站时脱离 dns 段引发 domain resolver not found。
+func nodeOutboundJSON(n Node, defaultServer string) (map[string]any, error) {
 	server := nodeServer(n, defaultServer)
 	sni := fallbackSNI(server, defaultServer)
 	ob := map[string]any{"tag": n.Tag, "server": server, "server_port": n.Port}
-	if n.IPv6 && directResolver != "" && isDomain(server) {
-		ob["domain_resolver"] = map[string]any{
-			"server":   directResolver,
-			"strategy": singbox.StrategyIPv6Only,
-		}
-	}
 	switch c := n.Config.(type) {
 	case *singbox.VLESSConfig:
 		ob["type"] = singbox.ProtoVLESS

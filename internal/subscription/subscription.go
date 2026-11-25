@@ -13,7 +13,6 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,13 +101,20 @@ func (s *Service) Handle(c *gin.Context) {
 		return
 	}
 	title := sanitizeHeaderTitle(data.Title)
+	browser := isBrowserRequest(c.Request)
 	c.Header("Cache-Control", "no-store")
 	c.Header("Profile-Title", "base64:"+base64.StdEncoding.EncodeToString([]byte(title)))
-	c.Header("Content-Disposition", contentDisposition(title))
+	if !browser {
+		c.Header("Content-Disposition", contentDisposition(title))
+	}
 	if data.UserInfo != nil {
 		c.Header("Subscription-Userinfo", formatUserInfo(data.UserInfo))
 	}
 	if format == FormatClash {
+		if browser {
+			c.Data(http.StatusOK, "text/plain; charset=utf-8", content)
+			return
+		}
 		c.Data(http.StatusOK, "text/yaml; charset=utf-8", content)
 		return
 	}
@@ -302,8 +308,12 @@ func (s *Service) nodes(tokenID uint, primaryHost, ipv6Host string) ([]NodeSpec,
 		if !user.Enabled || user.Suspended {
 			continue
 		}
+		tag := strings.TrimSpace(in.Name)
+		if tag == "" {
+			tag = user.Name
+		}
 		sp := NodeSpec{
-			Tag: user.Name, Protocol: in.Protocol, Port: in.ListenPort,
+			Tag: tag, Protocol: in.Protocol, Port: in.ListenPort,
 			Config: in.Config, CredJSON: user.Credential,
 			Insecure: s.inboundInsecure(in.Protocol, in.Config, certMeta, selfSignedCache),
 		}
@@ -624,10 +634,52 @@ func sanitizeHeaderTitle(raw string) string {
 	return cleaned
 }
 
+// isBrowserRequest 判断是否为浏览器直接打开预览（Accept 含 text/html 且 UA 非已知代理客户端）。
+func isBrowserRequest(r *http.Request) bool {
+	if !strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/html") {
+		return false
+	}
+	ua := strings.ToLower(r.Header.Get("User-Agent"))
+	for _, client := range []string{
+		"clash", "mihomo", "stash",
+		"sing-box", "sfa", "sfm", "sfi",
+		"asterisk", "v2ray", "shadowrocket", "nekobox",
+		"hiddify", "karing", "loon", "surge", "quantumult",
+	} {
+		if strings.Contains(ua, client) {
+			return false
+		}
+	}
+	return true
+}
+
 // contentDisposition 生成 Content-Disposition 响应头（不附带 config.* 与扩展名，避免客户端展示为文件名）：
-// 统一使用 RFC 5987 无引号格式 `filename*=UTF-8”...`，避免部分客户端（如 Clash Verge）把双引号解析进配置文件名。
+// 同时输出无引号 RFC 2616 token `filename=`（兼容仅读取 filename 的安卓客户端）与 RFC 5987 `filename*=UTF-8”...`，
+// 且避免双引号以免部分客户端（如 Clash Verge）把双引号解析进配置名。
 func contentDisposition(title string) string {
-	return "attachment; filename*=UTF-8''" + url.PathEscape(title)
+	escaped := escapeDispositionToken(title)
+	return fmt.Sprintf("attachment; filename=%s; filename*=UTF-8''%s", escaped, escaped)
+}
+
+// escapeDispositionToken 按 RFC 3986 非保留字符对字符串做百分号编码（仅保留 A-Za-z0-9-._~），
+// 确保产物既是合法 HTTP token（无空格/引号/分号等分隔符），也符合 RFC 5987 filename* 编码。
+func escapeDispositionToken(s string) string {
+	const hex = "0123456789ABCDEF"
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := range len(s) {
+		c := s[i]
+		isUnreserved := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			c == '-' || c == '.' || c == '_' || c == '~'
+		if isUnreserved {
+			b.WriteByte(c)
+		} else {
+			b.WriteByte('%')
+			b.WriteByte(hex[c>>4])
+			b.WriteByte(hex[c&0x0F])
+		}
+	}
+	return b.String()
 }
 
 // formatUserInfo 生成 Subscription-Userinfo 响应头值。

@@ -10,7 +10,7 @@ export interface TokenNode {
   protocol: string
   /** 入站端口（同入站下所有用户共享） */
   listenPort: number
-  /** 用户名，即客户端节点名 */
+  /** 用户名（服务端入站用户标识） */
   name: string
   enabled: boolean
   suspended: boolean
