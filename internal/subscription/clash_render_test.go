@@ -2,6 +2,7 @@ package subscription
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -257,6 +258,25 @@ func TestRenderClashStructure(t *testing.T) {
 	}
 	if node.Type() != ast.MappingType {
 		t.Fatalf("$.dns.nameserver-policy AST 类型应为 MappingType, got %v:\n%s", node.Type(), raw)
+	}
+}
+
+// TestRenderClashHysteria2Bandwidth mihomo 节点的 up / down 即带宽声明。
+func TestRenderClashHysteria2Bandwidth(t *testing.T) {
+	for _, tt := range hysteria2BandwidthCases {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, err := RenderClash(hysteria2BandwidthData(t, tt.ignore))
+			if err != nil {
+				t.Fatalf("渲染 clash 配置失败: %v", err)
+			}
+			proxy := findProxy(t, parseClash(t, raw), "hy2")
+			for field, want := range map[string]int{"up": tt.wantUp, "down": tt.wantDown} {
+				wantText := fmt.Sprintf("%d Mbps", want)
+				if got, written := proxy[field]; written != (want > 0) || (written && got != wantText) {
+					t.Errorf("%s = %v, want %d（0 表示不写入）", field, got, want)
+				}
+			}
+		})
 	}
 }
 

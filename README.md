@@ -102,7 +102,7 @@ panel.example.com {
 
 ## BBR 加速
 
-协议层拥塞算法按协议给最佳默认：Hysteria2 用 `bbr_profile=standard`、TUIC 用 `bbr`，不依赖系统配置；TCP 类协议（VLESS/Trojan/VMess/Shadowsocks）走系统 TCP 拥塞控制，为其开启 BBR 需在服务器上手动写 sysctl（面板不修改系统参数）：
+QUIC 类协议的拥塞控制不依赖系统配置：TUIC 默认用 `bbr`；Hysteria2 带宽留空时同样走 BBR（`bbr_profile=standard`），线路不拥塞时表现良好，但拥塞丢包时会让速。要在晚高峰等拥塞链路上发挥 Hysteria2 丢包不降速的优势，需在入站填写下行带宽以启用 Brutal（取 VPS 带宽与本地宽带下行中的较小值，该值是硬上限）。TCP 类协议（VLESS/Trojan/VMess/Shadowsocks）走系统 TCP 拥塞控制，为其开启 BBR 需在服务器上手动写 sysctl（面板不修改系统参数）：
 
 ```bash
 cat > /etc/sysctl.d/99-bbr.conf <<'EOF'

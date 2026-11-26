@@ -363,20 +363,22 @@ export const PROTOCOL_DEFS: ProtocolDef[] = [
         label: '上行带宽上限 (Mbps)',
         type: 'number',
         min: 0,
-        description: '留空（0）为不限制。不限带宽时客户端会使用 BBR（吞吐最好）；一旦设置带宽上限，客户端将被强制改用 Brutal',
+        description:
+          '客户端上行带宽，同时作为服务端接收上限；留空（0）为不限。需填下行带宽才会启用 Brutal，届时客户端上行按此速率定速发包',
       },
       {
         field: 'downMbps',
         label: '下行带宽上限 (Mbps)',
         type: 'number',
         min: 0,
-        description: '留空（0）为不限制，含义同上行带宽',
+        description:
+          '客户端下行带宽，同时作为服务端发送上限；留空（0）为不限。留空时两侧走 BBR，线路不拥塞时表现良好，但拥塞丢包时会让速；填入后下行改用 Brutal 定速发包，丢包不降速，更适合晚高峰等拥塞链路。该值是硬上限，取 VPS 带宽与本地宽带下行中的较小值',
       },
       {
         field: 'ignoreClientBandwidth',
         label: '忽略客户端带宽设置',
         type: 'switch',
-        description: '开启后要求客户端放弃 Brutal、统一使用 BBR 拥塞控制（需带宽不限）',
+        description: '开启后两侧统一使用 BBR，上面的上行 / 下行带宽不再生效',
       },
       {
         field: 'bbrProfile',
@@ -633,8 +635,10 @@ export function computeInboundWarnings(protocol: string, cfg: Record<string, unk
       certWarning()
       alpnWarning()
       if (cfg.obfsEnabled && !cfg.obfsPassword) warnings.push({ text: '已启用混淆但混淆密码为空' })
-      if (upMbps > 0 && downMbps > 0) {
-        warnings.push({ text: '已设置带宽上限，客户端将无法使用 BBR（如需 BBR 请保持带宽不限）' })
+      if (cfg.ignoreClientBandwidth && (upMbps > 0 || downMbps > 0)) {
+        warnings.push({ text: '已开启「忽略客户端带宽设置」，上行 / 下行带宽不会生效' })
+      } else if (upMbps > 0 && !downMbps) {
+        warnings.push({ text: '只设置了上行带宽：Brutal 不会启用，两侧仍走 BBR（需设置下行带宽）' })
       }
       masqueradeWarning()
       break

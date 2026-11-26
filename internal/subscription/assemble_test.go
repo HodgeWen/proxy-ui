@@ -729,6 +729,51 @@ func TestRenderSingBoxInsecureAndBBR(t *testing.T) {
 	}
 }
 
+// hysteria2BandwidthCases Hysteria2 节点带宽下发的两种情形：下发以启用 Brutal；
+// 入站忽略客户端带宽时不下发，客户端回落 BBR。
+var hysteria2BandwidthCases = []struct {
+	name             string
+	ignore           bool
+	wantUp, wantDown int // 期望下发的带宽（Mbps），0 表示不应下发
+}{
+	{"下发带宽声明", false, 50, 300},
+	{"忽略客户端带宽时不下发", true, 0, 0},
+}
+
+// hysteria2BandwidthData 组装一个上下行 50 / 300 的 Hysteria2 节点。
+func hysteria2BandwidthData(t *testing.T, ignore bool) Data {
+	t.Helper()
+	raw, _ := json.Marshal(&singbox.Hysteria2Config{
+		UpMbps: 50, DownMbps: 300, IgnoreClientBandwidth: ignore,
+		TLS: singbox.TLSConfig{Enabled: true, CertMode: singbox.CertModeManaged, CertID: 1},
+	})
+	cred, _ := json.Marshal(singbox.Credential{Password: "pw"})
+	spec := NodeSpec{Tag: "hy2", Protocol: singbox.ProtoHysteria2, Port: 20001, Config: string(raw), CredJSON: string(cred)}
+	d, err := Assemble("example.com", []NodeSpec{spec}, nil, nil, "", nil)
+	if err != nil {
+		t.Fatalf("组装 Hysteria2 节点失败: %v", err)
+	}
+	return d
+}
+
+// TestRenderSingBoxHysteria2Bandwidth 节点带宽声明（up_mbps / down_mbps）的下发。
+func TestRenderSingBoxHysteria2Bandwidth(t *testing.T) {
+	for _, tt := range hysteria2BandwidthCases {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := RenderSingBox(hysteria2BandwidthData(t, tt.ignore))
+			if err != nil {
+				t.Fatalf("渲染 sing-box 配置失败: %v", err)
+			}
+			ob := findOutbound(t, cfg, "hy2")
+			for field, want := range map[string]int{"up_mbps": tt.wantUp, "down_mbps": tt.wantDown} {
+				if got, written := ob[field]; written != (want > 0) || (written && got != want) {
+					t.Errorf("%s = %v, want %d（0 表示不写入）", field, got, want)
+				}
+			}
+		})
+	}
+}
+
 // TestAssembleTemplatePlaceholderExpansion 模板组在服务端只有 direct 占位（没有自定义出站）时，
 // 下发订阅应填充该用户的节点而不是只剩 DIRECT；三种模式（含固定代理）一致。
 func TestAssembleTemplatePlaceholderExpansion(t *testing.T) {

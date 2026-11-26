@@ -166,9 +166,9 @@ func (c *VLESSConfig) RealitySNI() string {
 type Hysteria2Config struct {
 	ObfsEnabled           bool             `json:"obfsEnabled,omitempty"`           // 是否启用 salamander 混淆
 	ObfsPassword          string           `json:"obfsPassword,omitempty"`          // 混淆密码（入站级共享）
-	UpMbps                int              `json:"upMbps"`                          // 上行带宽上限（Mbps），0 为不限
-	DownMbps              int              `json:"downMbps"`                        // 下行带宽上限（Mbps），0 为不限
-	IgnoreClientBandwidth bool             `json:"ignoreClientBandwidth,omitempty"` // 忽略客户端带宽设置（要求客户端用 BBR）
+	UpMbps                int              `json:"upMbps"`                          // 客户端上行带宽（Mbps），0 为不限；下发给客户端并作为服务端接收上限
+	DownMbps              int              `json:"downMbps"`                        // 客户端下行带宽（Mbps），0 为不限；下发给客户端并作为服务端发送上限
+	IgnoreClientBandwidth bool             `json:"ignoreClientBandwidth,omitempty"` // 忽略客户端带宽声明，两侧统一用 BBR（入站与节点均不写入带宽）
 	BBRProfile            string           `json:"bbrProfile,omitempty"`            // BBR 档位，默认 standard
 	Masquerade            MasqueradeConfig `json:"masquerade"`                      // 伪装站点（抗主动探测）
 	TLS                   TLSConfig        `json:"tls"`                             // TLS（必须启用，ALPN 默认 h3）
@@ -451,8 +451,11 @@ func InboundWarnings(protocol string, cfg any) []string {
 		if c.ObfsEnabled && c.ObfsPassword == "" {
 			add("已启用混淆但混淆密码为空")
 		}
-		if c.UpMbps > 0 && c.DownMbps > 0 {
-			add("已设置带宽上限，客户端将无法使用 BBR（如需 BBR 请保持带宽不限）")
+		switch {
+		case c.IgnoreClientBandwidth && (c.UpMbps > 0 || c.DownMbps > 0):
+			add("已开启「忽略客户端带宽设置」，上行 / 下行带宽不会生效")
+		case c.UpMbps > 0 && c.DownMbps == 0:
+			add("只设置了上行带宽：Brutal 不会启用，两侧仍走 BBR（需设置下行带宽）")
 		}
 		c.Masquerade.warnings(add)
 		c.ConnectConfig.warnings(protocol, add)

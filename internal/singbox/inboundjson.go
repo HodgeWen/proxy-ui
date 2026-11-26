@@ -60,14 +60,18 @@ func inboundJSON(e InboundEntry, cfg any) (map[string]any, error) {
 		if c.ObfsEnabled && c.ObfsPassword != "" {
 			in["obfs"] = map[string]any{"type": "salamander", "password": c.ObfsPassword}
 		}
-		if c.UpMbps > 0 {
-			in["up_mbps"] = c.UpMbps
-		}
-		if c.DownMbps > 0 {
-			in["down_mbps"] = c.DownMbps
-		}
 		if c.IgnoreClientBandwidth {
+			// 两侧统一走 BBR：此时入站若再写 down_mbps，内核会拒绝未声明带宽的客户端，带宽一律不写
 			in["ignore_client_bandwidth"] = true
+		} else {
+			// 内核入站的 up/down 以服务器为视角：up_mbps 是服务端发送上限（即客户端下行），
+			// down_mbps 是服务端接收上限（即客户端上行），与面板字段（客户端视角）相反
+			if c.DownMbps > 0 {
+				in["up_mbps"] = c.DownMbps
+			}
+			if c.UpMbps > 0 {
+				in["down_mbps"] = c.UpMbps
+			}
 		}
 		if c.BBRProfile != "" {
 			in["bbr_profile"] = c.BBRProfile

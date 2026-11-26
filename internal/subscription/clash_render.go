@@ -412,11 +412,14 @@ func clashProxyOf(n Node, defaultServer string) (clashProxy, error) {
 			p.Obfs = "salamander"
 			p.ObfsPassword = c.ObfsPassword
 		}
-		if c.UpMbps > 0 {
-			p.Up = fmt.Sprintf("%d Mbps", c.UpMbps)
-		}
-		if c.DownMbps > 0 {
-			p.Down = fmt.Sprintf("%d Mbps", c.DownMbps)
+		// 带宽声明让客户端改用 Brutal；入站开启「忽略客户端带宽」时服务端已强制 BBR，不再下发
+		if !c.IgnoreClientBandwidth {
+			if c.UpMbps > 0 {
+				p.Up = fmt.Sprintf("%d Mbps", c.UpMbps)
+			}
+			if c.DownMbps > 0 {
+				p.Down = fmt.Sprintf("%d Mbps", c.DownMbps)
+			}
 		}
 		p.SNI = sni(c.TLS)
 		if len(c.TLS.ALPN) > 0 {

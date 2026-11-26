@@ -200,11 +200,14 @@ func nodeOutboundJSON(n Node, defaultServer string) (map[string]any, error) {
 		if c.ObfsEnabled && c.ObfsPassword != "" {
 			ob["obfs"] = map[string]any{"type": "salamander", "password": c.ObfsPassword}
 		}
-		if c.UpMbps > 0 {
-			ob["up_mbps"] = c.UpMbps
-		}
-		if c.DownMbps > 0 {
-			ob["down_mbps"] = c.DownMbps
+		// 带宽声明让客户端改用 Brutal；入站开启「忽略客户端带宽」时服务端已强制 BBR，不再下发
+		if !c.IgnoreClientBandwidth {
+			if c.UpMbps > 0 {
+				ob["up_mbps"] = c.UpMbps
+			}
+			if c.DownMbps > 0 {
+				ob["down_mbps"] = c.DownMbps
+			}
 		}
 		// 默认档位 standard 省略，兼容不支持 bbr_profile 的旧版 sing-box 客户端
 		if c.BBRProfile != "" && c.BBRProfile != singbox.BBRProfileStandard {

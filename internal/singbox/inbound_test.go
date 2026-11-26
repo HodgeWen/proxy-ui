@@ -440,13 +440,13 @@ func TestInboundJSONShadowsocks2022(t *testing.T) {
 
 // TestInboundJSONProtocolFields 各协议的关键连接层字段。
 func TestInboundJSONProtocolFields(t *testing.T) {
-	// Hysteria2：混淆、带宽、BBR 档位、TLS ALPN
+	// Hysteria2：混淆、BBR 档位、TLS ALPN（带宽见 TestHysteria2Bandwidth）
 	hy2, err := inboundJSON(InboundEntry{
 		Tag: "hy2-in", Protocol: ProtoHysteria2, Port: 8443,
 		Users: []InboundUserEntry{{Name: "u1", Credential: Credential{Password: "pw"}}},
 		Cert:  stubResolver,
 	}, &Hysteria2Config{
-		ObfsEnabled: true, ObfsPassword: "obfs", UpMbps: 100, DownMbps: 200,
+		ObfsEnabled: true, ObfsPassword: "obfs",
 		BBRProfile: BBRProfileAggressive,
 		TLS:        TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 1},
 	})
@@ -456,9 +456,6 @@ func TestInboundJSONProtocolFields(t *testing.T) {
 	obfs, _ := hy2["obfs"].(map[string]any)
 	if obfs["type"] != "salamander" || obfs["password"] != "obfs" {
 		t.Errorf("obfs 段不符: %v", hy2["obfs"])
-	}
-	if hy2["up_mbps"] != 100 || hy2["down_mbps"] != 200 {
-		t.Errorf("带宽字段不符: %v / %v", hy2["up_mbps"], hy2["down_mbps"])
 	}
 	if hy2["bbr_profile"] != BBRProfileAggressive {
 		t.Errorf("bbr_profile = %v, want %s", hy2["bbr_profile"], BBRProfileAggressive)
@@ -534,6 +531,49 @@ func TestInboundJSONProtocolFields(t *testing.T) {
 		if _, ok := in["tls"].(map[string]any); !ok {
 			t.Errorf("%s 应输出 TLS 段: %v", tc.protocol, in)
 		}
+	}
+}
+
+// TestHysteria2Bandwidth 入站带宽按服务器视角写入（内核 up_mbps 是服务端发送上限，对应客户端下行）；
+// 忽略客户端带宽时不写带宽（否则内核会拒绝未声明带宽的客户端）。同时覆盖各情形的弱配置警示。
+func TestHysteria2Bandwidth(t *testing.T) {
+	tls := TLSConfig{Enabled: true, CertMode: CertModeManaged, CertID: 1}
+	tests := []struct {
+		name     string
+		cfg      *Hysteria2Config
+		wantUp   int    // 期望的 up_mbps，0 表示不写入
+		wantDown int    // 期望的 down_mbps，0 表示不写入
+		wantWarn string // 期望出现的警示子串，空表示不应有警示
+	}{
+		{"上下行均已设置", &Hysteria2Config{UpMbps: 50, DownMbps: 300, TLS: tls}, 300, 50, ""},
+		{"只填下行", &Hysteria2Config{DownMbps: 300, TLS: tls}, 300, 0, ""},
+		{"只填上行", &Hysteria2Config{UpMbps: 50, TLS: tls}, 0, 50, "只设置了上行带宽"},
+		{"忽略客户端带宽", &Hysteria2Config{UpMbps: 50, DownMbps: 300, IgnoreClientBandwidth: true, TLS: tls}, 0, 0, "不会生效"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in, err := inboundJSON(inboundWith(ProtoHysteria2, 8443, tt.cfg), tt.cfg)
+			if err != nil {
+				t.Fatalf("生成 Hysteria2 入站失败: %v", err)
+			}
+			for field, want := range map[string]int{"up_mbps": tt.wantUp, "down_mbps": tt.wantDown} {
+				if got, written := in[field]; written != (want > 0) || (written && got != want) {
+					t.Errorf("%s = %v, want %d（0 表示不写入）", field, got, want)
+				}
+			}
+			if ignored := in["ignore_client_bandwidth"] == true; ignored != tt.cfg.IgnoreClientBandwidth {
+				t.Errorf("ignore_client_bandwidth 写入 %v, want %v", ignored, tt.cfg.IgnoreClientBandwidth)
+			}
+
+			warnings := InboundWarnings(ProtoHysteria2, tt.cfg)
+			if tt.wantWarn == "" {
+				if len(warnings) != 0 {
+					t.Errorf("不应有警示: %v", warnings)
+				}
+			} else if !containsSubstring(warnings, tt.wantWarn) {
+				t.Errorf("警示应包含 %q: %v", tt.wantWarn, warnings)
+			}
+		})
 	}
 }
 
